@@ -50,9 +50,7 @@
 #include <getopt.h>
 #endif
 
-#ifdef TLS
 #include "tls.h"
-#endif
 
 #include "proto_text.h"
 #include "proto_bin.h"
@@ -221,21 +219,7 @@ static void settings_init(void) {
     settings.access = 0700;
     settings.port = 11211;
     settings.udpport = 0;
-#ifdef TLS
-    settings.ssl_enabled = false;
-    settings.ssl_ctx = NULL;
-    settings.ssl_chain_cert = NULL;
-    settings.ssl_key = NULL;
-    settings.ssl_verify_mode = SSL_VERIFY_NONE;
-    settings.ssl_keyformat = SSL_FILETYPE_PEM;
-    settings.ssl_ciphers = NULL;
-    settings.ssl_ca_cert = NULL;
-    settings.ssl_last_cert_refresh_time = current_time;
-    settings.ssl_wbuf_size = 16 * 1024; // default is 16KB (SSL max frame size is 17KB)
-    settings.ssl_session_cache = false;
-    settings.ssl_kernel_tls = false;
-    settings.ssl_min_version = TLS1_2_VERSION;
-#endif
+    ssl_init_settings();
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
     settings.maxbytes = 64 * 1024 * 1024; /* default is 64MB */
@@ -741,11 +725,6 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         }
     }
 
-#ifdef TLS
-    c->ssl = NULL;
-    c->ssl_wbuf = NULL;
-    c->ssl_enabled = false;
-#endif
     c->state = init_state;
     c->rlbytes = 0;
     c->cmd = -1;
@@ -767,20 +746,11 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     c->noreply = false;
 
-#ifdef TLS
     if (ssl) {
-        c->ssl = (SSL*)ssl;
-        c->read = ssl_read;
-        c->sendmsg = ssl_sendmsg;
-        c->write = ssl_write;
-        c->ssl_enabled = true;
-        SSL_set_info_callback(c->ssl, ssl_callback);
-    } else
-#else
-    // This must be NULL if TLS is not enabled.
-    assert(ssl == NULL);
-#endif
-    {
+        // musn't get here without ssl enabled.
+        assert(settings.ssl_enabled);
+        ssl_init_conn(c, ssl);
+    } else {
         c->read = tcp_read;
         c->sendmsg = tcp_sendmsg;
         c->write = tcp_write;
@@ -936,12 +906,9 @@ static void conn_close(conn *c) {
 
     MEMCACHED_CONN_RELEASE(c->sfd);
     conn_set_state(c, conn_closed);
-#ifdef TLS
     if (c->ssl) {
-        SSL_shutdown(c->ssl);
-        SSL_free(c->ssl);
+        ssl_conn_close(c->ssl);
     }
-#endif
     close(c->sfd);
     c->close_reason = 0;
     pthread_mutex_lock(&conn_lock);
@@ -3095,48 +3062,13 @@ static void drive_machine(conn *c) {
                 res = write(sfd, str, strlen(str));
                 close(sfd);
             } else {
-                void *ssl_v = NULL;
-#ifdef TLS
-                SSL *ssl = NULL;
-                if (c->ssl_enabled) {
-                    assert(IS_TCP(c->transport) && settings.ssl_enabled);
-
-                    if (settings.ssl_ctx == NULL) {
-                        if (settings.verbose) {
-                            fprintf(stderr, "SSL context is not initialized\n");
-                        }
-                        close(sfd);
-                        break;
-                    }
-                    SSL_LOCK();
-                    ssl = SSL_new(settings.ssl_ctx);
-                    SSL_UNLOCK();
-                    if (ssl == NULL) {
-                        if (settings.verbose) {
-                            fprintf(stderr, "Failed to created the SSL object\n");
-                        }
-                        close(sfd);
-                        break;
-                    }
-                    SSL_set_fd(ssl, sfd);
-                    int ret = SSL_accept(ssl);
-                    if (ret <= 0) {
-                        int err = SSL_get_error(ssl, ret);
-                        if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
-                            if (settings.verbose) {
-                                fprintf(stderr, "SSL connection failed with error code : %d : %s\n", err, strerror(errno));
-                            }
-                            SSL_free(ssl);
-                            close(sfd);
-                            STATS_LOCK();
-                            stats.ssl_handshake_errors++;
-                            STATS_UNLOCK();
-                            break;
-                        }
-                    }
+                // run accept routine if ssl is compiled + enabled
+                bool fail = false;
+                void *ssl_v = ssl_accept(c, sfd, &fail);
+                if (fail) {
+                    close(sfd);
+                    break;
                 }
-                ssl_v = (void*) ssl;
-#endif
 
                 dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,
                                      READ_BUFFER_CACHED, c->transport, ssl_v, c->tag, c->protocol);
@@ -3727,10 +3659,8 @@ static int server_sockets(int port, enum network_transport transport,
                           FILE *portnumber_file) {
     bool ssl_enabled = false;
 
-#ifdef TLS
     const char *notls = "notls";
     ssl_enabled = settings.ssl_enabled;
-#endif
 
     if (settings.inter == NULL) {
         return server_socket(settings.inter, port, transport, portnumber_file, ssl_enabled, 0, settings.binding_protocol);
@@ -3751,7 +3681,6 @@ static int server_sockets(int port, enum network_transport transport,
             p = strtok_r(NULL, ";,", &b)) {
             uint64_t conntag = 0;
             int the_port = port;
-#ifdef TLS
             ssl_enabled = settings.ssl_enabled;
             // "notls" option is valid only when memcached is run with SSL enabled.
             if (strncmp(p, notls, strlen(notls)) == 0) {
@@ -3763,7 +3692,6 @@ static int server_sockets(int port, enum network_transport transport,
                 ssl_enabled = false;
                 p += strlen(notls) + 1;
             }
-#endif
 
             // Allow forcing the protocol of this listener.
             const char *protostr = "proto";
@@ -4056,7 +3984,7 @@ static const char* flag_enabled_disabled(bool flag) {
     return (flag ? "enabled" : "disabled");
 }
 
-static void verify_default(const char* param, bool condition) {
+void verify_default(const char* param, bool condition) {
     if (!condition) {
         printf("Default value of [%s] has changed."
             " Modify the help text and default value check.\n", param);
@@ -4225,35 +4153,7 @@ static void usage(void) {
     printf("   - proxy_config:        path to lua library file. separate with ':' for multiple files\n");
     printf("   - proxy_arg:           string to pass to lua library\n");
 #endif
-#ifdef TLS
-    printf("   - ssl_chain_cert:      certificate chain file in PEM format\n"
-           "   - ssl_key:             private key, if not part of the -ssl_chain_cert\n"
-           "   - ssl_keyformat:       private key format (PEM, DER or ENGINE) (default: PEM)\n");
-    printf("   - ssl_verify_mode:     peer certificate verification mode, default is 0(None).\n"
-           "                          valid values are 0(None), 1(Request), 2(Require)\n"
-           "                          or 3(Once)\n");
-    printf("   - ssl_ciphers:         specify cipher list to be used\n"
-           "   - ssl_ca_cert:         PEM format file of acceptable client CA's\n"
-           "   - ssl_wbuf_size:       size in kilobytes of per-connection SSL output buffer\n"
-           "                          (default: %u)\n", settings.ssl_wbuf_size / (1 << 10));
-    printf("   - ssl_session_cache:   enable server-side SSL session cache, to support session\n"
-           "                          resumption\n"
-           "   - ssl_kernel_tls:      enable kernel TLS offload\n"
-           "   - ssl_min_version:     minimum protocol version to accept (default: %s)\n",
-           ssl_proto_text(settings.ssl_min_version));
-#if defined(TLS1_3_VERSION)
-    printf("                          valid values are 0(%s), 1(%s), 2(%s), or 3(%s).\n",
-           ssl_proto_text(TLS1_VERSION), ssl_proto_text(TLS1_1_VERSION),
-           ssl_proto_text(TLS1_2_VERSION), ssl_proto_text(TLS1_3_VERSION));
-#else
-    printf("                          valid values are 0(%s), 1(%s), or 2(%s).\n",
-           ssl_proto_text(TLS1_VERSION), ssl_proto_text(TLS1_1_VERSION),
-           ssl_proto_text(TLS1_2_VERSION));
-#endif
-    verify_default("ssl_keyformat", settings.ssl_keyformat == SSL_FILETYPE_PEM);
-    verify_default("ssl_verify_mode", settings.ssl_verify_mode == SSL_VERIFY_NONE);
-    verify_default("ssl_min_version", settings.ssl_min_version == TLS1_2_VERSION);
-#endif
+    ssl_help();
     printf("-N, --napi_ids            number of napi ids. see doc/napi_ids.txt for more details\n");
     return;
 }
@@ -5562,25 +5462,9 @@ int main (int argc, char **argv) {
                     fprintf(stderr, "could not parse argument to ssl_verify_mode\n");
                     return 1;
                 }
-                switch(verify) {
-                    case 0:
-                        settings.ssl_verify_mode = SSL_VERIFY_NONE;
-                        break;
-                    case 1:
-                        settings.ssl_verify_mode = SSL_VERIFY_PEER;
-                        break;
-                    case 2:
-                        settings.ssl_verify_mode = SSL_VERIFY_PEER |
-                                                    SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
-                        break;
-                    case 3:
-                        settings.ssl_verify_mode = SSL_VERIFY_PEER |
-                                                    SSL_VERIFY_FAIL_IF_NO_PEER_CERT |
-                                                    SSL_VERIFY_CLIENT_ONCE;
-                        break;
-                    default:
-                        fprintf(stderr, "Invalid ssl_verify_mode. Use help to see valid options.\n");
-                        return 1;
+                if (!ssl_set_verify_mode(verify)) {
+                    fprintf(stderr, "Invalid ssl_verify_mode. Use help to see valid options.\n");
+                    return 1;
                 }
                 break;
             }
@@ -5635,24 +5519,9 @@ int main (int argc, char **argv) {
                     fprintf(stderr, "could not parse argument to ssl_min_version\n");
                     return 1;
                 }
-                switch (min_version) {
-                    case 0:
-                        settings.ssl_min_version = TLS1_VERSION;
-                        break;
-                    case 1:
-                        settings.ssl_min_version = TLS1_1_VERSION;
-                        break;
-                    case 2:
-                        settings.ssl_min_version = TLS1_2_VERSION;
-                        break;
-#if defined(TLS1_3_VERSION)
-                    case 3:
-                        settings.ssl_min_version = TLS1_3_VERSION;
-                        break;
-#endif
-                    default:
-                        fprintf(stderr, "Invalid ssl_min_version. Use help to see valid options.\n");
-                        return 1;
+                if (!ssl_set_min_version(min_version)) {
+                    fprintf(stderr, "Invalid ssl_min_version. Use help to see valid options.\n");
+                    return 1;
                 }
                 break;
             }
@@ -5889,7 +5758,6 @@ int main (int argc, char **argv) {
     }
 
 
-#ifdef TLS
     /*
      * Setup SSL if enabled
      */
@@ -5898,13 +5766,9 @@ int main (int argc, char **argv) {
             fprintf(stderr, "ERROR: You cannot enable SSL without a TCP port.\n");
             exit(EX_USAGE);
         }
-        // openssl init methods.
-        SSL_load_error_strings();
-        SSLeay_add_ssl_algorithms();
         // Initiate the SSL context.
         ssl_init();
     }
-#endif
 
     if (maxcore != 0) {
         struct rlimit rlim_new;
