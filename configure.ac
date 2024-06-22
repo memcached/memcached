@@ -508,7 +508,7 @@ if test "x$enable_tls" = "xyes"; then
     #include <sys/types.h>
     #include <assert.h>
     #include <openssl/ssl.h>], [ SSL_CTX* ssl_ctx = SSL_CTX_new(TLS_server_method());
-                                assert(OPENSSL_VERSION_NUMBER >= 0x10100000L);],
+                                assert(OPENSSL_VERSION_NUMBER >= 0x10101000L);],
            [ libssl_linked=yes ], [ libssl_linked=no ])
         if test $libssl_linked = yes; then
           if test ! -z "$ledir" ; then
