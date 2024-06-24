@@ -1240,7 +1240,8 @@ The arguments are:
 - "connevents": Emits logs when connections are opened and closed, i.e. when
   clients connect or disconnect. For TCP transports, logs indicate the remote
   address IP and port. Connection close events additionally supply a reason for
-  closing the connection.
+  closing the connection. If TLS is enabled, this stream also contains
+  detailed TLS protocol errors.
 
 - "proxyreqs": Emits detailed timing logs about requests/responses being
   returned to a client while in proxy mode. The conditions which logs are
@@ -1774,6 +1775,8 @@ following additional statistics are available via the "stats" command.
 | ssl_handshake_errors           | 64u      | Number of times the server has |
 |                                |          | encountered an OpenSSL error   |
 |                                |          | during handshake (SSL_accept). |
+| ssl_proto_errors               | 64u      | Number of times a client has   |
+|                                |          | seen a fatal TLS protocol error|
 | ssl_min_version                | char     | Minimum supported TLS version  |
 |                                |          | for client handshakes.         |
 | ssl_new_sessions               | 64u      | When SSL session caching is    |

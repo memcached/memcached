@@ -415,6 +415,7 @@ struct stats {
     uint64_t      extstore_compact_resc_old; /* items re-written during compaction */
 #endif
 #ifdef TLS
+    uint64_t      ssl_proto_errors; /* TLS failures during SSL_read() and SSL_write() calls */
     uint64_t      ssl_handshake_errors; /* TLS failures at accept/handshake time */
     uint64_t      ssl_new_sessions; /* successfully negotiated new (non-reused) TLS sessions */
 #endif
@@ -481,6 +482,7 @@ struct settings {
     bool lru_maintainer_thread; /* LRU maintainer background thread */
     bool lru_segmented;     /* Use split or flat LRU's */
     bool slab_reassign;     /* Whether or not slab reassignment is allowed */
+    bool ssl_enabled; /* indicates whether SSL is enabled */
     int slab_automove;     /* Whether or not to automatically move slabs */
     double slab_automove_ratio; /* youngest must be within pct of oldest */
     unsigned int slab_automove_window; /* window mover for algorithm */
@@ -520,7 +522,6 @@ struct settings {
     double ext_max_frag; /* ideal maximum page fragmentation */
     double slab_automove_freeratio; /* % of memory to hold free as buffer */
     bool ext_drop_unread; /* skip unread items during compaction */
-    bool ssl_enabled; /* indicates whether SSL is enabled */
     /* start flushing to extstore after memory below this */
     unsigned int ext_global_pool_min;
 #endif
@@ -833,8 +834,8 @@ struct conn {
     bool close_after_write; /** flush write then move to close connection */
     bool rbuf_malloced; /** read buffer was malloc'ed for ascii mget, needs free() */
     bool item_malloced; /** item for conn_nread state is a temporary malloc */
-#ifdef TLS
     bool ssl_enabled;
+#ifdef TLS
     void    *ssl;
     char   *ssl_wbuf;
 #endif

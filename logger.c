@@ -498,6 +498,12 @@ static const entry_details default_entries[] = {
     },
     [LOGGER_CONNECTION_NEW] = {512, LOG_CONNEVENTS, _logger_log_conn_event, _logger_parse_cne, NULL},
     [LOGGER_CONNECTION_CLOSE] = {512, LOG_CONNEVENTS, _logger_log_conn_event, _logger_parse_cce, NULL},
+    [LOGGER_CONNECTION_ERROR] = {512, LOG_CONNEVENTS, _logger_log_text, _logger_parse_text,
+        "type=connerr fd=%d msg=%s"
+    },
+    [LOGGER_CONNECTION_TLSERROR] = {512, LOG_CONNEVENTS, _logger_log_text, _logger_parse_text,
+        "type=conntlserr fd=%d msg=%s"
+    },
     [LOGGER_DELETIONS] = {512, LOG_DELETIONS, _logger_log_item_deleted, _logger_parse_ide, NULL},
 #ifdef EXTSTORE
     [LOGGER_EXTSTORE_WRITE] = {512, LOG_EVICTIONS, _logger_log_ext_write, _logger_parse_extw, NULL},

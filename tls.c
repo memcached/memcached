@@ -9,26 +9,31 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
+/* constant session ID context for application-level SSL session scoping.
+ * used in server-side SSL session caching, when enabled. */
+#define SESSION_ID_CONTEXT "memcached"
+
 #ifndef MAXPATHLEN
 #define MAXPATHLEN 4096
 #endif
 
-ssize_t ssl_read(conn *c, void *buf, size_t count);
-ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags);
-ssize_t ssl_write(conn *c, void *buf, size_t count);
-void ssl_callback(const SSL *s, int where, int ret);
-int ssl_new_session_callback(SSL *s, SSL_SESSION *sess);
+static ssize_t ssl_read(conn *c, void *buf, size_t count);
+static ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags);
+static ssize_t ssl_write(conn *c, void *buf, size_t count);
+static void print_ssl_error(char *buff, size_t len);
+static void ssl_callback(const SSL *s, int where, int ret);
+static int ssl_new_session_callback(SSL *s, SSL_SESSION *sess);
 
 static pthread_mutex_t ssl_ctx_lock = PTHREAD_MUTEX_INITIALIZER;
 
 const unsigned ERROR_MSG_SIZE = 64;
 const size_t SSL_ERROR_MSG_SIZE = 256;
 
-void SSL_LOCK(void) {
+static void SSL_LOCK(void) {
     pthread_mutex_lock(&(ssl_ctx_lock));
 }
 
-void SSL_UNLOCK(void) {
+static void SSL_UNLOCK(void) {
     pthread_mutex_unlock(&(ssl_ctx_lock));
 }
 
@@ -52,16 +57,33 @@ void *ssl_accept(conn *c, int sfd, bool *fail) {
                 fprintf(stderr, "Failed to created the SSL object\n");
             }
             *fail = true;
+            ERR_clear_error();
             return NULL;
         }
         SSL_set_fd(ssl, sfd);
+        ERR_clear_error();
         int ret = SSL_accept(ssl);
         if (ret <= 0) {
             int err = SSL_get_error(ssl, ret);
-            if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
-                if (settings.verbose) {
-                    fprintf(stderr, "SSL connection failed with error code : %d : %s\n", err, strerror(errno));
+            if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ) {
+                // we're actually fine, let the worker thread continue.
+                ERR_clear_error();
+            } else {
+                // TODO: ship full error to log stream? conn events?
+                // SYSCALL specifically means we need to check errno/strerror.
+                // Else we need to look at the main error stack.
+                if (err == SSL_ERROR_SYSCALL) {
+                    LOGGER_LOG(c->thread->l, LOG_CONNEVENTS, LOGGER_CONNECTION_TLSERROR,
+                            NULL, c->sfd, strerror(errno));
+                } else {
+                    char ssl_err[SSL_ERROR_MSG_SIZE];
+                    // OpenSSL internal error. One or more, but lets only care about
+                    // the top error for now.
+                    print_ssl_error(ssl_err, SSL_ERROR_MSG_SIZE);
+                    LOGGER_LOG(c->thread->l, LOG_CONNEVENTS, LOGGER_CONNECTION_TLSERROR,
+                            NULL, c->sfd, ssl_err);
                 }
+                ERR_clear_error();
                 SSL_free(ssl);
                 STATS_LOCK();
                 stats.ssl_handshake_errors++;
@@ -76,21 +98,96 @@ void *ssl_accept(conn *c, int sfd, bool *fail) {
 }
 
 /*
+ * Note on setting errno in the follow functions:
+ * We either have to refactor callers of read/write/sendmsg to take an error
+ * flag to find out if we're in an EAGAIN state, or we ensure the errno is set
+ * properly before returning from our TLS call. We do this because it's
+ * _possible_ for OpenSSL to do something weird and land with an errno that
+ * doesn't match the WANT_READ|WRITE state.
+ *
+ * Also: we _might_ have to communicate from these calls if we need to wait on
+ * reads or write. Since I haven't yet proved that's even possible I'll save
+ * that for a future refactor.
+ */
+
+/*
  * Reads decrypted data from the underlying BIO read buffers,
  * which reads from the socket.
  */
-ssize_t ssl_read(conn *c, void *buf, size_t count) {
+static ssize_t ssl_read(conn *c, void *buf, size_t count) {
     assert (c != NULL);
     /* TODO : document the state machine interactions for SSL_read with
         non-blocking sockets/ SSL re-negotiations
     */
-    return SSL_read(c->ssl, buf, count);
+
+    ssize_t ret = SSL_read(c->ssl, buf, count);
+    if (ret <= 0) {
+        int err = SSL_get_error(c->ssl, ret);
+        if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ) {
+            errno = EAGAIN;
+        } else if (err == SSL_ERROR_ZERO_RETURN) {
+            // TLS session is closed... let the caller move this along.
+            return 0;
+        } else if (err == SSL_ERROR_SYSCALL) {
+            // need to rely on errno to find out what happened
+            LOGGER_LOG(c->thread->l, LOG_CONNEVENTS, LOGGER_CONNECTION_TLSERROR,
+                    NULL, c->sfd, strerror(errno));
+        } else if (ret != 0) {
+            char ssl_err[SSL_ERROR_MSG_SIZE];
+            // OpenSSL internal error. One or more, but lets only care about
+            // the top error for now.
+            print_ssl_error(ssl_err, SSL_ERROR_MSG_SIZE);
+            LOGGER_LOG(c->thread->l, LOG_CONNEVENTS, LOGGER_CONNECTION_TLSERROR,
+                    NULL, c->sfd, ssl_err);
+            STATS_LOCK();
+            stats.ssl_proto_errors++;
+            STATS_UNLOCK();
+        }
+        ERR_clear_error();
+    }
+
+    return ret;
+}
+
+/*
+ * Writes data to the underlying BIO write buffers,
+ * which encrypt and write them to the socket.
+ */
+static ssize_t ssl_write(conn *c, void *buf, size_t count) {
+    assert (c != NULL);
+
+    ssize_t ret = SSL_write(c->ssl, buf, count);
+    if (ret <= 0) {
+        int err = SSL_get_error(c->ssl, ret);
+        if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ) {
+            errno = EAGAIN;
+        } else if (err == SSL_ERROR_ZERO_RETURN) {
+            // TLS session is closed... let the caller move this along.
+            return 0;
+        } else if (err == SSL_ERROR_SYSCALL) {
+            // need to rely on errno to find out what happened
+            LOGGER_LOG(c->thread->l, LOG_CONNEVENTS, LOGGER_CONNECTION_TLSERROR,
+                    NULL, c->sfd, strerror(errno));
+        } else if (ret != 0) {
+            char ssl_err[SSL_ERROR_MSG_SIZE];
+            // OpenSSL internal error. One or more, but lets only care about
+            // the top error for now.
+            print_ssl_error(ssl_err, SSL_ERROR_MSG_SIZE);
+            LOGGER_LOG(c->thread->l, LOG_CONNEVENTS, LOGGER_CONNECTION_TLSERROR,
+                    NULL, c->sfd, ssl_err);
+            STATS_LOCK();
+            stats.ssl_proto_errors++;
+            STATS_UNLOCK();
+        }
+        ERR_clear_error();
+    }
+    return ret;
 }
 
 /*
  * SSL sendmsg implementation. Perform a SSL_write.
  */
-ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
+static ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
     assert (c != NULL);
     size_t buf_remain = settings.ssl_wbuf_size;
     size_t bytes = 0;
@@ -121,16 +218,7 @@ ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
     /* TODO : document the state machine interactions for SSL_write with
         non-blocking sockets/ SSL re-negotiations
     */
-    return SSL_write(c->ssl, c->ssl_wbuf, bytes);
-}
-
-/*
- * Writes data to the underlying BIO write buffers,
- * which encrypt and write them to the socket.
- */
-ssize_t ssl_write(conn *c, void *buf, size_t count) {
-    assert (c != NULL);
-    return SSL_write(c->ssl, buf, count);
+    return ssl_write(c, c->ssl_wbuf, bytes);
 }
 
 /*
@@ -331,6 +419,8 @@ int ssl_init(void) {
  * SSL_OP_NO_RENEGOTIATION option in SSL_CTX_set_options.
  */
 void ssl_callback(const SSL *s, int where, int ret) {
+    // useful for debugging.
+    // fprintf(stderr, "WHERE: %d RET: %d CODE: %s LONG: %s\n", where, ret, SSL_state_string(s), SSL_state_string_long(s));
 #ifndef SSL_OP_NO_RENEGOTIATION
     SSL* ssl = (SSL*)s;
     if (SSL_in_before(ssl)) {
