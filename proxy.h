@@ -604,6 +604,7 @@ void proxy_run_backend_queue(be_head_t *head);
 struct mcp_backendconn_s *proxy_choose_beconn(mcp_backend_t *be);
 mcp_resp_t *mcp_prep_resobj(lua_State *L, mcp_request_t *rq, mcp_backend_t *be, LIBEVENT_THREAD *t);
 mcp_resp_t *mcp_prep_bare_resobj(lua_State *L, LIBEVENT_THREAD *t);
+void mcp_resp_set_elapsed(mcp_resp_t *r);
 io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, mcp_backend_t *be, mcp_resp_t *r);
 
 // await interface

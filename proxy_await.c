@@ -310,10 +310,9 @@ int mcplib_await_return(io_pending_proxy_t *p) {
     // lose our internal mcpres reference regardless.
     // also tag the elapsed time into the response.
     if (p->mcpres_ref) {
-        struct timeval end;
-        gettimeofday(&end, NULL);
-        p->client_resp->elapsed = (end.tv_sec - p->client_resp->start.tv_sec) * 1000000 +
-            (end.tv_usec - p->client_resp->start.tv_usec);
+        // NOTE: this is redundant but the code is going away soon. not worth
+        // testing changing it.
+        mcp_resp_set_elapsed(p->client_resp);
 
         // instructed to generate log_req entries for each failed request,
         // this is useful to do here as these can be asynchronous.

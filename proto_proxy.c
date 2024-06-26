@@ -1312,6 +1312,14 @@ mcp_resp_t *mcp_prep_resobj(lua_State *L, mcp_request_t *rq, mcp_backend_t *be, 
     return r;
 }
 
+void mcp_resp_set_elapsed(mcp_resp_t *r) {
+    struct timeval end;
+    // stamp the elapsed time into the response object.
+    gettimeofday(&end, NULL);
+    r->elapsed = (end.tv_sec - r->start.tv_sec) * 1000000 +
+        (end.tv_usec - r->start.tv_usec);
+}
+
 // Used for any cases where we're queueing requests to the IO subsystem.
 // NOTE: it's not currently possible to limit the memory used by the IO
 // object cache. So this check is redundant, and any callers may proceed

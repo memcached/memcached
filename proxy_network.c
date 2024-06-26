@@ -301,6 +301,7 @@ static void _proxy_flush_backend_queue(mcp_backend_t *be) {
     while (!STAILQ_EMPTY(&be->io_head)) {
         io = STAILQ_FIRST(&be->io_head);
         STAILQ_REMOVE_HEAD(&be->io_head, io_next);
+        mcp_resp_set_elapsed(io->client_resp);
         io->client_resp->status = MCMC_ERR;
         io->client_resp->resp.code = MCMC_CODE_SERVER_ERROR;
         be->depth--;
@@ -455,7 +456,6 @@ static void _stop_timeout_event(struct mcp_backendconn_s *be) {
 }
 
 static void _drive_machine_next(struct mcp_backendconn_s *be, io_pending_proxy_t *p) {
-    struct timeval end;
     // set the head here. when we break the head will be correct.
     STAILQ_REMOVE_HEAD(&be->io_head, io_next);
     be->depth--;
@@ -464,11 +464,7 @@ static void _drive_machine_next(struct mcp_backendconn_s *be, io_pending_proxy_t
     be->pending_read--;
     assert(be->pending_read > -1);
 
-    // stamp the elapsed time into the response object.
-    gettimeofday(&end, NULL);
-    p->client_resp->elapsed = (end.tv_sec - p->client_resp->start.tv_sec) * 1000000 +
-        (end.tv_usec - p->client_resp->start.tv_usec);
-
+    mcp_resp_set_elapsed(p->client_resp);
     // have to do the q->count-- and == 0 and redispatch_conn()
     // stuff here. The moment we call return_io here we
     // don't own *p anymore.
@@ -883,7 +879,7 @@ static void _backend_flap_check(struct mcp_backendconn_s *be, enum proxy_be_fail
 static void _reset_bad_backend(struct mcp_backendconn_s *be, enum proxy_be_failures err) {
     io_pending_proxy_t *io = NULL;
     P_DEBUG("%s: resetting bad backend: [fd: %d] %s\n", __func__, mcmc_fd(be->client), proxy_be_failure_text[err]);
-    // Can't use STAILQ_FOREACH() since return_io_pending() free's the current
+    // Can't use STAILQ_FOREACH() since r_io_p() free's the current
     // io. STAILQ_FOREACH_SAFE maybe?
     int depth = be->depth;
     while (!STAILQ_EMPTY(&be->io_head)) {
@@ -891,6 +887,7 @@ static void _reset_bad_backend(struct mcp_backendconn_s *be, enum proxy_be_failu
         STAILQ_REMOVE_HEAD(&be->io_head, io_next);
         // TODO (v2): Unsure if this is the best way of surfacing errors to lua,
         // but will do for V1.
+        mcp_resp_set_elapsed(io->client_resp);
         io->client_resp->status = MCMC_ERR;
         io->client_resp->resp.code = MCMC_CODE_SERVER_ERROR;
         be->depth--;
