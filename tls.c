@@ -139,6 +139,9 @@ static ssize_t ssl_read(conn *c, void *buf, size_t count) {
             print_ssl_error(ssl_err, SSL_ERROR_MSG_SIZE);
             LOGGER_LOG(c->thread->l, LOG_CONNEVENTS, LOGGER_CONNECTION_ERROR,
                     NULL, c->sfd, ssl_err);
+            STATS_LOCK();
+            stats.ssl_proto_errors++;
+            STATS_UNLOCK();
         }
         ERR_clear_error();
     }
@@ -172,6 +175,9 @@ static ssize_t ssl_write(conn *c, void *buf, size_t count) {
             print_ssl_error(ssl_err, SSL_ERROR_MSG_SIZE);
             LOGGER_LOG(c->thread->l, LOG_CONNEVENTS, LOGGER_CONNECTION_ERROR,
                     NULL, c->sfd, ssl_err);
+            STATS_LOCK();
+            stats.ssl_proto_errors++;
+            STATS_UNLOCK();
         }
         ERR_clear_error();
     }

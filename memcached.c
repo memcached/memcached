@@ -1903,6 +1903,7 @@ void server_stats(ADD_STAT add_stats, void *c) {
             APPEND_STAT("ssl_new_sessions", "%llu", (unsigned long long)stats.ssl_new_sessions);
         }
         APPEND_STAT("ssl_handshake_errors", "%llu", (unsigned long long)stats.ssl_handshake_errors);
+        APPEND_STAT("ssl_proto_errors", "%llu", (unsigned long long)stats.ssl_proto_errors);
         APPEND_STAT("time_since_server_cert_refresh", "%u", now - settings.ssl_last_cert_refresh_time);
     }
 #endif

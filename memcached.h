@@ -415,6 +415,7 @@ struct stats {
     uint64_t      extstore_compact_resc_old; /* items re-written during compaction */
 #endif
 #ifdef TLS
+    uint64_t      ssl_proto_errors; /* TLS failures during SSL_read() and SSL_write() calls */
     uint64_t      ssl_handshake_errors; /* TLS failures at accept/handshake time */
     uint64_t      ssl_new_sessions; /* successfully negotiated new (non-reused) TLS sessions */
 #endif
