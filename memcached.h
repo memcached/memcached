@@ -57,9 +57,6 @@
 #endif
 
 #include "sasl_defs.h"
-#ifdef TLS
-#include <openssl/ssl.h>
-#endif
 
 /* for NAPI pinning feature */
 #ifndef SO_INCOMING_NAPI_ID
@@ -418,6 +415,7 @@ struct stats {
     uint64_t      extstore_compact_resc_old; /* items re-written during compaction */
 #endif
 #ifdef TLS
+    uint64_t      ssl_proto_errors; /* TLS failures during SSL_read() and SSL_write() calls */
     uint64_t      ssl_handshake_errors; /* TLS failures at accept/handshake time */
     uint64_t      ssl_new_sessions; /* successfully negotiated new (non-reused) TLS sessions */
 #endif
@@ -523,12 +521,12 @@ struct settings {
     double ext_max_frag; /* ideal maximum page fragmentation */
     double slab_automove_freeratio; /* % of memory to hold free as buffer */
     bool ext_drop_unread; /* skip unread items during compaction */
+    bool ssl_enabled; /* indicates whether SSL is enabled */
     /* start flushing to extstore after memory below this */
     unsigned int ext_global_pool_min;
 #endif
 #ifdef TLS
-    bool ssl_enabled; /* indicates whether SSL is enabled */
-    SSL_CTX *ssl_ctx; /* holds the SSL server context which has the server certificate */
+    void *ssl_ctx; /* holds the SSL server context which has the server certificate */
     char *ssl_chain_cert; /* path to the server SSL chain certificate */
     char *ssl_key; /* path to the server key */
     int ssl_verify_mode; /* client certificate verify mode */
@@ -837,9 +835,9 @@ struct conn {
     bool rbuf_malloced; /** read buffer was malloc'ed for ascii mget, needs free() */
     bool item_malloced; /** item for conn_nread state is a temporary malloc */
 #ifdef TLS
-    SSL    *ssl;
-    char   *ssl_wbuf;
     bool ssl_enabled;
+    void    *ssl;
+    char   *ssl_wbuf;
 #endif
     enum conn_states  state;
     enum bin_substates substate;
@@ -948,6 +946,7 @@ extern void *ext_storage;
 /*
  * Functions
  */
+void verify_default(const char* param, bool condition);
 void do_accept_new_conns(const bool do_accept);
 enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key,
                                     const size_t nkey, const bool incr,

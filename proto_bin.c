@@ -7,9 +7,6 @@
 #include "memcached.h"
 #include "proto_bin.h"
 #include "storage.h"
-#ifdef TLS
-#include "tls.h"
-#endif
 #include <string.h>
 #include <stdlib.h>
 

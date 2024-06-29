@@ -12,9 +12,7 @@
 #include "authfile.h"
 #include "storage.h"
 #include "base64.h"
-#ifdef TLS
 #include "tls.h"
-#endif
 #include <string.h>
 #include <stdlib.h>
 

@@ -14,19 +14,15 @@
 #endif
 #include <assert.h>
 #include <stdio.h>
-#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
 
 #include "queue.h"
+#include "tls.h"
 
 #ifdef __sun
 #include <atomic.h>
-#endif
-
-#ifdef TLS
-#include <openssl/ssl.h>
 #endif
 
 #define ITEMS_PER_ALLOC 64
@@ -633,12 +629,9 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
                             fprintf(stderr, "Can't listen for events on fd %d\n",
                                 item->sfd);
                         }
-#ifdef TLS
                         if (item->ssl) {
-                            SSL_shutdown(item->ssl);
-                            SSL_free(item->ssl);
+                            ssl_conn_close(item->ssl);
                         }
-#endif
                         close(item->sfd);
                     }
                 } else {
