@@ -642,7 +642,8 @@ void item_flush_expired(void) {
  * headers.
  * It may not be the best idea to leave it like this, but for now it's safe.
  */
-char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes) {
+char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit,
+                     unsigned int *bytes, char *namespace) {
     unsigned int memlimit = 2 * 1024 * 1024;   /* 2MB max response size */
     char *buffer;
     unsigned int bufcurr;
@@ -650,9 +651,11 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
     unsigned int len;
     unsigned int shown = 0;
     char key_temp[KEY_MAX_LENGTH + 1];
+    char key_copy[KEY_MAX_LENGTH + 1];
     char temp[512];
     unsigned int id = slabs_clsid;
     id |= COLD_LRU;
+    char *namespace_tmp = NULL;
 
     pthread_mutex_lock(&lru_locks[id]);
     it = heads[id];
@@ -674,6 +677,24 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
         /* Copy the key since it may not be null-terminated in the struct */
         strncpy(key_temp, ITEM_key(it), it->nkey);
         key_temp[it->nkey] = 0x00; /* terminate */
+
+        /* Copy the key to avoid truncation after strtok() */
+        if (namespace) {
+            strncpy(key_copy, key_temp, sizeof(key_copy));
+
+            namespace_tmp = strtok(key_copy, "_");
+            if (!namespace_tmp) {
+                it = it->next;
+                continue;
+            }
+
+            /* If namespaces do not match, ignore dumping it */
+            if (strcmp(namespace, namespace_tmp) != 0) {
+                it = it->next;
+                continue;
+            }
+        }
+
         len = snprintf(temp, sizeof(temp), "ITEM %s [%d b; %llu s]\r\n",
                        key_temp, it->nbytes - 2,
                        it->exptime == 0 ? 0 :

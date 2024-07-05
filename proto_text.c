@@ -789,10 +789,24 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     } else if (strcmp(subcommand, "cachedump") == 0) {
         char *buf;
         unsigned int bytes, id, limit = 0;
+        char *key;
+        char *namespace = NULL;
+        token_t *key_token = &tokens[KEY_TOKEN];
 
         if (!settings.dump_enabled) {
             out_string(c, "CLIENT_ERROR stats cachedump not allowed");
             return;
+        }
+
+        /* In order to get the namespace, we can take the KEY_TOKEN.
+         * opaque data is stored per-KEY_TOKEN.
+         * If opaque_length is not set, we should ignore.
+         */
+        if (key_token->opaque_length) {
+            key = key_token->opaque;
+            namespace = strtok(key, "_");
+            if (!namespace)
+                return;
         }
 
         if (ntokens < 5) {
@@ -811,7 +825,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
             return;
         }
 
-        buf = item_cachedump(id, limit, &bytes);
+        buf = item_cachedump(id, limit, &bytes, namespace);
         write_and_free(c, buf, bytes);
         return;
     } else if (strcmp(subcommand, "conns") == 0) {

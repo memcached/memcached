@@ -50,7 +50,8 @@ int lru_pull_tail(const int orig_id, const int cur_lru,
 void item_flush_expired(void);
 
 /*@null@*/
-char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes);
+char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit,
+                     unsigned int *bytes, char *namespace);
 void item_stats(ADD_STAT add_stats, void *c);
 void do_item_stats_add_crawl(const int i, const uint64_t reclaimed,
         const uint64_t unfetched, const uint64_t checked);
