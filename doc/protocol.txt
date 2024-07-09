@@ -1017,7 +1017,7 @@ more details.
 
 The automover can be enabled or disabled at runtime with this command.
 
-slabs automove <0|1>
+slabs automove <0|1|2>
 
 - 0|1|2 is the indicator on whether to enable the slabs automover or not.
 
@@ -1192,7 +1192,17 @@ Watchers are a way to connect to memcached and inspect what's going on
 internally. This is an evolving feature so new endpoints should show up over
 time.
 
-watch <fetchers|mutations|evictions|connevents|deletions>
+watch <arg1> <arg2> <arg3>
+
+possible arguments:
+fetchers
+mutations
+evictions
+connevents
+proxyreqs
+proxyevents
+proxyuser
+deletions
 
 - Turn connection into a watcher. Options can be stacked and are
   space-separated. Logs will be sent to the watcher until it disconnects.
