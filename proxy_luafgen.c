@@ -1578,32 +1578,34 @@ static mcp_funcgen_t *mcp_funcgen_route(lua_State *L, mcp_funcgen_t *fgen, mcp_p
 // called from mcp_funcgen_cleanup if necessary.
 static int mcp_funcgen_router_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
     struct mcp_funcgen_router *fr = (struct mcp_funcgen_router *)fgen;
-    lua_rawgeti(L, LUA_REGISTRYINDEX, fr->map_ref);
+    if (fr->map_ref) {
+        lua_rawgeti(L, LUA_REGISTRYINDEX, fr->map_ref);
 
-    // walk the map, de-ref any funcgens found.
-    int tidx = lua_absindex(L, -1);
-    lua_pushnil(L);
-    while (lua_next(L, tidx) != 0) {
-        int type = lua_type(L, -1);
-        if (type == LUA_TUSERDATA) {
-            mcp_funcgen_t *mfgen = lua_touserdata(L, -1);
-            mcp_funcgen_dereference(L, mfgen);
-            lua_pop(L, 1);
-        } else if (type == LUA_TTABLE) {
-            int midx = lua_absindex(L, -1);
-            lua_pushnil(L);
-            while (lua_next(L, midx) != 0) {
+        // walk the map, de-ref any funcgens found.
+        int tidx = lua_absindex(L, -1);
+        lua_pushnil(L);
+        while (lua_next(L, tidx) != 0) {
+            int type = lua_type(L, -1);
+            if (type == LUA_TUSERDATA) {
                 mcp_funcgen_t *mfgen = lua_touserdata(L, -1);
                 mcp_funcgen_dereference(L, mfgen);
-                lua_pop(L, 1); // drop value
+                lua_pop(L, 1);
+            } else if (type == LUA_TTABLE) {
+                int midx = lua_absindex(L, -1);
+                lua_pushnil(L);
+                while (lua_next(L, midx) != 0) {
+                    mcp_funcgen_t *mfgen = lua_touserdata(L, -1);
+                    mcp_funcgen_dereference(L, mfgen);
+                    lua_pop(L, 1); // drop value
+                }
+                lua_pop(L, 1); // drop command map table
             }
-            lua_pop(L, 1); // drop command map table
         }
-    }
 
-    lua_pop(L, 1); // drop the table.
-    luaL_unref(L, LUA_REGISTRYINDEX, fr->map_ref);
-    fr->map_ref = 0;
+        lua_pop(L, 1); // drop the table.
+        luaL_unref(L, LUA_REGISTRYINDEX, fr->map_ref);
+        fr->map_ref = 0;
+    }
 
     // release any command map entries.
     for (int x = 0; x < CMD_END_STORAGE; x++) {
