@@ -444,8 +444,8 @@ int mcmc_connect(void *c, char *host, char *port, int options) {
     int sock;
     int res = MCMC_CONNECTED;
     struct addrinfo hints;
-    struct addrinfo *ai;
-    struct addrinfo *next;
+    struct addrinfo *ai = NULL;
+    struct addrinfo *next = NULL;
 
     // Since our cx memory was likely malloc'ed, ensure we start clear.
     memset(ctx, 0, sizeof(mcmc_ctx_t));
