@@ -1720,6 +1720,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"ltrimkey", mcplib_request_ltrimkey},
         {"rtrimkey", mcplib_request_rtrimkey},
         {"token", mcplib_request_token},
+        {"token_int", mcplib_request_token_int},
         {"ntokens", mcplib_request_ntokens},
         {"has_flag", mcplib_request_has_flag},
         {"flag_token", mcplib_request_flag_token},
