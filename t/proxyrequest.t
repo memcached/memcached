@@ -133,7 +133,14 @@ subtest 'req:flag_del()' => sub {
     $t->be_send(0, "HD\r\n");
     $t->c_recv_be('got del1 tokenless removal');
     $t->clear();
+};
 
+subtest 'req:flag_token_int()' => sub {
+    $t->c_send("mg fint F59\r\n");
+    $t->be_recv(0, "mg fint F591\r\n");
+    $t->be_send(0, "HD\r\n");
+    $t->c_recv_be("fint converted and adjusted");
+    $t->clear();
 };
 
 done_testing();

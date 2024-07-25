@@ -66,6 +66,18 @@ function mcp_config_routes(p)
                 r:flag_del("O")
                 return rctx:enqueue_and_wait(r, h)
             end
+
+            if k == "fint" then
+                -- avoids creating string junk if we only need to treat this
+                -- token as an integer.
+                local found, token = r:flag_token_int("F")
+                if type(token) ~= "number" then
+                    error("token wasn't converted to a number")
+                end
+                token = token * 10 + 1
+                r:flag_set("F", token)
+                return rctx:enqueue_and_wait(r, h)
+            end
         end
     end})
 
