@@ -813,6 +813,7 @@ int mcplib_request_token(lua_State *L);
 int mcplib_request_ntokens(lua_State *L);
 int mcplib_request_has_flag(lua_State *L);
 int mcplib_request_flag_token(lua_State *L);
+int mcplib_request_flag_token_int(lua_State *L);
 int mcplib_request_flag_add(lua_State *L);
 int mcplib_request_flag_set(lua_State *L);
 int mcplib_request_flag_replace(lua_State *L);
