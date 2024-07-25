@@ -758,6 +758,44 @@ int mcplib_request_token(lua_State *L) {
     return 0;
 }
 
+// Fetch only.
+int mcplib_request_token_int(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    int argc = lua_gettop(L);
+
+    if (argc == 1) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    int x = luaL_checkinteger(L, 2);
+
+    if (x < 1 || x > rq->pr.ntokens) {
+        // maybe an error?
+        lua_pushnil(L);
+        return 1;
+    }
+
+    size_t vlen = 0;
+    // fetching a token.
+    const char *s = rq->pr.request + rq->pr.tokens[x-1];
+    vlen = _process_token_len(&rq->pr, x-1);
+    // do a funny dance to safely strtol the token.
+    // TODO: use tokenizer based tokto when merged.
+    char temp[22];
+    int tocopy = vlen > 22 ? 21 : vlen;
+    memcpy(temp, s, tocopy);
+    temp[vlen] = '\0';
+    int64_t token = 0;
+    if (safe_strtoll(temp, &token)) {
+        lua_pushinteger(L, token);
+    } else {
+        lua_pushnil(L);
+    }
+
+    return 1;
+}
+
 int mcplib_request_ntokens(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
     lua_pushinteger(L, rq->pr.ntokens);

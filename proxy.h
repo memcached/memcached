@@ -810,6 +810,7 @@ int mcplib_request_key(lua_State *L);
 int mcplib_request_ltrimkey(lua_State *L);
 int mcplib_request_rtrimkey(lua_State *L);
 int mcplib_request_token(lua_State *L);
+int mcplib_request_token_int(lua_State *L);
 int mcplib_request_ntokens(lua_State *L);
 int mcplib_request_has_flag(lua_State *L);
 int mcplib_request_flag_token(lua_State *L);

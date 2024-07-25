@@ -5,9 +5,27 @@ function mcp_config_pools()
 end
 
 function mcp_config_routes(p)
-    local fgen = mcp.funcgen_new()
-    local h = fgen:new_handle(p)
-    fgen:ready({ f = function(rctx)
+    local setfg = mcp.funcgen_new()
+    local sh = setfg:new_handle(p)
+    setfg:ready({ f = function(rctx)
+        return function(r)
+            local k = r:key()
+
+            if k == "setints" then
+                print("FKEY:", k)
+                local flags = r:token_int(3)
+                local ttl = r:token_int(4)
+                local bytes = r:token_int(5)
+                flags = flags + ttl + bytes
+                r:token(3, flags)
+                return rctx:enqueue_and_wait(r, sh)
+            end
+        end
+    end})
+
+    local mgfg = mcp.funcgen_new()
+    local h = mgfg:new_handle(p)
+    mgfg:ready({ f = function(rctx)
         return function(r)
             local k = r:key()
 
@@ -81,6 +99,7 @@ function mcp_config_routes(p)
         end
     end})
 
-    mcp.attach(mcp.CMD_MG, fgen)
+    mcp.attach(mcp.CMD_MG, mgfg)
+    mcp.attach(mcp.CMD_SET, setfg)
     -- TODO: test MS as well to ensure it doesn't eat the value line
 end

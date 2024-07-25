@@ -143,4 +143,13 @@ subtest 'req:flag_token_int()' => sub {
     $t->clear();
 };
 
+subtest 'req:token_int()' => sub {
+    $t->c_send("set setints 8 10 2\r\nhi\r\n");
+    $t->be_recv(0, "set setints 20 10 2\r\n");
+    $t->be_recv(0, "hi\r\n");
+    $t->be_send(0, "STORED\r\n");
+    $t->c_recv_be("setints fetched and modified data");
+    $t->clear();
+};
+
 done_testing();
