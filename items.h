@@ -47,7 +47,7 @@ struct lru_pull_tail_return {
 int lru_pull_tail(const int orig_id, const int cur_lru,
         const uint64_t total_bytes, const uint8_t flags, const rel_time_t max_age,
         struct lru_pull_tail_return *ret_it);
-void item_flush_expired(void);
+void item_flush_expired(conn *c);
 
 /*@null@*/
 char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit,

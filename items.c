@@ -121,8 +121,12 @@ void set_cas_id(uint64_t new_cas) {
 
 int item_is_flushed(item *it) {
     rel_time_t oldest_live = settings.oldest_live;
-    if (it->time <= oldest_live && oldest_live <= current_time)
-        return 1;
+    if (it->time <= oldest_live && oldest_live <= current_time) {
+        if (settings.opaque_ipv6_ns)
+            return it->it_flags & ITEM_KEY_FLUSH_PSEUDO_NAMESPACE;
+        else
+            return 1;
+    }
 
     return 0;
 }
@@ -590,9 +594,11 @@ int do_item_replace(item *it, item *new_it, const uint32_t hv, const uint64_t ca
     return do_item_link(new_it, hv, cas);
 }
 
-void item_flush_expired(void) {
+void item_flush_expired(conn *c) {
     int i;
     item *iter, *next;
+    uint64_t opaque = get_opaque_ipv6_namespace(c);
+
     if (settings.oldest_live == 0)
         return;
     for (i = 0; i < LARGEST_ID; i++) {
@@ -608,6 +614,25 @@ void item_flush_expired(void) {
             if (iter->time == 0 && iter->nkey == 0 && iter->it_flags == 1) {
                 continue; // crawler item.
             }
+
+            if (opaque) {
+                char *namespace = NULL;
+                char key_item[KEY_MAX_LENGTH + 1];
+                uint64_t opaque_item = 0;
+
+                strncpy(key_item, ITEM_key(iter), iter->nkey);
+
+                namespace = strtok(key_item, "_");
+                if (!namespace)
+                    continue;
+
+                opaque_item = strtoull(namespace, NULL, 10);
+                if (opaque_item != opaque)
+                    continue;
+
+                iter->it_flags |= ITEM_KEY_FLUSH_PSEUDO_NAMESPACE;
+            }
+
             uint32_t hv = hash(ITEM_key(iter), iter->nkey);
             // if we can't lock the item, just give up.
             // we can't block here because the lock order is inverted.

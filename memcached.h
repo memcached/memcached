@@ -587,6 +587,8 @@ extern struct settings settings;
 #define ITEM_STALE 2048
 /* if item key was sent in binary */
 #define ITEM_KEY_BINARY 4096
+/* item flush for a pseudo-namespace */
+#define ITEM_KEY_FLUSH_PSEUDO_NAMESPACE 8192
 
 /**
  * Structure for storing items within memcached.

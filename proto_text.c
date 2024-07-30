@@ -2618,7 +2618,7 @@ static void process_flush_all_command(conn *c, token_t *tokens, const size_t nto
     }
 
     settings.oldest_live = new_oldest;
-    item_flush_expired();
+    item_flush_expired(c);
     out_string(c, "OK");
 }
 
