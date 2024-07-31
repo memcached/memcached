@@ -32,6 +32,8 @@
 #define XXH_INLINE_ALL // modifier for xxh3's include below
 #include "xxhash.h"
 
+#include "proxy_hlc.h"
+
 #ifdef PROXY_DEBUG
 #define P_DEBUG(...) \
     do { \
@@ -40,6 +42,8 @@
 #else
 #define P_DEBUG(...)
 #endif
+
+#define TIMEVAL_TO_MILLIS(n) (n.tv_usec / 1000 + n.tv_sec * (uint64_t)1000)
 
 #define WSTAT_L(t) pthread_mutex_lock(&t->stats.mutex);
 #define WSTAT_UL(t) pthread_mutex_unlock(&t->stats.mutex);
