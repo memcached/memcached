@@ -1104,14 +1104,14 @@ int mcplib_request_match_res(lua_State *L) {
 
     // requests all have keys. check for an opaque.
     mcp_request_find_flag_token(rq, 'O', &opaque_token, &opaque_len);
-    mcmc_bare_parse_buf(rs->buf, rs->blen, &reresp);
+    mcmc_parse_buf(rs->buf, rs->blen, &reresp);
 
     // scan the response line for tokens, since we don't have a reciprocal API
     // yet. When we do this code will be replaced with a function call like
     // the above.
     const char *p = reresp.rline;
     // TODO: Think this is an off-by-one in mcmc.
-    const char *e = p + reresp.rlen - 1;
+    const char *e = p + reresp.rlen;
     if (!p) {
         // happens if the result line is blank (ie; 'HD\r\n')
         lua_pushboolean(L, 0);
