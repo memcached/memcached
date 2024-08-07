@@ -7,6 +7,7 @@
 #include <string.h>
 #include <errno.h>
 #include <stdio.h>
+#include <limits.h>
 
 // TODO: move these structs into mcmc.h, but only expose them if
 // MCMC_EXPOSE_INTERNALS is defined... for tests and this thing.
@@ -14,8 +15,6 @@
 
 // TODO: if there's a parse error or unknown status code, we likely have a
 // protocol desync and need to disconnect.
-
-// NOTE: this _will_ change a bit for adding TLS support.
 
 // A "reasonable" minimum buffer size to work with.
 // Callers are allowed to create a buffer of any size larger than this.
@@ -34,29 +33,127 @@
 typedef struct mcmc_ctx {
     int fd;
     int gai_status; // getaddrinfo() last status.
-    int last_sys_error; // last syscall error (connect/etc?)
     int sent_bytes_partial; // note for partially sent buffers.
-    int fail_code; // recent failure reason.
     int error; // latest error code.
     uint32_t status_flags; // internal only flags.
-    int state;
 
     // FIXME: s/buffer_used/buffer_filled/ ?
     size_t buffer_used; // amount of bytes read into the buffer so far.
-    size_t buffer_request_len; // cached endpoint for current request
     char *buffer_head; // buffer pointer currently in use.
 } mcmc_ctx_t;
 
 // INTERNAL FUNCTIONS
 
-static int _mcmc_parse_value_line(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
-    char *buf = ctx->buffer_head;
+#define TOKENIZER_MAXLEN USHRT_MAX
+
+// Find the starting offsets of each token; ignoring length.
+// This creates a fast small (<= cacheline) index into the request,
+// where we later scan or directly feed data into API's.
+#define _mcmc_tokenize(t, line, len, mstart, max) _mcmc_tokenize_meta(t, line, len, UINT8_MAX, max)
+
+// specialized tokenizer for meta protocol commands or responses, fills in the
+// bitflags while scanning.
+// Function _assumes_ const char *line ends with \n or \r\n, but will not
+// break so long as the passed in 'len' is reasonable.
+MCMC_STATIC int _mcmc_tokenize_meta(mcmc_tokenizer_t *t, const char *line, size_t len, const int mstart, const int max) {
+    const char *s = line;
+
+    // since multigets can be huge, we can't purely judge reqlen against this
+    // limit, but we also can't index past it since the tokens are shorts.
+    if (len > TOKENIZER_MAXLEN) {
+        len = TOKENIZER_MAXLEN;
+    }
+
+    if (line[len-2] == '\r') {
+        len -= 2;
+    } else {
+        len -= 1;
+    }
+
+    const char *end = s + len;
+    int curtoken = 0;
+
+    int state = 0;
+    while (s != end) {
+        switch (state) {
+            case 0:
+                // scanning for first non-space to find a token.
+                if (*s != ' ') {
+                    if (curtoken >= mstart) {
+                        if (*s > 64 && *s < 123) {
+                            t->metaflags |= (uint64_t)1 << (*s - 65);
+                        } else {
+                            return MCMC_NOK;
+                        }
+                    }
+                    t->tokens[curtoken] = s - line;
+                    if (++curtoken == max) {
+                        s++;
+                        state = 2;
+                        break;
+                    }
+                    state = 1;
+                }
+                s++;
+                break;
+            case 1:
+                // advance over a token
+                if (*s != ' ') {
+                    s++;
+                } else {
+                    state = 0;
+                }
+                break;
+            case 2:
+                // hit max tokens before end of the line.
+                // keep advancing so we can place endcap token.
+                if (*s == ' ') {
+                    goto endloop;
+                }
+                s++;
+                break;
+        }
+    }
+endloop:
+
+    // endcap token so we can quickly find the length of any token by looking
+    // at the next one.
+    t->tokens[curtoken] = s - line;
+    t->ntokens = curtoken;
+    t->mstart = mstart;
+
+    return MCMC_OK;
+}
+
+__attribute__((unused)) MCMC_STATIC int _mcmc_token_len(const char *line, mcmc_tokenizer_t *t, size_t token) {
+    const char *s = line + t->tokens[token];
+    const char *e = line + t->tokens[token+1];
+    // start of next token is after any space delimiters, so back those out.
+    while (*(e-1) == ' ') {
+        e--;
+    }
+    return e - s;
+}
+
+__attribute__((unused)) MCMC_STATIC const char *_mcmc_token(const char *line, mcmc_tokenizer_t *t, size_t token, int *len) {
+    const char *s = line + t->tokens[token];
+    if (len != NULL) {
+        const char *e = line + t->tokens[token+1];
+        while (*(e-1) == ' ') {
+            e--;
+        }
+        *len = e - s;
+    }
+    return s;
+}
+
+static int _mcmc_parse_value_line(const char *buf, size_t read, mcmc_resp_t *r) {
     // we know that "VALUE " has matched, so skip that.
-    char *p = buf+6;
-    size_t l = ctx->buffer_request_len;
+    const char *p = buf+6;
+    size_t l = r->reslen;
 
     // <key> <flags> <bytes> [<cas unique>]
-    char *key = p;
+    const char *key = p;
     int keylen;
     p = memchr(p, ' ', l - 6);
     if (p == NULL) {
@@ -96,7 +193,7 @@ static int _mcmc_parse_value_line(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
     // If we made it this far, we've parsed everything, stuff the details into
     // the context for fetching later.
     r->vlen = bytes + 2; // add in the \r\n
-    int buffer_remain = ctx->buffer_used - (r->value - ctx->buffer_head);
+    int buffer_remain = read - r->reslen;
     if (buffer_remain >= r->vlen) {
         r->vlen_read = r->vlen;
     } else {
@@ -107,21 +204,19 @@ static int _mcmc_parse_value_line(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
     r->flags = flags;
     r->cas = cas;
     r->type = MCMC_RESP_GET;
-    ctx->state = STATE_GET_RESP;
 
-    // NOTE: if value_offset < buffer_used, has part of the value in the
+    // NOTE: if value_offset < read, has part of the value in the
     // buffer already.
 
     return MCMC_CODE_OK;
 }
 
-static int _mcmc_parse_stat_line(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
-    char *buf = ctx->buffer_head;
-    char *p = buf+5; // pass "STAT "
-    size_t l = ctx->buffer_request_len;
+static int _mcmc_parse_stat_line(const char *buf, mcmc_resp_t *r) {
+    const char *p = buf+5; // pass "STAT "
+    size_t l = r->reslen;
 
     // STAT key value
-    char *sname = p;
+    const char *sname = p;
     p = memchr(p, ' ', l-5);
     if (p == NULL) {
         return -MCMC_ERR_VALUE;
@@ -131,8 +226,8 @@ static int _mcmc_parse_stat_line(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
     while (*p == ' ') {
         p++;
     }
-    char *stat = p;
-    int statlen = l - (p - ctx->buffer_head) - 2;
+    const char *stat = p;
+    int statlen = l - (p - buf) - 2;
 
     r->sname = sname;
     r->snamelen = snamelen;
@@ -145,17 +240,15 @@ static int _mcmc_parse_stat_line(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
 // FIXME: This is broken for ASCII multiget.
 // if we get VALUE back, we need to stay in ASCII GET read mode until an END
 // is seen.
-static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
-    char *buf = ctx->buffer_head;
-    char *cur = buf;
-    size_t l = ctx->buffer_request_len;
+static int _mcmc_parse_response(const char *buf, size_t read, mcmc_resp_t *r) {
+    const char *cur = buf;
     int rlen; // response code length.
     int more = 0;
-    r->reslen = ctx->buffer_request_len;
     r->type = MCMC_RESP_FAIL;
 
     // walk until the \r\n
-    while (l-- > 2) {
+    // we can't enter this function without there being a '\n' in the buffer.
+    while (*cur != '\r' && *cur != '\n') {
         if (*cur == ' ') {
             more = 1;
             break;
@@ -245,7 +338,7 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
                         } else {
                             r->vlen = vsize + 2; // tag in the \r\n.
                             // FIXME: macro.
-                            int buffer_remain = ctx->buffer_used - (r->value - ctx->buffer_head);
+                            int buffer_remain = read - r->reslen;
                             if (buffer_remain >= r->vlen) {
                                 r->vlen_read = r->vlen;
                             } else {
@@ -267,8 +360,18 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
             // maybe: if !rv and !fail, do something special?
             // if (more), there are flags. shove them in the right place.
             if (more) {
-                r->rline = cur+1; // eat the space.
-                r->rlen = l-1;
+                // walk until not space
+                while (*cur == ' ') {
+                    cur++;
+                }
+                r->rline = cur;
+                r->rlen = r->reslen - (cur - buf);
+                // cut \n or \r\n
+                if (buf[r->reslen-2] == '\r') {
+                    r->rlen -= 2;
+                } else {
+                    r->rlen--;
+                }
             } else {
                 r->rline = NULL;
                 r->rlen = 0;
@@ -277,7 +380,6 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
         case 3:
             if (memcmp(buf, "END", 3) == 0) {
                 // Either end of STAT results, or end of ascii GET key list.
-                ctx->state = STATE_DEFAULT;
                 code = MCMC_CODE_END;
                 r->type = MCMC_RESP_END;
             }
@@ -285,15 +387,14 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
         case 4:
             if (memcmp(buf, "STAT", 4) == 0) {
                 r->type = MCMC_RESP_STAT;
-                ctx->state = STATE_STAT_RESP;
-                code = _mcmc_parse_stat_line(ctx, r);
+                code = _mcmc_parse_stat_line(buf, r);
             }
             break;
         case 5:
             if (memcmp(buf, "VALUE", 5) == 0) {
                 if (more) {
                     // <key> <flags> <bytes> [<cas unique>]
-                    code = _mcmc_parse_value_line(ctx, r);
+                    code = _mcmc_parse_value_line(buf, read, r);
                 } else {
                     code = -MCMC_ERR_PARSE;
                 }
@@ -358,7 +459,292 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
     }
 }
 
-// EXTERNAL API
+// TODO: possible to codegen the 32 vs 64 variants
+// easy with a macro I just hate how that looks
+#define MCMC_TOKTO32_MAX 11
+#define MCMC_TOKTO64_MAX 22
+
+// TODO: test if __builtin_add_overflow exists and use that instead for
+// hardware boost.
+// just need to split the mul and the add? if (__builtin_mul_overflow(etc))
+// - need a method to force compile both functions for the test suite.
+MCMC_STATIC int mcmc_toktou32(const char *t, size_t len, uint32_t *out) {
+    uint32_t sum = 0;
+    const char *pos = t;
+    // We clamp the possible length to make input length errors less likely to
+    // go for a walk through memory.
+    if (len > MCMC_TOKTO32_MAX) {
+        return MCMC_TOKTO_ELONG;
+    }
+    while (len--) {
+        char num = pos[0] - '0';
+        if (num > -1 && num < 10) {
+            uint32_t lim = (UINT32_MAX - num) / 10;
+            if (sum > lim) {
+                return MCMC_TOKTO_ERANGE;
+            }
+            sum = sum * 10 + num;
+        } else {
+            return MCMC_TOKTO_EINVALID;
+        }
+        pos++;
+    }
+    *out = sum;
+    return MCMC_OK;
+}
+
+MCMC_STATIC int mcmc_toktou64(const char *t, size_t len, uint64_t *out) {
+    uint64_t sum = 0;
+    const char *pos = t;
+    if (len > MCMC_TOKTO64_MAX) {
+        return MCMC_TOKTO_ELONG;
+    }
+    while (len--) {
+        char num = pos[0] - '0';
+        if (num > -1 && num < 10) {
+            uint64_t lim = (UINT64_MAX - num) / 10;
+            if (sum > lim) {
+                return MCMC_TOKTO_ERANGE;
+            }
+            sum = sum * 10 + num;
+        } else {
+            return MCMC_TOKTO_EINVALID;
+        }
+        pos++;
+    }
+    *out = sum;
+    return MCMC_OK;
+}
+
+MCMC_STATIC int mcmc_tokto32(const char *t, size_t len, int32_t *out) {
+    int32_t sum = 0;
+    const char *pos = t;
+    int is_sig = 0;
+    if (len > MCMC_TOKTO32_MAX) {
+        return MCMC_TOKTO_ELONG;
+    }
+    // If we're negative the first character must be -
+    if (pos[0] == '-') {
+        len--;
+        pos++;
+        is_sig = 1;
+    }
+    while (len--) {
+        char num = pos[0] - '0';
+        if (num > -1 && num < 10) {
+            if (is_sig) {
+                int32_t lim = (INT32_MIN + num) / 10;
+                if (sum < lim) {
+                    return MCMC_TOKTO_ERANGE;
+                }
+                sum = sum * 10 - num;
+            } else {
+                int32_t lim = (INT32_MAX - num) / 10;
+                if (sum > lim) {
+                    return MCMC_TOKTO_ERANGE;
+                }
+                sum = sum * 10 + num;
+            }
+        } else {
+            return MCMC_TOKTO_EINVALID;
+        }
+        pos++;
+    }
+    *out = sum;
+    return MCMC_OK;
+}
+
+MCMC_STATIC int mcmc_tokto64(const char *t, size_t len, int64_t *out) {
+    int64_t sum = 0;
+    const char *pos = t;
+    int is_sig = 0;
+    if (len > MCMC_TOKTO64_MAX) {
+        return MCMC_TOKTO_ELONG;
+    }
+    // If we're negative the first character must be -
+    if (pos[0] == '-') {
+        len--;
+        pos++;
+        is_sig = 1;
+    }
+    while (len--) {
+        char num = pos[0] - '0';
+        if (num > -1 && num < 10) {
+            if (is_sig) {
+                int64_t lim = (INT64_MIN + num) / 10;
+                if (sum < lim) {
+                    return MCMC_TOKTO_ERANGE;
+                }
+                sum = sum * 10 - num;
+            } else {
+                int64_t lim = (INT64_MAX - num) / 10;
+                if (sum > lim) {
+                    return MCMC_TOKTO_ERANGE;
+                }
+                sum = sum * 10 + num;
+            }
+        } else {
+            return MCMC_TOKTO_EINVALID;
+        }
+        pos++;
+    }
+    *out = sum;
+    return MCMC_OK;
+}
+
+// END INTERNAL FUNCTIONS
+
+// Context-less bare API.
+
+//MCMC_STATIC int _mcmc_tokenize_meta(mcmc_tokenizer_t *t, const char *line, size_t len, const int mstart, const int max) {
+
+// TODO: ideally this does a macro test of t->ntokens before calling a
+// function. are compilers smart enough that I don't have to do this tho?
+int mcmc_tokenize_res(const char *l, size_t len, mcmc_tokenizer_t *t) {
+    if (t->ntokens == 0) {
+        return _mcmc_tokenize_meta(t, l, len, 1, MCMC_PARSER_MAX_TOKENS-1);
+    }
+    return 0;
+}
+
+const char *mcmc_token_get(const char *l, mcmc_tokenizer_t *t, int idx, int *len) {
+    if (idx > 0 && idx < t->ntokens) {
+        return _mcmc_token(l, t, idx, len);
+    } else {
+        return NULL;
+    }
+}
+
+#define X(n, p, c) \
+    int n(const char *l, mcmc_tokenizer_t *t, int idx, p *val) { \
+        if (idx > 0 && idx < t->ntokens) { \
+            int tlen = 0; \
+            const char *tok = _mcmc_token(l, t, idx, &tlen); \
+            return c(tok, tlen, val); \
+        } else { \
+            return MCMC_ERR; \
+        } \
+    }
+
+X(mcmc_token_get_u32, uint32_t, mcmc_toktou32)
+X(mcmc_token_get_u64, uint64_t, mcmc_toktou64)
+X(mcmc_token_get_32, int32_t, mcmc_tokto32)
+X(mcmc_token_get_64, int64_t, mcmc_tokto64)
+
+#undef X
+
+int mcmc_token_has_flag(const char *l, mcmc_tokenizer_t *t, char flag) {
+    flag -= 65;
+    if (flag < 0 || flag > 57) {
+        return MCMC_ERR;
+    }
+    uint64_t flagbit = (uint64_t)1 << flag;
+    if (t->metaflags & flagbit) {
+        return MCMC_OK;
+    } else {
+        return MCMC_NOK;
+    }
+}
+
+// User can optionally call has_flag or has_flag_bit before calling these
+// functions. Is optional because it can be either wasteful to check if the
+// flag will always be there, or it's useful to the caller to know the flag
+// exists but there wasn't a token attached or we failed to parse it.
+const char *mcmc_token_get_flag(const char *l, mcmc_tokenizer_t *t, char flag, int *len) {
+    for (int x = t->mstart; x < t->ntokens; x++) {
+        const char *tflag = l + t->tokens[x];
+        if (tflag[0] == flag) {
+            int tlen = _mcmc_token_len(l, t, x) - 1; // subtract the flag.
+            // ensure the flag actually has a token.
+            if (tlen > 0) {
+                if (len) {
+                    *len = tlen;
+                }
+                return tflag+1;
+            } else {
+                break;
+            }
+        }
+    }
+
+    return NULL;
+}
+
+int mcmc_token_get_flag_u32(const char *l, mcmc_tokenizer_t *t, char flag, uint32_t *val) {
+    int tlen = 0;
+    const char *tok = mcmc_token_get_flag(l, t, flag, &tlen);
+    if (tok) {
+        return mcmc_toktou32(tok, tlen, val);
+    }
+
+    return MCMC_NOK;
+}
+
+int mcmc_token_get_flag_u64(const char *l, mcmc_tokenizer_t *t, char flag, uint64_t *val) {
+    int tlen = 0;
+    const char *tok = mcmc_token_get_flag(l, t, flag, &tlen);
+    if (tok) {
+        return mcmc_toktou64(tok, tlen, val);
+    }
+
+    return MCMC_NOK;
+}
+
+int mcmc_token_get_flag_32(const char *l, mcmc_tokenizer_t *t, char flag, int32_t *val) {
+    int tlen = 0;
+    const char *tok = mcmc_token_get_flag(l, t, flag, &tlen);
+    if (tok) {
+        return mcmc_tokto32(tok, tlen, val);
+    }
+
+    return MCMC_NOK;
+}
+
+int mcmc_token_get_flag_64(const char *l, mcmc_tokenizer_t *t, char flag, int64_t *val) {
+    int tlen = 0;
+    const char *tok = mcmc_token_get_flag(l, t, flag, &tlen);
+    if (tok) {
+        return mcmc_tokto64(tok, tlen, val);
+    }
+
+    return MCMC_NOK;
+}
+
+int mcmc_token_get_flag_idx(const char *l, mcmc_tokenizer_t *t, char flag) {
+    for (int x = t->mstart; x < t->ntokens; x++) {
+        const char *tflag = l + t->tokens[x];
+        if (tflag[0] == flag) {
+            return x;
+        }
+    }
+
+    return -1;
+}
+
+// Directly parse a buffer with read data of size len.
+// r->reslen + r->vlen_read is the bytes consumed from the buffer read.
+// Caller manages how to retry if MCMC_WANT_READ or an error happens.
+int mcmc_parse_buf(const char *buf, size_t read, mcmc_resp_t *r) {
+    char *el;
+
+    memset(r, 0, sizeof(*r));
+    el = memchr(buf, '\n', read);
+    if (el == NULL) {
+        r->code = MCMC_WANT_READ;
+        return MCMC_ERR;
+    }
+
+    // Consume through the newline, note where the value would start if exists
+    r->value = el+1;
+    r->reslen = r->value - buf;
+
+    // FIXME: the server must be stricter in what it sends back. should always
+    // have a \r. check for it and fail?
+
+    return _mcmc_parse_response(buf, read, r);
+}
+
+// Context-ful API.
 
 int mcmc_fd(void *c) {
     mcmc_ctx_t *ctx = (mcmc_ctx_t *)c;
@@ -374,41 +760,6 @@ size_t mcmc_size(int options) {
 // but this is probably more convenient for the caller if it's less dynamic.
 size_t mcmc_min_buffer_size(int options) {
     return MIN_BUFFER_SIZE;
-}
-
-// Directly parse a buffer with read data of size len.
-// r->reslen + r->vlen_read is the bytes consumed from the buffer read.
-// Caller manages how to retry if MCMC_WANT_READ or an error happens.
-// FIXME: not sure if to keep this command to a fixed buffer size, or continue
-// to use the ctx->buffer_used bits... if we keep the buffer_used stuff caller can
-// loop without memmove'ing the buffer?
-int mcmc_parse_buf(void *c, char *buf, size_t read, mcmc_resp_t *r) {
-    mcmc_ctx_t *ctx = c;
-    char *el;
-
-    memset(r, 0, sizeof(*r));
-    el = memchr(buf, '\n', read);
-    if (el == NULL) {
-        r->code = MCMC_WANT_READ;
-        return MCMC_ERR;
-    }
-
-    // Consume through the newline, note where the value would start if exists
-    r->value = el+1;
-
-    ctx->buffer_used = read;
-    // FIXME: the server must be stricter in what it sends back. should always
-    // have a \r. check for it and fail?
-    ctx->buffer_request_len = r->value - buf;
-    // leave the \r\n in the line end cache.
-    ctx->buffer_head = buf;
-
-    return _mcmc_parse_response(ctx, r);
-}
-
-int mcmc_bare_parse_buf(char *buf, size_t read, mcmc_resp_t *r) {
-    mcmc_ctx_t ctx;
-    return mcmc_parse_buf(&ctx, buf, read, r);
 }
 
 /*** Functions wrapping syscalls **/
