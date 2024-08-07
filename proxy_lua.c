@@ -238,120 +238,6 @@ static int mcplib_time_mono_millis(lua_State *L) {
 
 // end util funcs.
 
-static int mcplib_response_elapsed(lua_State *L) {
-    mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
-    lua_pushinteger(L, r->elapsed);
-    return 1;
-}
-
-// resp:ok()
-static int mcplib_response_ok(lua_State *L) {
-    mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
-
-    if (r->status == MCMC_OK) {
-        lua_pushboolean(L, 1);
-    } else {
-        lua_pushboolean(L, 0);
-    }
-
-    return 1;
-}
-
-static int mcplib_response_hit(lua_State *L) {
-    mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
-
-    if (r->status == MCMC_OK && r->resp.code != MCMC_CODE_END) {
-        lua_pushboolean(L, 1);
-    } else {
-        lua_pushboolean(L, 0);
-    }
-
-    return 1;
-}
-
-// Caller needs to discern if a vlen is 0 because of a failed response or an
-// OK response that was actually zero. So we always return an integer value
-// here.
-static int mcplib_response_vlen(lua_State *L) {
-    mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
-
-    // We do remove the "\r\n" from the value length, so if you're actually
-    // processing the value nothing breaks.
-    if (r->resp.vlen >= 2) {
-        lua_pushinteger(L, r->resp.vlen-2);
-    } else {
-        lua_pushinteger(L, 0);
-    }
-
-    return 1;
-}
-
-// Refer to MCMC_CODE_* defines.
-static int mcplib_response_code(lua_State *L) {
-    mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
-
-    lua_pushinteger(L, r->resp.code);
-
-    return 1;
-}
-
-// Get the unparsed response line for handling in lua.
-static int mcplib_response_line(lua_State *L) {
-    mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
-
-    if (r->resp.rline != NULL) {
-        lua_pushlstring(L, r->resp.rline, r->resp.rlen);
-    } else {
-        lua_pushnil(L);
-    }
-
-    return 1;
-}
-
-void mcp_response_cleanup(LIBEVENT_THREAD *t, mcp_resp_t *r) {
-    // On error/similar we might be holding the read buffer.
-    // If the buf is handed off to mc_resp for return, this pointer is NULL
-    if (r->buf != NULL) {
-        pthread_mutex_lock(&t->proxy_limit_lock);
-        t->proxy_buffer_memory_used -= r->blen + r->extra;
-        pthread_mutex_unlock(&t->proxy_limit_lock);
-
-        free(r->buf);
-        r->buf = NULL;
-    }
-
-    // release our temporary mc_resp sub-object.
-    if (r->cresp != NULL) {
-        mc_resp *cresp = r->cresp;
-        assert(r->thread != NULL);
-        if (cresp->item) {
-            item_remove(cresp->item);
-            cresp->item = NULL;
-        }
-        resp_free(r->thread, cresp);
-        r->cresp = NULL;
-    }
-}
-
-static int mcplib_response_gc(lua_State *L) {
-    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
-    mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
-    mcp_response_cleanup(t, r);
-
-    return 0;
-}
-
-// Note that this can be called multiple times for a single object, as opposed
-// to _gc. The cleanup routine is armored against repeat accesses by NULL'ing
-// th efields it checks.
-static int mcplib_response_close(lua_State *L) {
-    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
-    mcp_resp_t *r = luaL_checkudata(L, 1, "mcp.response");
-    mcp_response_cleanup(t, r);
-
-    return 0;
-}
-
 // NOTE: backends are global objects owned by pool objects.
 // Each pool has a "proxy pool object" distributed to each worker VM.
 // proxy pool objects are held at the same time as any request exists on a
@@ -1741,6 +1627,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"vlen", mcplib_response_vlen},
         {"code", mcplib_response_code},
         {"line", mcplib_response_line},
+        {"flag_blank", mcplib_response_flag_blank},
         {"elapsed", mcplib_response_elapsed},
         {"__gc", mcplib_response_gc},
         {"__close", mcplib_response_close},
@@ -1797,6 +1684,12 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {NULL, NULL}
     };
 
+    const struct luaL_Reg mcplib_inspector_m[] = {
+        {"__gc", mcplib_inspector_gc},
+        {"__call", mcplib_inspector_call},
+        {NULL, NULL},
+    };
+
     const struct luaL_Reg mcplib_f_config [] = {
         {"pool", mcplib_pool},
         {"backend", mcplib_backend},
@@ -1838,6 +1731,8 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"stat", mcplib_stat},
         {"request", mcplib_request},
         {"ratelim_tbf", mcplib_ratelim_tbf},
+        {"req_inspector_new", mcplib_req_inspector_new},
+        {"res_inspector_new", mcplib_res_inspector_new},
         {"time_real_millis", mcplib_time_real_millis},
         {"time_mono_millis", mcplib_time_mono_millis},
         {NULL, NULL}
@@ -1878,6 +1773,12 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         lua_pushvalue(L, -1); // duplicate metatable.
         lua_setfield(L, -2, "__index"); // mt.__index = mt
         luaL_setfuncs(L, mcplib_ratelim_proxy_tbf_m, 0); // register methods
+        lua_pop(L, 1);
+
+        luaL_newmetatable(L, "mcp.inspector");
+        lua_pushvalue(L, -1); // duplicate metatable.
+        lua_setfield(L, -2, "__index"); // mt.__index = mt
+        luaL_setfuncs(L, mcplib_inspector_m, 0); // register methods
         lua_pop(L, 1);
 
         luaL_newmetatable(L, "mcp.rcontext");

@@ -492,6 +492,7 @@ enum mcp_resp_mode {
 #define RESP_CMD_MAX 8
 typedef struct {
     mcmc_resp_t resp;
+    mcmc_tokenizer_t tok; // optional tokenization of res
     char *buf; // response line + potentially value.
     mc_resp *cresp; // client mc_resp object during extstore fetches.
     LIBEVENT_THREAD *thread; // cresp's owner thread needed for extstore cleanup.
@@ -773,6 +774,8 @@ struct mcp_rcontext_s {
     struct mcp_rqueue_s qslots[]; // queueable slots.
 };
 
+#define mcp_is_flag_invalid(f) (f < 65 || f > 122)
+
 void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle);
 void mcp_process_rctx_wait(mcp_rcontext_t *rctx, int handle);
 int mcp_process_rqueue_return(mcp_rcontext_t *rctx, int handle, mcp_resp_t *res);
@@ -824,8 +827,24 @@ int mcplib_request_match_res(lua_State *L);
 void mcp_request_cleanup(LIBEVENT_THREAD *t, mcp_request_t *rq);
 
 // response interface
+int mcplib_response_elapsed(lua_State *L);
+int mcplib_response_ok(lua_State *L);
+int mcplib_response_hit(lua_State *L);
+int mcplib_response_vlen(lua_State *L);
+int mcplib_response_code(lua_State *L);
+int mcplib_response_line(lua_State *L);
+int mcplib_response_flag_blank(lua_State *L);
+
+// inspector interface
+int mcplib_req_inspector_new(lua_State *L);
+int mcplib_res_inspector_new(lua_State *L);
+int mcplib_inspector_gc(lua_State *L);
+int mcplib_inspector_call(lua_State *L);
+
 void mcp_response_cleanup(LIBEVENT_THREAD *t, mcp_resp_t *r);
 void mcp_set_resobj(mcp_resp_t *r, mcp_request_t *rq, mcp_backend_t *be, LIBEVENT_THREAD *t);
+int mcplib_response_gc(lua_State *L);
+int mcplib_response_close(lua_State *L);
 
 int mcplib_open_dist_jump_hash(lua_State *L);
 int mcplib_open_dist_ring_hash(lua_State *L);
@@ -837,6 +856,7 @@ int mcp_request_render(mcp_request_t *rq, int idx, char flag, const char *tok, s
 int mcp_request_append(mcp_request_t *rq, const char flag, const char *tok, size_t len);
 int mcp_request_find_flag_index(mcp_request_t *rq, const char flag);
 int mcp_request_find_flag_token(mcp_request_t *rq, const char flag, const char **token, size_t *len);
+int mcp_request_find_flag_tokenint64(mcp_request_t *rq, const char flag, int64_t *token);
 void proxy_lua_error(lua_State *L, const char *s);
 #define proxy_lua_ferror(L, fmt, ...) \
     do { \
