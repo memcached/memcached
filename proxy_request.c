@@ -1110,7 +1110,6 @@ int mcplib_request_match_res(lua_State *L) {
     // yet. When we do this code will be replaced with a function call like
     // the above.
     const char *p = reresp.rline;
-    // TODO: Think this is an off-by-one in mcmc.
     const char *e = p + reresp.rlen;
     if (!p) {
         // happens if the result line is blank (ie; 'HD\r\n')
@@ -1222,6 +1221,33 @@ int mcp_request_find_flag_token(mcp_request_t *rq, const char flag, const char *
         *len = tlen-1;
     }
     return x;
+}
+
+// FIXME: temporary copypasta accessor until request objects can be moved to
+// mcmc tokenizer.
+int mcp_request_find_flag_tokenint64(mcp_request_t *rq, const char flag, int64_t *token) {
+    for (int x = rq->pr.keytoken+1; x < rq->pr.ntokens; x++) {
+        const char *s = rq->pr.request + rq->pr.tokens[x];
+        if (s[0] == flag) {
+            size_t vlen = _process_token_len(&rq->pr, x);
+            if (vlen > 1) {
+                // do a funny dance to safely strtol the token.
+                char temp[22];
+                int tocopy = vlen > 22 ? 21 : vlen-1;
+                memcpy(temp, s+1, tocopy);
+                temp[vlen-1] = '\0';
+                if (safe_strtoll(temp, token)) {
+                    return 0;
+                } else {
+                    return -1;
+                }
+            }
+
+            break;
+        }
+    }
+
+    return -1;
 }
 
 // TODO (v2): check what lua does when it calls a function with a string argument

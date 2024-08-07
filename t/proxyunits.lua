@@ -282,10 +282,13 @@ function mcp_config_routes(zones)
             return "ERROR expect MCMC_CODE_END, but got " .. code .. "\r\n"
         elseif key == "/response/line" then
             local line = res:line()
-            if line == "v c123\r\n" then
+            if line == "v c123" then
                 return res
             end
             return "ERROR unexpected line, got [" .. line .. "]\r\n"
+        elseif key == "/response/blank" then
+            res:flag_blank("O")
+            return res
         end
         return "ERROR unhandled key\r\n"
     end
@@ -302,7 +305,7 @@ function mcp_config_routes(zones)
             return "ERROR expect MCMC_CODE_OK, but got " .. code .. "\r\n"
         elseif key == "/response/line" then
             local line = res:line()
-            if line == "O123 C123\r\n" then
+            if line == "O123 C123" then
                 return res
             end
             return "ERROR unexpected line, got [" .. line .. "]\r\n"

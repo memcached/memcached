@@ -1047,26 +1047,32 @@ check_sanity($ps);
         );
     };
 
-    SKIP: {
-        skip "response:line() is broken";
-        subtest 'response:line()' => sub {
-            # ps_recv must not receive an error
-            my $cmd = "mg /response/line v\r\n";
-            proxy_test(
-                ps_send => $cmd,
-                be_recv => {0 => [$cmd]},
-                be_send => {0 => ["VA 1 v c123\r\n", "a\r\n"]},
-                ps_recv => ["VA 1 v c123\r\n", "a\r\n"],
-            );
+    subtest 'response:line()' => sub {
+        # ps_recv must not receive an error
+        my $cmd = "mg /response/line v\r\n";
+        proxy_test(
+            ps_send => $cmd,
+            be_recv => {0 => [$cmd]},
+            be_send => {0 => ["VA 1 v c123\r\n", "a\r\n"]},
+            ps_recv => ["VA 1 v c123\r\n", "a\r\n"],
+        );
 
-            # ps_recv must not receive an error
-            proxy_test(
-                ps_send => "ms /response/line 2\r\nab\r\n",
-                be_recv => {0 => ["ms /response/line 2\r\n", "ab\r\n"]},
-                be_send => {0 => ["HD O123 C123\r\n"]},
-                ps_recv => ["HD O123 C123\r\n"],
-            );
-        };
+        # ps_recv must not receive an error
+        proxy_test(
+            ps_send => "ms /response/line 2\r\nab\r\n",
+            be_recv => {0 => ["ms /response/line 2\r\n", "ab\r\n"]},
+            be_send => {0 => ["HD O123 C123\r\n"]},
+            ps_recv => ["HD O123 C123\r\n"],
+        );
+    };
+
+    subtest 'response:flag_blank()' => sub {
+        proxy_test(
+            ps_send => "mg /response/blank f Ofoo t\r\n",
+            be_recv => {0 => ["mg /response/blank f Ofoo t\r\n"]},
+            be_send => {0 => ["HD f1234 Ofoo t999\r\n"]},
+            ps_recv => ["HD f1234      t999\r\n"],
+        );
     };
 }
 
