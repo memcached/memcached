@@ -758,6 +758,44 @@ int mcplib_request_token(lua_State *L) {
     return 0;
 }
 
+// Fetch only.
+int mcplib_request_token_int(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    int argc = lua_gettop(L);
+
+    if (argc == 1) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    int x = luaL_checkinteger(L, 2);
+
+    if (x < 1 || x > rq->pr.ntokens) {
+        // maybe an error?
+        lua_pushnil(L);
+        return 1;
+    }
+
+    size_t vlen = 0;
+    // fetching a token.
+    const char *s = rq->pr.request + rq->pr.tokens[x-1];
+    vlen = _process_token_len(&rq->pr, x-1);
+    // do a funny dance to safely strtol the token.
+    // TODO: use tokenizer based tokto when merged.
+    char temp[22];
+    int tocopy = vlen > 22 ? 21 : vlen;
+    memcpy(temp, s, tocopy);
+    temp[vlen] = '\0';
+    int64_t token = 0;
+    if (safe_strtoll(temp, &token)) {
+        lua_pushinteger(L, token);
+    } else {
+        lua_pushnil(L);
+    }
+
+    return 1;
+}
+
 int mcplib_request_ntokens(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
     lua_pushinteger(L, rq->pr.ntokens);
@@ -837,6 +875,57 @@ int mcplib_request_flag_token(lua_State *L) {
                         return 0;
                     }
                 }
+                break;
+            }
+        }
+    } else {
+        lua_pushboolean(L, 0);
+    }
+
+    return ret;
+}
+
+// returns bool, int
+// bool results if flag exists or not
+// if int conversion fails, int is nil
+int mcplib_request_flag_token_int(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    size_t len = 0;
+    const char *flagstr = luaL_checklstring(L, 2, &len);
+    if (len != 1) {
+        proxy_lua_error(L, "has_flag(): meta flag must be a single character");
+        return 0;
+    }
+    if (flagstr[0] < 65 || flagstr[0] > 122) {
+        proxy_lua_error(L, "has_flag(): invalid flag, must be A-Z,a-z");
+        return 0;
+    }
+
+    uint64_t flagbit = (uint64_t)1 << (flagstr[0] - 65);
+
+    int ret = 1;
+    if (rq->pr.t.meta.flags & flagbit) {
+        lua_pushboolean(L, 1);
+        for (int x = rq->pr.keytoken+1; x < rq->pr.ntokens; x++) {
+            const char *s = rq->pr.request + rq->pr.tokens[x];
+            if (s[0] == flagstr[0]) {
+                size_t vlen = _process_token_len(&rq->pr, x);
+                if (vlen > 1) {
+                    // do a funny dance to safely strtol the token.
+                    // TODO: use tokenizer based tokto when merged.
+                    char temp[22];
+                    int tocopy = vlen > 22 ? 21 : vlen-1;
+                    memcpy(temp, s+1, tocopy);
+                    temp[vlen-1] = '\0';
+                    int64_t token = 0;
+                    if (safe_strtoll(temp, &token)) {
+                        lua_pushinteger(L, token);
+                    } else {
+                        lua_pushnil(L);
+                    }
+                    ret = 2;
+                }
+
                 break;
             }
         }
@@ -1015,14 +1104,14 @@ int mcplib_request_match_res(lua_State *L) {
 
     // requests all have keys. check for an opaque.
     mcp_request_find_flag_token(rq, 'O', &opaque_token, &opaque_len);
-    mcmc_bare_parse_buf(rs->buf, rs->blen, &reresp);
+    mcmc_parse_buf(rs->buf, rs->blen, &reresp);
 
     // scan the response line for tokens, since we don't have a reciprocal API
     // yet. When we do this code will be replaced with a function call like
     // the above.
     const char *p = reresp.rline;
     // TODO: Think this is an off-by-one in mcmc.
-    const char *e = p + reresp.rlen - 1;
+    const char *e = p + reresp.rlen;
     if (!p) {
         // happens if the result line is blank (ie; 'HD\r\n')
         lua_pushboolean(L, 0);
@@ -1133,6 +1222,33 @@ int mcp_request_find_flag_token(mcp_request_t *rq, const char flag, const char *
         *len = tlen-1;
     }
     return x;
+}
+
+// FIXME: temporary copypasta accessor until request objects can be moved to
+// mcmc tokenizer.
+int mcp_request_find_flag_tokenint64(mcp_request_t *rq, const char flag, int64_t *token) {
+    for (int x = rq->pr.keytoken+1; x < rq->pr.ntokens; x++) {
+        const char *s = rq->pr.request + rq->pr.tokens[x];
+        if (s[0] == flag) {
+            size_t vlen = _process_token_len(&rq->pr, x);
+            if (vlen > 1) {
+                // do a funny dance to safely strtol the token.
+                char temp[22];
+                int tocopy = vlen > 22 ? 21 : vlen-1;
+                memcpy(temp, s+1, tocopy);
+                temp[vlen-1] = '\0';
+                if (safe_strtoll(temp, token)) {
+                    return 0;
+                } else {
+                    return -1;
+                }
+            }
+
+            break;
+        }
+    }
+
+    return -1;
 }
 
 // TODO (v2): check what lua does when it calls a function with a string argument

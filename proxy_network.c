@@ -504,7 +504,7 @@ static int proxy_backend_drive_machine(struct mcp_backendconn_s *be) {
             break;
         case mcp_backend_parse:
             r = p->client_resp;
-            r->status = mcmc_parse_buf(be->client, be->rbuf, be->rbufused, &r->resp);
+            r->status = mcmc_parse_buf(be->rbuf, be->rbufused, &r->resp);
 
             // Quick check if we need more data.
             if (r->resp.code == MCMC_WANT_READ) {
@@ -1089,7 +1089,7 @@ static void proxy_bevalidate_tls_handler(const int fd, const short which, void *
         if (read > 0) {
             mcmc_resp_t r;
 
-            int status = mcmc_parse_buf(be->client, be->rbuf, be->rbufused, &r);
+            int status = mcmc_parse_buf(be->rbuf, be->rbufused, &r);
             if (status == MCMC_ERR) {
                 // Needed more data for a version line, somehow. I feel like
                 // this should set off some alarms, but it is possible.
@@ -1259,7 +1259,7 @@ static void proxy_beconn_handler(const int fd, const short which, void *arg) {
             mcmc_resp_t r;
             be->rbufused += read;
 
-            int status = mcmc_parse_buf(be->client, be->rbuf, be->rbufused, &r);
+            int status = mcmc_parse_buf(be->rbuf, be->rbufused, &r);
             if (status == MCMC_ERR) {
                 // Needed more data for a version line, somehow. I feel like
                 // this should set off some alarms, but it is possible.
