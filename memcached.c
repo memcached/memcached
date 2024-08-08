@@ -3480,7 +3480,7 @@ static void maximize_sndbuf(const int sfd) {
 static int server_socket(const char *interface,
                          int port,
                          enum network_transport transport,
-                         FILE *portnumber_file, bool ssl_enabled,
+                         FILE *portnumber_file, uint8_t ssl_enabled,
                          uint64_t conntag,
                          enum protocol bproto) {
     int sfd;
@@ -3658,10 +3658,14 @@ static int server_socket(const char *interface,
 
 static int server_sockets(int port, enum network_transport transport,
                           FILE *portnumber_file) {
-    bool ssl_enabled = false;
+    uint8_t ssl_enabled = MC_SSL_DISABLED;
 
     const char *notls = "notls";
-    ssl_enabled = settings.ssl_enabled;
+    const char *btls = "btls";
+    const char *mtls = "mtls";
+    if (settings.ssl_enabled) {
+        ssl_enabled = MC_SSL_ENABLED_DEFAULT;
+    }
 
     if (settings.inter == NULL) {
         return server_socket(settings.inter, port, transport, portnumber_file, ssl_enabled, 0, settings.binding_protocol);
@@ -3682,7 +3686,9 @@ static int server_sockets(int port, enum network_transport transport,
             p = strtok_r(NULL, ";,", &b)) {
             uint64_t conntag = 0;
             int the_port = port;
-            ssl_enabled = settings.ssl_enabled;
+            if (settings.ssl_enabled) {
+                ssl_enabled = MC_SSL_ENABLED_DEFAULT;
+            }
             // "notls" option is valid only when memcached is run with SSL enabled.
             if (strncmp(p, notls, strlen(notls)) == 0) {
                 if (!settings.ssl_enabled) {
@@ -3690,8 +3696,24 @@ static int server_sockets(int port, enum network_transport transport,
                     free(list);
                     return 1;
                 }
-                ssl_enabled = false;
+                ssl_enabled = MC_SSL_DISABLED;
                 p += strlen(notls) + 1;
+            } else if (strncmp(p, btls, strlen(btls)) == 0) {
+                 if (!settings.ssl_enabled) {
+                    fprintf(stderr, "'btls' option is valid only when SSL is enabled\n");
+                    free(list);
+                    return 1;
+                }
+                ssl_enabled = MC_SSL_ENABLED_NOPEER;
+                p += strlen(btls) + 1;
+            } else if (strncmp(p, mtls, strlen(mtls)) == 0) {
+                if (!settings.ssl_enabled) {
+                    fprintf(stderr, "'otls' option is valid only when SSL is enabled\n");
+                    free(list);
+                    return 1;
+                }
+                ssl_enabled = MC_SSL_ENABLED_PEER;
+                p += strlen(mtls) + 1;
             }
 
             // Allow forcing the protocol of this listener.
