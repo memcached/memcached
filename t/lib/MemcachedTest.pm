@@ -506,6 +506,19 @@ sub new_sock {
     }
 }
 
+# needed for a specific test
+sub new_nocert_tls_sock {
+    my $self = shift;
+    if (MemcachedTest::enabled_tls_testing()) {
+        my $port = shift;
+        my $ssl_version = shift;
+        return eval qq{ IO::Socket::SSL->new(PeerAddr => "$self->{host}:$port",
+                                    SSL_verify_mode => IO::Socket::SSL::SSL_VERIFY_NONE,
+                                    SSL_version => '$ssl_version');
+                                    };
+    }
+}
+
 sub new_udp_sock {
     my $self = shift;
     return IO::Socket::INET->new(PeerAddr => '127.0.0.1',

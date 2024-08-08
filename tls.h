@@ -1,6 +1,11 @@
 #ifndef TLS_H
 #define TLS_H
 
+#define MC_SSL_DISABLED 0
+#define MC_SSL_ENABLED_DEFAULT 1
+#define MC_SSL_ENABLED_NOPEER 2
+#define MC_SSL_ENABLED_PEER 3
+
 #ifdef TLS
 void *ssl_accept(conn *c, int sfd, bool *fail);
 int ssl_init(void);

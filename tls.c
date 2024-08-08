@@ -61,6 +61,15 @@ void *ssl_accept(conn *c, int sfd, bool *fail) {
             return NULL;
         }
         SSL_set_fd(ssl, sfd);
+
+        if (c->ssl_enabled == MC_SSL_ENABLED_NOPEER) {
+            // Don't enforce peer certs for this socket.
+            SSL_set_verify(ssl, SSL_VERIFY_NONE, NULL);
+        } else if (c->ssl_enabled == MC_SSL_ENABLED_PEER) {
+            // Force peer validation for this socket.
+            SSL_set_verify(ssl, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+        }
+
         ERR_clear_error();
         int ret = SSL_accept(ssl);
         if (ret <= 0) {
