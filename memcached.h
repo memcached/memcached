@@ -834,7 +834,7 @@ struct conn {
     bool close_after_write; /** flush write then move to close connection */
     bool rbuf_malloced; /** read buffer was malloc'ed for ascii mget, needs free() */
     bool item_malloced; /** item for conn_nread state is a temporary malloc */
-    bool ssl_enabled;
+    uint8_t ssl_enabled;
 #ifdef TLS
     void    *ssl;
     char   *ssl_wbuf;
