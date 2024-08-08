@@ -552,6 +552,7 @@ struct settings {
 #ifdef SOCK_COOKIE_ID
     uint32_t sock_cookie_id;
 #endif
+    bool opaque_ipv6_ns;
 };
 
 extern struct stats stats;
@@ -584,6 +585,8 @@ extern struct settings settings;
 #define ITEM_STALE 2048
 /* if item key was sent in binary */
 #define ITEM_KEY_BINARY 4096
+/* item flush for a pseudo-namespace */
+#define ITEM_KEY_FLUSH_PSEUDO_NAMESPACE 8192
 
 /**
  * Structure for storing items within memcached.
@@ -1073,6 +1076,7 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c);
 void stats_reset(void);
 void process_stat_settings(ADD_STAT add_stats, void *c);
 void process_stats_conns(ADD_STAT add_stats, void *c);
+uint64_t get_opaque_ipv6_namespace(const conn *c);
 
 #if HAVE_DROP_PRIVILEGES
 extern void setup_privilege_violations_handler(void);
