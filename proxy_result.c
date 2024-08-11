@@ -130,6 +130,7 @@ void mcp_response_cleanup(LIBEVENT_THREAD *t, mcp_resp_t *r) {
         free(r->buf);
         r->buf = NULL;
     }
+    r->tok.ntokens = 0;
 
     // release our temporary mc_resp sub-object.
     if (r->cresp != NULL) {

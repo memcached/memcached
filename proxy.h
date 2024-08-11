@@ -790,6 +790,8 @@ int mcplib_rcontext_res_ok(lua_State *L);
 int mcplib_rcontext_result(lua_State *L);
 int mcplib_rcontext_cfd(lua_State *L);
 int mcplib_rcontext_tls_peer_cn(lua_State *L);
+int mcplib_rcontext_request_new(lua_State *L);
+int mcplib_rcontext_response_new(lua_State *L);
 int mcplib_rcontext_sleep(lua_State *L);
 int mcplib_funcgenbare_new(lua_State *L);
 int mcplib_funcgen_new(lua_State *L);
@@ -841,6 +843,12 @@ int mcplib_req_inspector_new(lua_State *L);
 int mcplib_res_inspector_new(lua_State *L);
 int mcplib_inspector_gc(lua_State *L);
 int mcplib_inspector_call(lua_State *L);
+
+// mutator interface
+int mcplib_req_mutator_new(lua_State *L);
+int mcplib_res_mutator_new(lua_State *L);
+int mcplib_mutator_gc(lua_State *L);
+int mcplib_mutator_call(lua_State *L);
 
 void mcp_response_cleanup(LIBEVENT_THREAD *t, mcp_resp_t *r);
 void mcp_set_resobj(mcp_resp_t *r, mcp_request_t *rq, mcp_backend_t *be, LIBEVENT_THREAD *t);

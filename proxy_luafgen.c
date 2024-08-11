@@ -1427,7 +1427,25 @@ int mcplib_rcontext_tls_peer_cn(lua_State *L) {
 #else
     lua_pushnil(L);
 #endif
+    return 1;
+}
 
+// TODO: stub function.
+// need to attach request function to rcontext, by using another function that
+// doesn't fill out the request info
+int mcplib_rcontext_request_new(lua_State *L) {
+    mcp_parser_t pr = {0};
+
+    mcp_new_request(L, &pr, " ", 1);
+    return 1;
+}
+
+// TODO: stub function, see request_new above.
+int mcplib_rcontext_response_new(lua_State *L) {
+    mcp_resp_t *r = lua_newuserdatauv(L, sizeof(mcp_resp_t), 0);
+    memset(r, 0, sizeof(mcp_resp_t));
+    luaL_getmetatable(L, "mcp.response");
+    lua_setmetatable(L, -2);
     return 1;
 }
 

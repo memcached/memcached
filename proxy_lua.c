@@ -1674,6 +1674,8 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"result", mcplib_rcontext_result},
         {"cfd", mcplib_rcontext_cfd},
         {"tls_peer_cn", mcplib_rcontext_tls_peer_cn},
+        {"request_new", mcplib_rcontext_request_new},
+        {"response_new", mcplib_rcontext_response_new},
         //{"sleep", mcplib_rcontext_sleep}, see comments on function
         {NULL, NULL}
     };
@@ -1688,6 +1690,12 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
     const struct luaL_Reg mcplib_inspector_m[] = {
         {"__gc", mcplib_inspector_gc},
         {"__call", mcplib_inspector_call},
+        {NULL, NULL},
+    };
+
+    const struct luaL_Reg mcplib_mutator_m[] = {
+        {"__gc", mcplib_mutator_gc},
+        {"__call", mcplib_mutator_call},
         {NULL, NULL},
     };
 
@@ -1734,6 +1742,8 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"ratelim_tbf", mcplib_ratelim_tbf},
         {"req_inspector_new", mcplib_req_inspector_new},
         {"res_inspector_new", mcplib_res_inspector_new},
+        {"req_mutator_new", mcplib_req_mutator_new},
+        {"res_mutator_new", mcplib_res_mutator_new},
         {"time_real_millis", mcplib_time_real_millis},
         {"time_mono_millis", mcplib_time_mono_millis},
         {NULL, NULL}
@@ -1780,6 +1790,12 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         lua_pushvalue(L, -1); // duplicate metatable.
         lua_setfield(L, -2, "__index"); // mt.__index = mt
         luaL_setfuncs(L, mcplib_inspector_m, 0); // register methods
+        lua_pop(L, 1);
+
+        luaL_newmetatable(L, "mcp.mutator");
+        lua_pushvalue(L, -1); // duplicate metatable.
+        lua_setfield(L, -2, "__index"); // mt.__index = mt
+        luaL_setfuncs(L, mcplib_mutator_m, 0); // register methods
         lua_pop(L, 1);
 
         luaL_newmetatable(L, "mcp.rcontext");
