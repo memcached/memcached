@@ -70,6 +70,8 @@ struct mcp_inspector {
 
 // PRIVATE INTERFACE
 
+#define res_buf(r) (r->cresp ? r->cresp->iov[0].iov_base : r->buf)
+
 // COMMON ARG HANDLERS
 
 // multiple step types only take 'flag' as an argument.
@@ -311,7 +313,7 @@ static int mcp_inspector_hasflag_r(lua_State *L, struct mcp_inspector *ins, stru
             // result object may not be tokenized. this will do so if not
             // already. any future hits agains the same object will use the
             // cached tokenizer struct.
-            mcmc_tokenize_res(res->buf, res->resp.reslen, &res->tok);
+            mcmc_tokenize_res(res_buf(res), res->resp.reslen, &res->tok);
             if (mcmc_token_has_flag_bit(&res->tok, c->bit) == MCMC_OK) {
                 lua_pushboolean(L, 1);
             } else {
@@ -341,11 +343,11 @@ static int mcp_inspector_flagtoken_r(lua_State *L, struct mcp_inspector *ins, st
     } else {
         mcp_resp_t *res = arg;
         if (res->resp.type == MCMC_RESP_META) {
-            mcmc_tokenize_res(res->buf, res->resp.reslen, &res->tok);
+            mcmc_tokenize_res(res_buf(res), res->resp.reslen, &res->tok);
             if (mcmc_token_has_flag_bit(&res->tok, c->bit) == MCMC_OK) {
                 lua_pushboolean(L, 1); // flag exists
                 int tlen = 0;
-                const char *tok = mcmc_token_get_flag(res->buf, &res->tok, c->f, &tlen);
+                const char *tok = mcmc_token_get_flag(res_buf(res), &res->tok, c->f, &tlen);
                 lua_pushlstring(L, tok, tlen); // flag's token
                 return 2;
             }
@@ -377,11 +379,11 @@ static int mcp_inspector_flagint_r(lua_State *L, struct mcp_inspector *ins, stru
     } else {
         mcp_resp_t *res = arg;
         if (res->resp.type == MCMC_RESP_META) {
-            mcmc_tokenize_res(res->buf, res->resp.reslen, &res->tok);
+            mcmc_tokenize_res(res_buf(res), res->resp.reslen, &res->tok);
             if (mcmc_token_has_flag_bit(&res->tok, c->bit) == MCMC_OK) {
                 lua_pushboolean(L, 1); // flag exists
                 int64_t tok = 0;
-                if (mcmc_token_get_flag_64(res->buf, &res->tok, c->f, &tok) == MCMC_OK) {
+                if (mcmc_token_get_flag_64(res_buf(res), &res->tok, c->f, &tok) == MCMC_OK) {
                     lua_pushinteger(L, tok);
                 } else {
                     lua_pushnil(L); // token couldn't be converted
@@ -451,11 +453,11 @@ static int mcp_inspector_flagis_r(lua_State *L, struct mcp_inspector *ins, struc
     } else {
         mcp_resp_t *res = arg;
         if (res->resp.type == MCMC_RESP_META) {
-            mcmc_tokenize_res(res->buf, res->resp.reslen, &res->tok);
+            mcmc_tokenize_res(res_buf(res), res->resp.reslen, &res->tok);
             if (mcmc_token_has_flag_bit(&res->tok, c->bit) == MCMC_OK) {
                 lua_pushboolean(L, 1); // flag exists
                 int tlen = 0;
-                const char *tok = mcmc_token_get_flag(res->buf, &res->tok, c->f, &tlen);
+                const char *tok = mcmc_token_get_flag(res_buf(res), &res->tok, c->f, &tlen);
                 if (tlen == c->len && strncmp(tok, str, c->len) == 0) {
                     lua_pushboolean(L, 1);
                 } else {

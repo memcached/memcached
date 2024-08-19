@@ -132,10 +132,25 @@ function mcp_config_routes(p)
         end
     })
 
+    local mgintres = mcp.funcgen_new()
+    -- no handle: using mcp.internal()
+    mgintres:ready({
+        n = "intres", f = function(rctx)
+            return function(r)
+                --local key = r:key()
+                local res = mcp.internal(r)
+                local has_O, O, has_t, t = mgresflaga_ins(res)
+                return string.format("SERVER_ERROR O[%q]: %s t[%q]: %q\r\n",
+                    has_O, O, has_t, t)
+            end
+        end
+    })
+
     local mgr = mcp.router_new({ map = {
         sepkey = mgsepkey,
         reshasf = mgreshasf,
         reqkey = mgreqkey,
+        intres = mgintres,
     }})
     mcp.attach(mcp.CMD_MG, mgr)
 end
