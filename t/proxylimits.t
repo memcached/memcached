@@ -71,7 +71,7 @@ $ps->autoflush(1);
 my @mbe = ();
 my $watcher;
 
-{
+subtest 'active request limit' => sub {
     for my $msrv ($mocksrvs[0], $mocksrvs[1], $mocksrvs[2]) {
         my $be = accept_backend($msrv);
         push(@mbe, $be);
@@ -128,9 +128,9 @@ my $watcher;
     for (1 .. 6) {
         is(scalar <$ps>, "EN\r\n", "received miss from backend");
     }
-}
+};
 
-{
+subtest 'buffer memory limit' => sub {
     # Test the buffer memory limiter.
     # - limit per worker will be 1/t global limit
     $p_srv->reload();
@@ -203,12 +203,11 @@ my $watcher;
     # - test GET commands but don't read back, large backend values
     # extended testing:
     # - create errors while holding the buffers?
-}
+};
 
 check_version($ps);
 
-{
-    note "test memory used counter";
+subtest 'memory used counter' => sub {
     my $be = $mbe[0];
 
     my $stats = mem_stats($ps, 'proxy');
@@ -271,7 +270,7 @@ check_version($ps);
     $stats = mem_stats($ps, 'proxy');
     $used = $stats->{buffer_memory_used};
     cmp_ok($used, '<', 1000, "post: buffer memory usage not inflated: $used");
-}
+};
 
 # TODO:
 # check reqlimit/bwlimit counters
