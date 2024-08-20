@@ -39,7 +39,9 @@ $t->accept_backends();
     my $func_before = mem_stats($ps, "proxyfuncs");
     test_returns();
     test_returns();
-    check_func_counts($ps, $func_before);
+    subtest 'final func counts' => sub {
+        check_func_counts($ps, $func_before);
+    };
     test_errors();
 }
 
@@ -59,8 +61,8 @@ sub test_errors {
             $t->c_recv("CLIENT_ERROR bad data chunk\r\n", "got bad data chunk response");
         }
         $t->clear();
+        check_func_counts($ps, $func_before);
     };
-    check_func_counts($ps, $func_before);
 
     # Need to pipeline to force the second slot to generate.
     subtest 'slot generation failure' => sub {
@@ -163,7 +165,10 @@ sub test_split {
         $t->c_recv("EN Ofirst\r\n", 'client receives first res');
         $t->clear();
     };
-    check_func_counts($ps, $func_before);
+
+    subtest 'tiering func counts' => sub {
+        check_func_counts($ps, $func_before);
+    };
 }
 
 sub test_returns {
@@ -300,7 +305,10 @@ sub test_waitfor {
         $t->be_send([1, 2], "EN Ofailover\r\n");
         $t->c_recv("EN Ofirst\r\n", 'client receives first res');
     };
-    check_func_counts($ps, $func_before);
+
+    subtest 'wait cond func counts' => sub {
+        check_func_counts($ps, $func_before);
+    };
 }
 
 sub test_basic {
@@ -416,7 +424,9 @@ sub test_basic {
         $t->clear();
     };
 
-    check_func_counts($ps, $func_before);
+    subtest 'basic func counts' => sub {
+        check_func_counts($ps, $func_before);
+    };
 }
 
 # To help debug, if a failure is encountered move this function up in its
@@ -430,14 +440,20 @@ sub check_func_counts {
     my $c = shift;
     my $a = shift;
     my $b = mem_stats($c, "proxyfuncs");
+    my $bad = 0;
     for my $key (keys %$a) {
         # Don't want to pollute/slow down the output with tons of ok's here,
         # so only fail on the fail conditions.
         if (! exists $b->{$key}) {
             fail("func stat gone missing: $key");
+            $bad = 1;
         }
         if ($a->{$key} != $b->{$key}) {
             cmp_ok($b->{$key}, '==', $a->{$key}, "func stat for $key");
+            $bad = 1;
         }
+    }
+    if (!$bad) {
+        pass();
     }
 }

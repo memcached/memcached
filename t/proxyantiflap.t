@@ -76,12 +76,14 @@ $ps->autoflush(1);
     # Make some backend requests but refuse to answer.
     for (1 .. 3) {
         print $ps "mg foo\r\n";
+        $be->close();
         # Block until we error and reconnect.
         is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "request cancelled");
-        like(<$watcher>, qr/error=timeout/, "timeout error log");
+        like(<$watcher>, qr/error=(disconnected|reading)/, "disconn error log");
         $be = accept_backend($msrv);
     }
     print $ps "mg bar\r\n";
+    $be->close();
     # Block until we error and reconnect.
     is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "request cancelled");
     $be = accept_backend($msrv);
@@ -93,7 +95,7 @@ $ps->autoflush(1);
     is(scalar <$ps>, "HD\r\n", "client still works post-flap");
 
     # clear error logs.
-    like(<$watcher>, qr/error=timeout/, "timeout error log");
+    like(<$watcher>, qr/error=(disconnected|reading)/, "disconn error log");
     like(<$watcher>, qr/error=markedbadflap name=\S+ port=\S+ label=b\d+ retry=2/, "re-flapped, longer retry");
     $p_srv->reload();
     wait_reload($watcher);
@@ -109,19 +111,21 @@ $ps->autoflush(1);
     # Make some backend requests but refuse to answer.
     for (1 .. 3) {
         print $ps "mg foo\r\n";
+        $be->close();
         # Block until we error and reconnect.
         is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "request cancelled");
-        like(<$watcher>, qr/error=timeout/, "timeout error log");
+        like(<$watcher>, qr/error=(disconnected|reading)/, "disconn error log");
         $be = accept_backend($msrv);
     }
     print $ps "mg bar\r\n";
+    $be->close();
     # Block until we error and reconnect.
     is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "request cancelled");
     like(<$watcher>, qr/error=markedbadflap/, "got caught flapping");
 
     $be = accept_backend($msrv);
 
-    like(<$watcher>, qr/error=timeout/, "previous backend goes away");
+    like(<$watcher>, qr/error=(disconnected|reading)/, "previous backend goes away");
     like(<$watcher>, qr/error=markedbadflap/, "still considered flapping");
     check_version($ps);
 
@@ -132,13 +136,14 @@ $ps->autoflush(1);
     is(scalar <$ps>, "HD\r\n", "client still works");
 
     # Now wait and see if the next failure causes a flap or not.
-    sleep 3;
+    sleep 4;
 
     print $ps "mg bar\r\n";
+    $be->close();
     # Block until we error and reconnect.
     is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "request cancelled");
 
-    like(<$watcher>, qr/error=timeout/, "normal timeout error");
+    like(<$watcher>, qr/error=(disconnected|reading)/, "normal disconn error");
     # This will pause until readvalidate fails, so we can be sure a flap error
     # didn't follow the timeout error.
     unlike(<$watcher>, qr/error=markedbadflap/, "didn't flap again");
