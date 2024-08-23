@@ -35,7 +35,6 @@ subtest 'over-depth' => sub {
     }
     print $holder $todo;
     sleep 0.25; # ensure holder client is seen first
-    diag "foo";
     # We never look at the backend in this test.
     $t->c_send($cmd);
     $t->c_recv("SERVER_ERROR backend failure\r\n", 'depth limit reached');

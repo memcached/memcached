@@ -32,572 +32,435 @@ function mcp_config_pools(oldss)
 end
 
 -- WORKER CODE:
+function new_basic(zones, func)
+    local fgen = mcp.funcgen_new()
+    local o = { t = {}, c = 0 }
 
--- Using a very simple route handler only to allow testing the three
--- workarounds in the same configuration file.
-function prefix_factory(pattern, list, default)
-    local p = pattern
-    local l = list
-    local d = default
-    return function(r)
-        local route = l[string.match(r:key(), p)]
-        if route == nil then
-            return d(r)
-        end
-        return route(r)
-    end
-end
+    o.t.z1 = fgen:new_handle(zones.z1)
+    o.t.z2 = fgen:new_handle(zones.z2)
+    o.t.z3 = fgen:new_handle(zones.z3)
+    o.t.dead = fgen:new_handle(zones.dead)
+    o.t.no_label = fgen:new_handle(zones.no_label)
 
--- just for golfing the code in mcp_config_routes()
-function toproute_factory(pfx, label)
-    local err = "SERVER_ERROR no " .. label .. " route\r\n"
-    return prefix_factory("^/(%a+)/", pfx, function(r) return err end)
+    fgen:ready({ f = func, a = o})
+    return fgen
 end
 
 -- Do specialized testing based on the key prefix.
 function mcp_config_routes(zones)
-    local pfx_get = {}
-    local pfx_set = {}
-    local pfx_touch = {}
-    local pfx_gets = {}
-    local pfx_gat = {}
-    local pfx_gats = {}
-    local pfx_cas = {}
-    local pfx_add = {}
-    local pfx_delete = {}
-    local pfx_incr = {}
-    local pfx_decr = {}
-    local pfx_append = {}
-    local pfx_prepend = {}
-    local pfx_mg = {}
-    local pfx_ms = {}
-    local pfx_md = {}
-    local pfx_ma = {}
+    local map = {}
 
-    local basic = function(r)
-        return zones.z1(r)
-    end
-
-    pfx_get["b"] = basic
-    pfx_set["b"] = basic
-    pfx_touch["b"] = basic
-    pfx_gets["b"] = basic
-    pfx_gat["b"] = basic
-    pfx_gats["b"] = basic
-    pfx_cas["b"] = basic
-    pfx_add["b"] = basic
-    pfx_delete["b"] = basic
-    pfx_incr["b"] = basic
-    pfx_decr["b"] = basic
-    pfx_append["b"] = basic
-    pfx_prepend["b"] = basic
-    pfx_mg["b"] = basic
-    pfx_ms["b"] = basic
-    pfx_md["b"] = basic
-    pfx_ma["b"] = basic
-
-    pfx_get["errcheck"] = function(r)
-        local res = zones.z1(r)
-        -- expect an error
-        if res:ok() then
-            return "FAIL\r\n"
+    map.b = new_basic(zones, function(rctx, a)
+        return function(r)
+            return rctx:enqueue_and_wait(r, a.t.z1)
         end
-        if res:code() == mcp.MCMC_CODE_ERROR then
-            return "ERROR\r\n"
-        elseif res:code() == mcp.MCMC_CODE_CLIENT_ERROR then
-            return "CLIENT_ERROR\r\n"
-        elseif res:code() == mcp.MCMC_CODE_SERVER_ERROR then
-            return "SERVER_ERROR\r\n"
+    end)
+
+    map.errcheck = new_basic(zones, function(rctx, a)
+        return function(r)
+            local res = rctx:enqueue_and_wait(r, a.t.z1)
+            -- expect an error
+            if res:ok() then
+                return "FAIL\r\n"
+            end
+            if res:code() == mcp.MCMC_CODE_ERROR then
+                return "ERROR\r\n"
+            elseif res:code() == mcp.MCMC_CODE_CLIENT_ERROR then
+                return "CLIENT_ERROR\r\n"
+            elseif res:code() == mcp.MCMC_CODE_SERVER_ERROR then
+                return "SERVER_ERROR\r\n"
+            end
+            return "FAIL"
         end
-        return "FAIL"
-    end
+    end)
 
     -- show that we fetched the key by generating our own response string.
-    pfx_get["getkey"] = function(r)
-        return "VALUE |" .. r:key() .. " 0 2\r\nts\r\nEND\r\n"
-    end
-
-    pfx_get["rtrimkey"] = function(r)
-        r:rtrimkey(4)
-        return zones.z1(r)
-    end
-
-    pfx_get["ltrimkey"] = function(r)
-        r:ltrimkey(10)
-        return zones.z1(r)
-    end
-
-    pfx_get["nolabel"] = function(r)
-        return zones.no_label(r)
-    end
-
-    pfx_mg["ntokens"] = function(r)
-        return "VA 1 C123 v\r\n" .. r:ntokens() .. "\r\n"
-    end
-
-    pfx_mg["hasflag"] = function(r)
-        if r:has_flag("c") then
-            return "HD C123\r\n"
-        elseif r:has_flag("O") then
-            return "HD Oabc\r\n"
+    map.getkey = new_basic(zones, function(rctx, a)
+        return function(r)
+            return "VALUE |" .. r:key() .. " 0 2\r\nts\r\nEND\r\n"
         end
-        return "NF\r\n"
-    end
+    end)
+
+    map.rtrimkey = new_basic(zones, function(rctx, a)
+        return function(r)
+            r:rtrimkey(4)
+            return rctx:enqueue_and_wait(r, a.t.z1)
+        end
+    end)
+
+    map.ltrimkey = new_basic(zones, function(rctx, a)
+        return function(r)
+            r:ltrimkey(10)
+            return rctx:enqueue_and_wait(r, a.t.z1)
+        end
+    end)
+
+    map.nolabel = new_basic(zones, function(rctx, a)
+        return function(r)
+            return rctx:enqueue_and_wait(r, a.t.no_label)
+        end
+    end)
+
+    map.ntokens = new_basic(zones, function(rctx, a)
+        return function(r)
+            return "VA 1 C123 v\r\n" .. r:ntokens() .. "\r\n"
+        end
+    end)
+
+    map.hasflag = {
+        [mcp.CMD_MG] = new_basic(zones, function(rctx, a)
+            return function(r)
+                if r:has_flag("c") then
+                    return "HD C123\r\n"
+                elseif r:has_flag("O") then
+                    return "HD Oabc\r\n"
+                end
+                return "NF\r\n"
+            end
+        end),
+        [mcp.CMD_GET] = new_basic(zones, function(rctx, a)
+            return function(r)
+                if r:has_flag("F") then
+                    return "ERROR flag found\r\n"
+                end
+                return "END\r\n"
+            end
+        end)
+    }
 
     -- Input flags: N10 k c R10
     -- Output flags: N100 k R100
-    pfx_mg["flagtoken"] = function(r)
-        -- flag_token on non-existing flags: no effect
-        local Ttoken = r:flag_token("T", "T100")
-        local Otoken = r:flag_token("O", nil)
-        local vtoken = r:flag_token("v", "")
-        if vtoken or Otoken or Ttoken then
-            return "ERROR found non-existing flag.\r\n"
-        end
-
-        -- flag_token to replace: N10 -> N100
-        local found, Ntoken = r:flag_token("N", "N100")
-        if not found or Ntoken ~= "10" then
-            return "ERROR unexpected N token.\r\n"
-        end
-
-        -- flag_token with nil 2nd arg: equvalent to fetch
-        r:flag_token("k", nil)
-        if not r:has_flag("k") then
-            return "ERROR unexpected k token.\r\n"
-        end
-
-        -- flag_token with self 2nd arg: no effect
-        r:flag_token("c", "c")
-        if not r:has_flag("c") then
-            return "ERROR unexpected c token 1.\r\n"
-        end
-
-        -- flag_token with "" 2nd arg: remove
-        r:flag_token("c", "")
-        if r:has_flag("c") then
-            return "ERROR unexpected c token 2.\r\n"
-        end
-
-        -- repeated flag_token calls: new value is returned.
-        local _, Rtoken = r:flag_token("R", "R100")
-        if Rtoken ~= '10' then
-            return "ERROR unexpected R token 1.\r\n"
-        end
-        _, Rtoken = r:flag_token("R", "R100")
-        if Rtoken ~= '100' then
-            return "ERROR unexpected R token 2.\r\n"
-        end
-
-        return "HD\r\n"
-    end
-
-    pfx_ms["request"] = function(r)
-        local key = r:key()
-        local newReq = mcp.request("ms /request/edit 2\r\n", "ab\r\n")
-        return zones.z1(newReq)
-    end
-
-    pfx_mg["request"] = function(r)
-        local key = r:key()
-        if key == "/request/old" then
-            local newReq = mcp.request("mg /request/new c\r\n")
-            return zones.z1(newReq)
-        else
-            local res = zones.z1(r)
-            local newReq = mcp.request("ms /request/a " .. res:vlen() .. "\r\n", res)
-            return zones.z1(newReq)
-        end
-    end
-
-    pfx_get["response"] = function(r)
-        local res = zones.z1(r)
-        local key = r:key()
-        if key == "/response/hit" then
-            local hit = res:hit()
-            if hit then
-                return res
+    map.flagtoken = new_basic(zones, function(rctx, a)
+        return function(r)
+            -- flag_token on non-existing flags: no effect
+            local Ttoken = r:flag_token("T", "T100")
+            local Otoken = r:flag_token("O", nil)
+            local vtoken = r:flag_token("v", "")
+            if vtoken or Otoken or Ttoken then
+                return "ERROR found non-existing flag.\r\n"
             end
-            return "ERROR hit is false\r\n"
-        elseif key == "/response/not_hit" then
-            local hit = res:hit()
-            if not hit then
-                return "SERVER_ERROR\r\n"
-            end
-            return res
-        end
-        return "ERROR unhandled key\r\n"
-    end
 
-    pfx_mg["response"] = function(r)
-        local res = zones.z1(r)
-        local key = r:key()
-        if key == "/response/elapsed" then
-            local elapsed = res:elapsed()
-            if elapsed > 100000 then
-                return res
+            -- flag_token to replace: N10 -> N100
+            local found, Ntoken = r:flag_token("N", "N100")
+            if not found or Ntoken ~= "10" then
+                return "ERROR unexpected N token.\r\n"
             end
-            return "ERROR elapsed is invalid.\r\n"
-        elseif key == "/response/ok" then
-            local ok = res:ok()
-            if ok then
-                return res
+
+            -- flag_token with nil 2nd arg: equvalent to fetch
+            r:flag_token("k", nil)
+            if not r:has_flag("k") then
+                return "ERROR unexpected k token.\r\n"
             end
-            return "ERROR ok is false\r\n"
-        elseif key == "/response/not_ok" then
-            local ok = res:ok()
-            if not ok then
-                return "SERVER_ERROR\r\n"
+
+            -- flag_token with self 2nd arg: no effect
+            r:flag_token("c", "c")
+            if not r:has_flag("c") then
+                return "ERROR unexpected c token 1.\r\n"
             end
+
+            -- flag_token with "" 2nd arg: remove
+            r:flag_token("c", "")
+            if r:has_flag("c") then
+                return "ERROR unexpected c token 2.\r\n"
+            end
+
+            -- repeated flag_token calls: new value is returned.
+            local _, Rtoken = r:flag_token("R", "R100")
+            if Rtoken ~= '10' then
+                return "ERROR unexpected R token 1.\r\n"
+            end
+            _, Rtoken = r:flag_token("R", "R100")
+            if Rtoken ~= '100' then
+                return "ERROR unexpected R token 2.\r\n"
+            end
+
             return "HD\r\n"
-        elseif key == "/response/hit" then
-            local hit = res:hit()
-            if hit then
-                return res
-            end
-            return "ERROR hit is false\r\n"
-        elseif key == "/response/not_hit" then
-            local hit = res:hit()
-            if not hit then
-                return "SERVER_ERROR\r\n"
-            end
-            return "HD\r\n"
-        elseif key == "/response/vlen" then
-            local vlen = res:vlen()
-            if vlen == 1 then
-                return res
-            end
-            return "ERROR vlen is not 1\r\n"
-        elseif key == "/response/code_ok" then
-            local code = res:code()
-            if code == mcp.MCMC_CODE_OK then
-                return res
-            end
-            return "ERROR expect MCMC_CODE_OK, but got " .. code .. "\r\n"
-        elseif key == "/response/code_miss" then
-            local code = res:code()
-            if code == mcp.MCMC_CODE_END then
-                return res
-            end
-            return "ERROR expect MCMC_CODE_END, but got " .. code .. "\r\n"
-        elseif key == "/response/line" then
-            local line = res:line()
-            if line == "v c123" then
-                return res
-            end
-            return "ERROR unexpected line, got [" .. line .. "]\r\n"
-        elseif key == "/response/blank" then
-            res:flag_blank("O")
-            return res
         end
-        return "ERROR unhandled key\r\n"
-    end
+    end)
 
-    pfx_ms["response"] = function(r)
-        local key = r:key()
-        local res = zones.z1(r)
-        local code = res:code()
-
-        if key == "/response/code_ok" then
-            if code == mcp.MCMC_CODE_OK then
-                return res
+    map.request = {
+        [mcp.CMD_MS] = new_basic(zones, function(rctx, a)
+            return function(r)
+                local key = r:key()
+                local newReq = mcp.request("ms /request/edit 2\r\n", "ab\r\n")
+                return rctx:enqueue_and_wait(newReq, a.t.z1)
             end
-            return "ERROR expect MCMC_CODE_OK, but got " .. code .. "\r\n"
-        elseif key == "/response/line" then
-            local line = res:line()
-            if line == "O123 C123" then
-                return res
+        end),
+        [mcp.CMD_MG] = new_basic(zones, function(rctx, a)
+            return function(r)
+                local key = r:key()
+                if key == "/request/old" then
+                    local newReq = mcp.request("mg /request/new c\r\n")
+                    return rctx:enqueue_and_wait(newReq, a.t.z1)
+                else
+                    local res = rctx:enqueue_and_wait(r, a.t.z1)
+                    local newReq = mcp.request("ms /request/a " .. res:vlen() .. "\r\n", res)
+                    return rctx:enqueue_and_wait(newReq, a.t.z2)
+                end
             end
-            return "ERROR unexpected line, got [" .. line .. "]\r\n"
-        end
-        return "ERROR unhandled key\r\n"
-    end
+        end)
+    }
 
-    pfx_set["response"] = function(r)
-        local res = zones.z1(r)
-        local key = r:key()
-        if key == "/response/code_stored" then
-            local code = res:code()
-            if code == mcp.MCMC_CODE_STORED then
-                return res
+    map.response = {
+        [mcp.CMD_GET] = new_basic(zones, function(rctx, a)
+            return function(r)
+                local res = rctx:enqueue_and_wait(r, a.t.z1)
+                local key = r:key()
+                if key == "/response/hit" then
+                    local hit = res:hit()
+                    if hit then
+                        return res
+                    end
+                    return "ERROR hit is false\r\n"
+                elseif key == "/response/not_hit" then
+                    local hit = res:hit()
+                    if not hit then
+                        return "SERVER_ERROR\r\n"
+                    end
+                    return res
+                end
+                return "ERROR unhandled key\r\n"
+
             end
-            return "ERROR expect MCMC_CODE_STORED, but got " .. code .. "\r\n"
-        elseif key == "/response/code_exists" then
-            local code = res:code()
-            if code == mcp.MCMC_CODE_EXISTS then
-                return res
+        end),
+        [mcp.CMD_MG] = new_basic(zones, function(rctx, a)
+            return function(r)
+                local res = rctx:enqueue_and_wait(r, a.t.z1)
+                local key = r:key()
+                if key == "/response/elapsed" then
+                    local elapsed = res:elapsed()
+                    if elapsed > 100000 then
+                        return res
+                    end
+                    return "ERROR elapsed is invalid.\r\n"
+                elseif key == "/response/ok" then
+                    local ok = res:ok()
+                    if ok then
+                        return res
+                    end
+                    return "ERROR ok is false\r\n"
+                elseif key == "/response/not_ok" then
+                    local ok = res:ok()
+                    if not ok then
+                        return "SERVER_ERROR\r\n"
+                    end
+                    return "HD\r\n"
+                elseif key == "/response/hit" then
+                    local hit = res:hit()
+                    if hit then
+                        return res
+                    end
+                    return "ERROR hit is false\r\n"
+                elseif key == "/response/not_hit" then
+                    local hit = res:hit()
+                    if not hit then
+                        return "SERVER_ERROR\r\n"
+                    end
+                    return "HD\r\n"
+                elseif key == "/response/vlen" then
+                    local vlen = res:vlen()
+                    if vlen == 1 then
+                        return res
+                    end
+                    return "ERROR vlen is not 1\r\n"
+                elseif key == "/response/code_ok" then
+                    local code = res:code()
+                    if code == mcp.MCMC_CODE_OK then
+                        return res
+                    end
+                    return "ERROR expect MCMC_CODE_OK, but got " .. code .. "\r\n"
+                elseif key == "/response/code_miss" then
+                    local code = res:code()
+                    if code == mcp.MCMC_CODE_END then
+                        return res
+                    end
+                    return "ERROR expect MCMC_CODE_END, but got " .. code .. "\r\n"
+                elseif key == "/response/line" then
+                    local line = res:line()
+                    if line == "v c123" then
+                        return res
+                    end
+                    return "ERROR unexpected line, got [" .. line .. "]\r\n"
+                elseif key == "/response/blank" then
+                    res:flag_blank("O")
+                    return res
+                end
+                return "ERROR unhandled key\r\n"
+
             end
-            return "ERROR expect MCMC_CODE_EXISTS, but got " .. code .. "\r\n"
-        elseif key == "/response/code_not_stored" then
-            local code = res:code()
-            if code == mcp.MCMC_CODE_NOT_STORED then
-                return res
+        end),
+        [mcp.CMD_MS] = new_basic(zones, function(rctx, a)
+            return function(r)
+                local key = r:key()
+                local res = rctx:enqueue_and_wait(r, a.t.z1)
+                local code = res:code()
+
+                if key == "/response/code_ok" then
+                    if code == mcp.MCMC_CODE_OK then
+                        return res
+                    end
+                    return "ERROR expect MCMC_CODE_OK, but got " .. code .. "\r\n"
+                elseif key == "/response/line" then
+                    local line = res:line()
+                    if line == "O123 C123" then
+                        return res
+                    end
+                    return "ERROR unexpected line, got [" .. line .. "]\r\n"
+                end
+                return "ERROR unhandled key\r\n"
             end
-            return "ERROR expect MCMC_CODE_NOT_STORED, but got " .. code .. "\r\n"
-        elseif key == "/response/code_not_found" then
-            local code = res:code()
-            if code == mcp.MCMC_CODE_NOT_FOUND then
-                return res
+        end),
+        [mcp.CMD_SET] = new_basic(zones, function(rctx, a)
+            return function(r)
+                local res = rctx:enqueue_and_wait(r, a.t.z1)
+                local key = r:key()
+                if key == "/response/code_stored" then
+                    local code = res:code()
+                    if code == mcp.MCMC_CODE_STORED then
+                        return res
+                    end
+                    return "ERROR expect MCMC_CODE_STORED, but got " .. code .. "\r\n"
+                elseif key == "/response/code_exists" then
+                    local code = res:code()
+                    if code == mcp.MCMC_CODE_EXISTS then
+                        return res
+                    end
+                    return "ERROR expect MCMC_CODE_EXISTS, but got " .. code .. "\r\n"
+                elseif key == "/response/code_not_stored" then
+                    local code = res:code()
+                    if code == mcp.MCMC_CODE_NOT_STORED then
+                        return res
+                    end
+                    return "ERROR expect MCMC_CODE_NOT_STORED, but got " .. code .. "\r\n"
+                elseif key == "/response/code_not_found" then
+                    local code = res:code()
+                    if code == mcp.MCMC_CODE_NOT_FOUND then
+                        return res
+                    end
+                    return "ERROR expect MCMC_CODE_NOT_FOUND, but got " .. code .. "\r\n"
+                end
+                return "ERROR unhandled key\r\n"
             end
-            return "ERROR expect MCMC_CODE_NOT_FOUND, but got " .. code .. "\r\n"
-        end
-        return "ERROR unhandled key\r\n"
-    end
+        end),
+        [mcp.CMD_TOUCH] = new_basic(zones, function(rctx, a)
+            return function(r)
+                local res = rctx:enqueue_and_wait(r, a.t.z1)
+                local key = r:key()
+                local code = res:code()
+                if code == mcp.MCMC_CODE_TOUCHED then
+                    return res
+                end
+                return "ERROR expect MCMC_CODE_TOUCHED, but got " .. code .. "\r\n"
+            end
+        end),
+        [mcp.CMD_DELETE] = new_basic(zones, function(rctx, a)
+            return function(r)
+                local res = rctx:enqueue_and_wait(r, a.t.z1)
+                local key = r:key()
+                local code = res:code()
+                if code == mcp.MCMC_CODE_DELETED then
+                    return res
+                end
+                return "ERROR expect MCMC_CODE_DELETED, but got " .. code .. "\r\n"
+            end
+        end),
+    }
 
-    pfx_touch["response"] = function(r)
-        local res = zones.z1(r)
-        local key = r:key()
-        local code = res:code()
-        if code == mcp.MCMC_CODE_TOUCHED then
-            return res
+    map.token = new_basic(zones, function(rctx, a)
+        return function(r)
+            local key = r:key()
+            if key == "/token/replacement" then
+                r:token(4, "C456")
+            elseif key == "/token/removal" then
+                r:token(4, "")
+            else
+                local token = r:token(2)
+                r:flag_token("P", "P" .. token)
+            end
+            return rctx:enqueue_and_wait(r, a.t.z1)
         end
-        return "ERROR expect MCMC_CODE_TOUCHED, but got " .. code .. "\r\n"
-    end
+    end)
 
-    pfx_delete["response"] = function(r)
-        local res = zones.z1(r)
-        local key = r:key()
-        local code = res:code()
-        if code == mcp.MCMC_CODE_DELETED then
-            return res
+    map.zonetest = new_basic(zones, function(rctx, a)
+        return function(r)
+            local key = r:key()
+            if key == "/zonetest/a" then
+                return rctx:enqueue_and_wait(r, a.t.z1)
+            elseif key == "/zonetest/b" then
+                return rctx:enqueue_and_wait(r, a.t.z2)
+            elseif key == "/zonetest/c" then
+                return rctx:enqueue_and_wait(r, a.t.z3)
+            else
+                return "END\r\n"
+            end
         end
-        return "ERROR expect MCMC_CODE_DELETED, but got " .. code .. "\r\n"
-    end
+    end)
 
-    pfx_get["hasflag"] = function(r)
-        if r:has_flag("F") then
-            return "ERROR flag found\r\n"
-        end
-        return "END\r\n"
-    end
-
-    pfx_ms["token"] = function(r)
-        local key = r:key()
-        if key == "/token/replacement" then
-            r:token(4, "C456")
-            return zones.z1(r)
-        elseif key == "/token/removal" then
-            r:token(4, "")
-            return zones.z1(r)
-        else
-            local token = r:token(2)
-            r:flag_token("P", "P" .. token)
-            return zones.z1(r)
-        end
-    end
-
-    -- Basic test for routing requests to specific pools.
-    -- Not sure how this could possibly break but testing for completeness.
-    pfx_get["zonetest"] = function(r)
-        local key = r:key()
-        if key == "/zonetest/a" then
-            return zones.z1(r)
-        elseif key == "/zonetest/b" then
-            return zones.z2(r)
-        elseif key == "/zonetest/c" then
-            return zones.z3(r)
-        else
+    map.logtest = new_basic(zones, function(rctx, a)
+        return function(r)
+            mcp.log("testing manual log messages")
             return "END\r\n"
         end
-    end
+    end)
 
-    pfx_get["logtest"] = function(r)
-        mcp.log("testing manual log messages")
-        return "END\r\n"
-    end
+    map.logreqtest = new_basic(zones, function(rctx, a)
+        return function(r)
+            local res = rctx:enqueue_and_wait(r, a.t.z1)
+            mcp.log_req(r, res, "logreqtest")
+            return res
+        end
+    end)
 
-    pfx_get["logreqtest"] = function(r)
-        local res = zones.z1(r)
-        mcp.log_req(r, res, "logreqtest")
-        return res
-    end
+    map.logreqstest = new_basic(zones, function(rctx, a)
+        return function(r)
+            local res = rctx:enqueue_and_wait(r, a.t.z1)
+            mcp.log_reqsample(150, 0, true, r, res, "logsampletest")
+            return res
+        end
+    end)
 
-    pfx_get["logreqstest"] = function(r)
-        local res = zones.z1(r)
-        mcp.log_reqsample(150, 0, true, r, res, "logsampletest")
-        return res
-    end
+    map.sanity = new_basic(zones, function(rctx, a)
+        local z = {a.t.z1, a.t.z2, a.t.z3}
+        return function(r)
+            rctx:enqueue(r, z)
+            rctx:wait_cond(3)
+            return rctx:result(a.t.z3)
+        end
+    end)
 
-    -- tell caller what we got back via a fake response
-    pfx_get["awaitbasic"] = function(r)
-        local vals = {}
-        local rtable = mcp.await(r, { zones.z1, zones.z2, zones.z3 })
+    map.dead = new_basic(zones, function(rctx, a)
+        return function(r)
+            return rctx:enqueue_and_wait(r, a.t.dead)
+        end
+    end)
 
-        for i, res in pairs(rtable) do
-            if res:hit() == true then
-                vals[i] = "hit"
-            elseif res:ok() == true then
-                vals[i] = "ok"
-            else
-                vals[i] = "err"
+    map.deadrespcode = new_basic(zones, function(rctx, a)
+        return function(r)
+            local res = rctx:enqueue_and_wait(r, a.t.dead)
+            if res:code() == mcp.MCMC_CODE_SERVER_ERROR then
+             return "ERROR code_correct\r\n"
+            end
+            return "ERROR code_incorrect: " .. res:code() .. "\r\n"
+        end
+    end)
+
+    map.millis = new_basic(zones, function(rctx, a)
+        return function(r)
+            local time = mcp.time_real_millis()
+            return "HD t" .. time .. "\r\n"
+        end
+    end)
+
+    local def_fg = mcp.funcgen_new()
+    def_fg:ready({
+        f = function(rctx)
+            return function(r)
+                return "SERVER_ERROR no set route\r\n"
             end
         end
+    })
 
-        local val = table.concat(vals, " ")
-        local vlen = string.len(val)
-        -- convenience functions for creating responses would be nice :)
-        return "VALUE " .. r:key() .. " 0 " .. vlen .. "\r\n" .. val .. "\r\nEND\r\n"
-    end
-
-    pfx_get["awaitone"] = function(r)
-        local mode = string.sub(r:key(), -1, -1)
-        local num = 0
-        if mode == "a" then
-            num = 1
-        elseif mode == "b" then
-            num = 2
-        end
-        local rtable = mcp.await(r, { zones.z1, zones.z2, zones.z3 }, num)
-
-        local ok_cnt = 0
-        local hit_cnt = 0
-        local count = 0
-        for i, res in pairs(rtable) do
-            if res:ok() then
-                ok_cnt = ok_cnt + 1
-            end
-            if res:hit() then
-                hit_cnt = hit_cnt + 1
-            end
-            count = count + 1
-        end
-        local resp = count .. ":" .. ok_cnt .. ":" .. hit_cnt
-
-        local vlen = string.len(resp)
-        return "VALUE " .. r:key() .. " 0 " .. vlen .. "\r\n" .. resp .. "\r\nEND\r\n"
-    end
-
-    -- should be the same as awaitone
-    pfx_get["awaitgood"] = function(r)
-        local mode = string.sub(r:key(), -1, -1)
-        local num = 0
-        if mode == "a" then
-            num = 1
-        elseif mode == "b" then
-            num = 2
-        end
-        local rtable = mcp.await(r, { zones.z1, zones.z2, zones.z3 }, num, mcp.AWAIT_GOOD)
-
-        local ok_cnt = 0
-        local hit_cnt = 0
-        local count = 0
-        for i, res in pairs(rtable) do
-            if res:ok() then
-                ok_cnt = ok_cnt + 1
-            end
-            if res:hit() then
-                hit_cnt = hit_cnt + 1
-            end
-            count = count + 1
-        end
-        local resp = count .. ":" .. ok_cnt .. ":" .. hit_cnt
-
-        local vlen = string.len(resp)
-        return "VALUE " .. r:key() .. " 0 " .. vlen .. "\r\n" .. resp .. "\r\nEND\r\n"
-    end
-
-    -- not sure if anything else should be checked here? if err or not?
-    pfx_get["awaitany"] = function(r)
-        local rtable = mcp.await(r, { zones.z1, zones.z2, zones.z3 }, 2, mcp.AWAIT_ANY)
-        local count = 0
-        for i, res in pairs(rtable) do
-            count = count + 1
-        end
-
-        local vlen = string.len(count)
-        return "VALUE " .. r:key() .. " 0 " .. vlen .. "\r\n" .. count .. "\r\nEND\r\n"
-    end
-
-    pfx_get["awaitbg"] = function(r)
-        local rtable = mcp.await(r, { zones.z1, zones.z2, zones.z3 }, 1, mcp.AWAIT_BACKGROUND)
-        local count = 0
-        for i, res in pairs(rtable) do
-            count = count + 1
-        end
-
-        local vlen = string.len(count)
-        return "VALUE " .. r:key() .. " 0 " .. vlen .. "\r\n" .. count .. "\r\nEND\r\n"
-    end
-
-    pfx_set["awaitlogerr"] = function(r)
-        local rtable = mcp.await_logerrors(r, { zones.z1, zones.z2, zones.z3 }, 1, mcp.AWAIT_FASTGOOD, "write_failed")
-        return rtable[1]
-    end
-
-    -- testing different styles of building the table argument for mcp.await()
-    pfx_get["awaitfastgood"] = function(r)
-        local all_zones = { zones.z1, zones.z2, zones.z3 }
-
-        local restable = mcp.await(r, all_zones, 2, mcp.AWAIT_FASTGOOD)
-
-        local final_res = restable[1]
-        local count = 0
-        for _, res in pairs(restable) do
-            if res:hit() then
-                final_res = res
-            end
-            count = count + 1
-        end
-
-        return final_res
-    end
-
-    pfx_set["awaitfastgood"] = function(r)
-        local all_zones = { zones.z1, zones.z2, zones.z3 }
-
-        local restable = mcp.await(r, all_zones, 2)
-        local count = 0
-        local good_res = restable[1]
-        for _, res in pairs(restable) do
-            if res:ok() then
-                good_res = res
-            end
-            count = count + 1
-        end
-
-        print("Set Response count: " .. count)
-        return good_res
-    end
-
-    pfx_touch["sanity"] = function(r)
-        local rtable = mcp.await(r, { zones.z1, zones.z2, zones.z3 })
-        return rtable[3]
-    end
-
-    pfx_get["dead"] = function(r)
-        return zones.dead(r)
-    end
-
-   pfx_get["deadrespcode"] = function(r)
-       local res = zones.dead(r)
-
-       if res:code() == mcp.MCMC_CODE_SERVER_ERROR then
-         return "ERROR code_correct\r\n"
-       end
-       return "ERROR code_incorrect: " .. res:code() .. "\r\n"
-   end
-
-   pfx_mg["millis"] = function(r)
-        local time = mcp.time_real_millis()
-        return "HD t" .. time .. "\r\n"
-   end
-
-    mcp.attach(mcp.CMD_GET, toproute_factory(pfx_get, "get"))
-    mcp.attach(mcp.CMD_SET, toproute_factory(pfx_set, "set"))
-    mcp.attach(mcp.CMD_TOUCH, toproute_factory(pfx_touch, "touch"))
-    mcp.attach(mcp.CMD_GETS, toproute_factory(pfx_gets, "gets"))
-    mcp.attach(mcp.CMD_GAT, toproute_factory(pfx_gat, "gat"))
-    mcp.attach(mcp.CMD_GATS, toproute_factory(pfx_gats, "gats"))
-    mcp.attach(mcp.CMD_CAS, toproute_factory(pfx_cas, "cas"))
-    mcp.attach(mcp.CMD_ADD, toproute_factory(pfx_add, "add"))
-    mcp.attach(mcp.CMD_DELETE, toproute_factory(pfx_delete, "delete"))
-    mcp.attach(mcp.CMD_INCR, toproute_factory(pfx_incr, "incr"))
-    mcp.attach(mcp.CMD_DECR, toproute_factory(pfx_decr, "decr"))
-    mcp.attach(mcp.CMD_APPEND, toproute_factory(pfx_append, "append"))
-    mcp.attach(mcp.CMD_PREPEND, toproute_factory(pfx_prepend, "prepend"))
-    mcp.attach(mcp.CMD_MG, toproute_factory(pfx_mg, "mg"))
-    mcp.attach(mcp.CMD_MS, toproute_factory(pfx_ms, "ms"))
-    mcp.attach(mcp.CMD_MD, toproute_factory(pfx_md, "md"))
-    mcp.attach(mcp.CMD_MA, toproute_factory(pfx_ma, "ma"))
-
+    mcp.attach(mcp.CMD_ANY_STORAGE, mcp.router_new({
+    map = map, mode = "anchor", start = "/", stop = "/", default = def_fg
+    }))
 end

@@ -13,8 +13,17 @@ end
 
 function mcp_config_routes(p)
     if mode == "start" then
+        local fg = mcp.funcgen_new()
+        local h = fg:new_handle(p)
+        fg:ready({
+            f = function(rctx)
+                return function(r)
+                    return rctx:enqueue_and_wait(r, h)
+                end
+            end
+        })
         -- one without tag
-        mcp.attach(mcp.CMD_MG, function(r) return p(r) end)
+        mcp.attach(mcp.CMD_MG, fg)
         -- no listener on a
         mcp.attach(mcp.CMD_MG, function(r) return "SERVER_ERROR tag A\r\n" end, "a")
         -- listener on b

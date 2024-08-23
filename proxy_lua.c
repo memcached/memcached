@@ -985,30 +985,6 @@ mcp_backend_t *mcplib_pool_proxy_call_helper(mcp_pool_proxy_t *pp, const char *k
     return pp->pool[lookup].be;
 }
 
-// pool(request) -> yields the pool/request for further processing
-static int mcplib_pool_proxy_call(lua_State *L) {
-    mcp_pool_proxy_t *pp = luaL_checkudata(L, -2, "mcp.pool_proxy");
-    mcp_request_t *rq = luaL_checkudata(L, -1, "mcp.request");
-
-    // we have a fast path to the key/length.
-    if (!rq->pr.keytoken) {
-        proxy_lua_error(L, "cannot route commands without key");
-        return 0;
-    }
-    const char *key = MCP_PARSER_KEY(rq->pr);
-    size_t len = rq->pr.klen;
-    mcp_backend_t *be = mcplib_pool_proxy_call_helper(pp, key, len);
-    if (be == NULL) {
-        proxy_lua_error(L, "key dist hasher tried to use out of bounds index");
-        return 0;
-    }
-    lua_pushlightuserdata(L, be);
-
-    // now yield request, pool, backend, mode up.
-    lua_pushinteger(L, MCP_YIELD_POOL);
-    return lua_yield(L, 4);
-}
-
 static int mcplib_backend_use_iothread(lua_State *L) {
     luaL_checktype(L, -1, LUA_TBOOLEAN);
     int state = lua_toboolean(L, -1);
@@ -1527,12 +1503,6 @@ static void proxy_register_defines(lua_State *L) {
     X(P_OK);
     X(CMD_ANY);
     X(CMD_ANY_STORAGE);
-    X(AWAIT_GOOD);
-    X(AWAIT_ANY);
-    X(AWAIT_OK);
-    X(AWAIT_FIRST);
-    X(AWAIT_FASTGOOD);
-    X(AWAIT_BACKGROUND);
     Y(QWAIT_ANY, "WAIT_ANY");
     Y(QWAIT_OK, "WAIT_OK");
     Y(QWAIT_GOOD, "WAIT_GOOD");
@@ -1641,7 +1611,6 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
     };
 
     const struct luaL_Reg mcplib_pool_proxy_m[] = {
-        {"__call", mcplib_pool_proxy_call},
         {"__gc", mcplib_pool_proxy_gc},
         {NULL, NULL}
     };
@@ -1732,8 +1701,6 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"attach", mcplib_attach},
         {"funcgen_new", mcplib_funcgen_new},
         {"router_new", mcplib_router_new},
-        {"await", mcplib_await},
-        {"await_logerrors", mcplib_await_logerrors},
         {"log", mcplib_log},
         {"log_req", mcplib_log_req},
         {"log_reqsample", mcplib_log_reqsample},

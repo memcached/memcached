@@ -11,7 +11,8 @@ end
 
 -- not making requests, just opening/closing backends
 function mcp_config_routes(p)
-    pool = p -- stash this in a global.
+    fg = mcp.funcgen_new() -- stash in global
+    fg:new_handle(p) -- lock the pool from collection
     mcp.attach(mcp.CMD_MG, function(r)
         return "SERVER_ERROR nothing\r\n"
     end)

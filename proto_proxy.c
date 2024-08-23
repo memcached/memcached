@@ -503,15 +503,15 @@ void proxy_submit_cb(io_queue_t *q) {
         mcp_backend_t *be;
         P_DEBUG("%s: queueing req for backend: %p\n", __func__, (void *)p);
         if (p->qcount_incr) {
-            // funny workaround: awaiting IOP's don't count toward
-            // resuming a connection, only the completion of the await
+            // funny workaround: async IOP's don't count toward
+            // resuming a connection, only the completion of the async
             // condition.
             q->count++;
         }
 
-        if (p->await_background) {
-            P_DEBUG("%s: fast-returning await_background object: %p\n", __func__, (void *)p);
-            // intercept await backgrounds
+        if (p->background) {
+            P_DEBUG("%s: fast-returning background object: %p\n", __func__, (void *)p);
+            // intercept background requests
             // this call cannot recurse if we're on the worker thread,
             // since the worker thread has to finish executing this
             // function in order to pick up the returned IO.
@@ -577,8 +577,8 @@ void proxy_submit_cb(io_queue_t *q) {
     return;
 }
 
-// This function handles return processing for the "old style" API: direct
-// pool calls and mcp.await()
+// This function handles return processing for the "old style" API:
+// currently just `mcp.internal()`
 void proxy_return_rctx_cb(io_pending_t *pending) {
     io_pending_proxy_t *p = (io_pending_proxy_t *)pending;
     if (p->client_resp && p->client_resp->blen) {
@@ -586,17 +586,6 @@ void proxy_return_rctx_cb(io_pending_t *pending) {
         // can't run 0 since that means something special (run the GC)
         unsigned int kb = p->client_resp->blen / 1000;
         p->thread->proxy_vm_extra_kb += kb > 0 ? kb : 1;
-    }
-
-    if (p->is_await) {
-        p->rctx->async_pending--;
-        mcplib_await_return(p);
-        // need to directly attempt to return the context,
-        // we may or may not be hitting proxy_run_rcontext from await_return.
-        if (p->rctx->async_pending == 0) {
-            mcp_funcgen_return_rctx(p->rctx);
-        }
-        return;
     }
 
     mcp_rcontext_t *rctx = p->rctx;
@@ -879,10 +868,6 @@ static void _proxy_run_tresp_to_resp(mc_resp *tresp, mc_resp *resp) {
 // - need to only increment q->count once per stack of requests coming from a
 //   resp.
 //
-// There are workarounds for this all over. In the await code, we test for
-// "the first await object" or "is an await background object", for
-// incrementing the q->count
-// For pool-backed requests we always increment in submit
 // For RQU backed requests (new API) there isn't an easy place to test for
 // "the first request", because:
 // - The connection queue is a stack of _all_ requests pending on this
@@ -967,25 +952,7 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
         lua_pop(Lc, 1);
 
         int res = 0;
-        mcp_request_t *rq = NULL;
-        mcp_backend_t *be = NULL;
-        mcp_resp_t *r = NULL;
         switch (yield_type) {
-            case MCP_YIELD_AWAIT:
-                // called with await context on the stack.
-                rctx->first_queue = false; // HACK: ensure awaits are counted.
-                mcplib_await_run_rctx(rctx);
-                break;
-            case MCP_YIELD_POOL:
-                // TODO (v2): c only used for cache alloc?
-                // pool_call checks the argument already.
-                be = lua_touserdata(Lc, -1);
-                rq = lua_touserdata(Lc, -2);
-                // not using a pre-made res object from this yield type.
-                r = mcp_prep_resobj(Lc, rq, be, c->thread);
-                rctx->first_queue = false; // HACK: ensure poolreqs are counted.
-                mcp_queue_rctx_io(rctx, rq, be, r);
-                break;
             case MCP_YIELD_INTERNAL:
                 // stack should be: rq, res
                 if (rctx->parent) {
@@ -1367,7 +1334,7 @@ io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, m
     p->c = c;
     p->client_resp = r;
     p->flushed = false;
-    p->return_cb = proxy_return_rctx_cb;
+    p->return_cb = NULL;
     p->finalize_cb = proxy_finalize_rctx_cb;
 
     // pass along the request context for resumption.

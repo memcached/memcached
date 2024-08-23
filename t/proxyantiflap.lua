@@ -22,5 +22,14 @@ function mcp_config_pools()
 end
 
 function mcp_config_routes(pool)
-    mcp.attach(mcp.CMD_MG, function(r) return pool(r) end)
+    local fg = mcp.funcgen_new()
+    local handle = fg:new_handle(pool)
+    fg:ready({
+        f = function(rctx)
+            return function(r)
+                return rctx:enqueue_and_wait(r, handle)
+            end
+        end
+    })
+    mcp.attach(mcp.CMD_MG, fg)
 end

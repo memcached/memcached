@@ -36,7 +36,7 @@ is(<$w>, "OK\r\n");
 }
 
 sub test_mgintres {
-    'note testing mcp.internal()';
+    note 'testing mcp.internal()';
     $t->c_send("ms intres/tokenint 5 F5\r\n");
     $t->c_send("hello\r\n");
     $t->c_recv("HD\r\n");

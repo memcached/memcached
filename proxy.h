@@ -100,12 +100,10 @@ struct mcp_memprofile {
 
 #define MCP_BACKEND_UPVALUE 1
 
-#define MCP_YIELD_POOL 1
-#define MCP_YIELD_AWAIT 2
-#define MCP_YIELD_INTERNAL 3
-#define MCP_YIELD_WAITCOND 4
-#define MCP_YIELD_WAITHANDLE 5
-#define MCP_YIELD_SLEEP 6
+#define MCP_YIELD_INTERNAL 1
+#define MCP_YIELD_WAITCOND 2
+#define MCP_YIELD_WAITHANDLE 3
+#define MCP_YIELD_SLEEP 4
 
 #define SHAREDVM_FGEN_IDX 1
 #define SHAREDVM_FGENSLOT_IDX 2
@@ -547,13 +545,9 @@ struct _io_pending_proxy_t {
             struct iovec iov[2]; // request string + tail buffer
             int iovcnt; // 1 or 2...
             unsigned int iovbytes; // total bytes in the iovec
-            int mcpres_ref; // mcp.res reference used for await()
-            int await_ref; // lua reference if we were an await object
             mcp_resp_t *client_resp; // reference (currently pointing to a lua object)
             bool flushed; // whether we've fully written this request to a backend.
-            bool is_await; // are we an await object?
-            bool await_first; // are we the main route for an await object?
-            bool await_background; // dummy IO for backgrounded awaits
+            bool background; // dummy IO for backgrounded awaits
             bool qcount_incr; // HACK.
         };
     };
@@ -615,20 +609,6 @@ mcp_resp_t *mcp_prep_resobj(lua_State *L, mcp_request_t *rq, mcp_backend_t *be, 
 mcp_resp_t *mcp_prep_bare_resobj(lua_State *L, LIBEVENT_THREAD *t);
 void mcp_resp_set_elapsed(mcp_resp_t *r);
 io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, mcp_backend_t *be, mcp_resp_t *r);
-
-// await interface
-enum mcp_await_e {
-    AWAIT_GOOD = 0, // looks for OK + NOT MISS
-    AWAIT_ANY, // any response, including errors,
-    AWAIT_OK, // any non-error response
-    AWAIT_FIRST, // return the result from the first pool
-    AWAIT_FASTGOOD, // returns on first hit or majority non-error
-    AWAIT_BACKGROUND, // returns as soon as background jobs are dispatched
-};
-int mcplib_await(lua_State *L);
-int mcplib_await_logerrors(lua_State *L);
-int mcplib_await_run_rctx(mcp_rcontext_t *rctx);
-int mcplib_await_return(io_pending_proxy_t *p);
 
 // internal request interface
 int mcplib_internal(lua_State *L);

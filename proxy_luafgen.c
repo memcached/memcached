@@ -836,7 +836,7 @@ static void _mcp_start_rctx_process_error(mcp_rcontext_t *rctx, struct mcp_rqueu
     io_pending_proxy_t *p = mcp_queue_rctx_io(rctx->parent, NULL, NULL, r);
     p->return_cb = proxy_return_rqu_cb;
     p->queue_handle = rctx->parent_handle;
-    p->await_background = true;
+    p->background = true;
 }
 
 static void mcp_start_subrctx(mcp_rcontext_t *rctx) {
@@ -855,7 +855,7 @@ static void mcp_start_subrctx(mcp_rcontext_t *rctx) {
             p->queue_handle = rctx->parent_handle;
             // TODO: change name of property to fast-return once mcp.await is
             // retired.
-            p->await_background = true;
+            p->background = true;
         } else if (type == LUA_TSTRING) {
             // TODO: wrap with a resobj and parse it.
             // for now we bypass the rqueue process handling
@@ -867,7 +867,7 @@ static void mcp_start_subrctx(mcp_rcontext_t *rctx) {
             io_pending_proxy_t *p = mcp_queue_rctx_io(rctx->parent, NULL, NULL, NULL);
             p->return_cb = proxy_return_rqu_cb;
             p->queue_handle = rctx->parent_handle;
-            p->await_background = true;
+            p->background = true;
         } else {
             // generate a generic object with an error.
             _mcp_start_rctx_process_error(rctx, rqu);
@@ -1218,7 +1218,7 @@ int mcplib_rcontext_wait_cond(lua_State *L) {
     if (rctx->wait_count == 0) {
         io_pending_proxy_t *p = mcp_queue_rctx_io(rctx, NULL, NULL, NULL);
         p->return_cb = proxy_return_rqu_dummy_cb;
-        p->await_background = true;
+        p->background = true;
         rctx->pending_reqs++;
         rctx->wait_mode = QWAIT_IDLE; // not actually waiting.
     } else if (argc > 3) {

@@ -79,7 +79,17 @@ function mcp_config_routes(zones)
         mcp.attach(mcp.CMD_MG, function(r) return "SERVER_ERROR no mg route\r\n" end)
         mcp.attach(mcp.CMD_MS, function(r) return "SERVER_ERROR no ms route\r\n" end)
     else
-        mcp.attach(mcp.CMD_MG, function(r) return zones["test"](r) end)
-        mcp.attach(mcp.CMD_MS, function(r) return zones["test"](r) end)
+        local fg = mcp.funcgen_new()
+        local h = fg:new_handle(zones["test"])
+        fg:ready({
+            f = function(rctx)
+                return function(r)
+                    return rctx:enqueue_and_wait(r, h)
+                end
+            end
+        })
+
+        mcp.attach(mcp.CMD_MG, fg)
+        mcp.attach(mcp.CMD_MS, fg)
     end
 end
