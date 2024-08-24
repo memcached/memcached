@@ -743,6 +743,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->io_queues_submitted = 0;
 
     c->item = 0;
+    c->ssl = NULL;
 
     c->noreply = false;
 

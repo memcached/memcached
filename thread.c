@@ -631,6 +631,7 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
                         }
                         if (item->ssl) {
                             ssl_conn_close(item->ssl);
+                            item->ssl = NULL;
                         }
                         close(item->sfd);
                     }

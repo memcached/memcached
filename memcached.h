@@ -835,8 +835,8 @@ struct conn {
     bool rbuf_malloced; /** read buffer was malloc'ed for ascii mget, needs free() */
     bool item_malloced; /** item for conn_nread state is a temporary malloc */
     uint8_t ssl_enabled;
-#ifdef TLS
     void    *ssl;
+#ifdef TLS
     char   *ssl_wbuf;
 #endif
     enum conn_states  state;
