@@ -367,12 +367,7 @@ void ssl_init_conn(conn *c, void *ssl_in) {
         c->read = ssl_read;
         c->sendmsg = ssl_sendmsg;
         c->write = ssl_write;
-        c->ssl_enabled = true;
         SSL_set_info_callback(c->ssl, ssl_callback);
-    } else {
-        c->ssl = NULL;
-        c->ssl_wbuf = NULL;
-        c->ssl_enabled = false;
     }
 }
 

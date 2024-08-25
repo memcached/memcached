@@ -744,6 +744,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     c->item = 0;
     c->ssl = NULL;
+    c->ssl_wbuf = NULL;
 
     c->noreply = false;
 
@@ -751,10 +752,12 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         // musn't get here without ssl enabled.
         assert(settings.ssl_enabled);
         ssl_init_conn(c, ssl);
+        c->ssl_enabled = true;
     } else {
         c->read = tcp_read;
         c->sendmsg = tcp_sendmsg;
         c->write = tcp_write;
+        c->ssl_enabled = false;
     }
 
     if (IS_UDP(transport)) {
