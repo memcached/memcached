@@ -1581,7 +1581,7 @@ slab_automove_reg_t slab_automove_extstore = {
 #endif
 static pthread_t lru_maintainer_tid;
 
-#define MAX_LRU_MAINTAINER_SLEEP 1000000
+#define MAX_LRU_MAINTAINER_SLEEP (1000000-1)
 #define MIN_LRU_MAINTAINER_SLEEP 1000
 
 static void *lru_maintainer_thread(void *arg) {

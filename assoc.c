@@ -233,7 +233,7 @@ static void *assoc_maintenance_thread(void *arg) {
                     }
 
             } else {
-                usleep(10*1000);
+                usleep(10*1000 - 1);
             }
 
             if (item_lock) {
