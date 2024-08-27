@@ -744,7 +744,9 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     c->item = 0;
     c->ssl = NULL;
+#ifdef TLS
     c->ssl_wbuf = NULL;
+#endif
 
     c->noreply = false;
 
