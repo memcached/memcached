@@ -354,6 +354,7 @@ void *proxy_init(bool use_uring, bool proxy_memprofile) {
     proxy_ctx_t *ctx = calloc(1, sizeof(proxy_ctx_t));
     ctx->use_uring = use_uring;
     ctx->memprofile = proxy_memprofile;
+    crc32c_init();
 
     pthread_mutex_init(&ctx->config_lock, NULL);
     pthread_cond_init(&ctx->config_cond, NULL);

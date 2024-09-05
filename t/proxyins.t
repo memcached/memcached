@@ -30,9 +30,18 @@ print $w "watch proxyevents\r\n";
 is(<$w>, "OK\r\n");
 
 {
+    test_msreq();
     test_mgintres();
-    #test_mgreq();
-    #test_mgres();
+    test_mgreq();
+    test_mgres();
+}
+
+sub test_msreq {
+    note 'testing ms req';
+    subtest 'valcrc' => sub {
+        $t->c_send("ms all/valcrc 5\r\nhello\r\n");
+        $t->c_recv("SERVER_ERROR crc[2591144780]\r\n");
+    }
 }
 
 sub test_mgintres {

@@ -146,11 +146,41 @@ function mcp_config_routes(p)
         end
     })
 
+    local msvalcrc_ins = mcp.req_inspector_new(
+        { t = "valcrc" }
+    )
+
+    local msfg = mcp.funcgen_new()
+    msfg:ready({
+        n = "msfg", f = function(rctx)
+            return function(r)
+                -- only one test right now.
+                local crc = msvalcrc_ins(r)
+                return string.format("SERVER_ERROR crc[%q]\r\n", crc)
+            end
+        end
+    })
+
+    local msint = mcp.funcgen_new()
+    msint:ready({
+        n = "msint", f = function(rctx)
+            return function(r)
+                return mcp.internal(r)
+            end
+        end
+    })
+
     local mgr = mcp.router_new({ map = {
         sepkey = mgsepkey,
         reshasf = mgreshasf,
         reqkey = mgreqkey,
         intres = mgintres,
     }})
+
+    local msr = mcp.router_new({ map = {
+        all = msfg,
+        intres = msint,
+    }})
     mcp.attach(mcp.CMD_MG, mgr)
+    mcp.attach(mcp.CMD_MS, msr)
 end
