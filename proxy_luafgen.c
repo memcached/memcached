@@ -374,6 +374,7 @@ void mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
         }
         return;
     }
+    WSTAT_DECR(rctx->fgen->thread, proxy_req_active, 1);
     _mcp_funcgen_return_rctx(rctx);
     _mcplib_funcgen_cache(fgen, rctx);
 }
@@ -441,7 +442,7 @@ mcp_rcontext_t *mcp_funcgen_start(lua_State *L, mcp_funcgen_t *fgen, mcp_parser_
 
     // TODO: could probably move a few more lines from proto_proxy into here,
     // but that's splitting hairs.
-
+    WSTAT_INCR(fgen->thread, proxy_req_active, 1);
     return rctx;
 }
 

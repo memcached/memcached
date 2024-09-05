@@ -691,14 +691,12 @@ int try_read_command_proxy(conn *c) {
 // Must only be called with an active coroutine.
 void proxy_cleanup_conn(conn *c) {
     assert(c->proxy_rctx);
-    LIBEVENT_THREAD *thr = c->thread;
     mcp_rcontext_t *rctx = c->proxy_rctx;
     assert(rctx->pending_reqs == 1);
     rctx->pending_reqs = 0;
 
     mcp_funcgen_return_rctx(rctx);
     c->proxy_rctx = NULL;
-    WSTAT_DECR(thr, proxy_req_active, 1);
 }
 
 // we buffered a SET of some kind.
@@ -899,13 +897,11 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
     int cores = lua_resume(Lc, NULL, rctx->lua_narg, &nresults);
     rctx->lua_narg = 1; // reset to default since not-default is uncommon.
     size_t rlen = 0;
-    conn *c = rctx->c;
     mc_resp *resp = rctx->resp;
 
     if (cores == LUA_OK) {
         // don't touch the result object if we were a sub-context.
         if (!rctx->parent) {
-            WSTAT_DECR(c->thread, proxy_req_active, 1);
             int type = lua_type(Lc, 1);
             mcp_resp_t *r = NULL;
             P_DEBUG("%s: coroutine completed. return type: %d\n", __func__, type);
@@ -915,7 +911,6 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
                     proxy_out_errstring(resp, PROXY_SERVER_ERROR, "backend failure");
                 } else if (r->cresp) {
                     mc_resp *tresp = r->cresp;
-                    assert(c != NULL);
 
                     _proxy_run_tresp_to_resp(tresp, resp);
                     // we let the mcp_resp gc handler free up tresp and any
@@ -994,7 +989,6 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
         P_DEBUG("%s: Failed to run coroutine: %s\n", __func__, lua_tostring(Lc, -1));
         LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_ERROR, NULL, lua_tostring(Lc, -1));
         if (!rctx->parent) {
-            WSTAT_DECR(c->thread, proxy_req_active, 1);
             proxy_out_errstring(resp, PROXY_SERVER_ERROR, "lua failure");
         }
         rctx->pending_reqs--;
@@ -1160,13 +1154,11 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     WSTAT_L(c->thread);
     istats->counters[pr.command]++;
     c->thread->stats.proxy_conn_requests++;
-    c->thread->stats.proxy_req_active++;
     active_reqs = c->thread->stats.proxy_req_active;
     WSTAT_UL(c->thread);
 
-    if (active_reqs > ctx->active_req_limit) {
+    if (active_reqs >= ctx->active_req_limit) {
         proxy_out_errstring(c->resp, PROXY_SERVER_ERROR, "active request limit reached");
-        WSTAT_DECR(c->thread, proxy_req_active, 1);
         if (pr.vlen != 0) {
             c->sbytes = pr.vlen;
             conn_set_state(c, conn_swallow);
@@ -1178,7 +1170,6 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     mcp_rcontext_t *rctx = mcp_funcgen_start(L, hook_ref.ctx, &pr);
     if (rctx == NULL) {
         proxy_out_errstring(c->resp, PROXY_SERVER_ERROR, "lua start failure");
-        WSTAT_DECR(c->thread, proxy_req_active, 1);
         if (pr.vlen != 0) {
             c->sbytes = pr.vlen;
             conn_set_state(c, conn_swallow);
@@ -1218,7 +1209,6 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
             // normal cleanup
             lua_settop(L, 0);
             proxy_out_errstring(c->resp, PROXY_SERVER_ERROR, "out of memory");
-            WSTAT_DECR(c->thread, proxy_req_active, 1);
             c->sbytes = pr.vlen;
             conn_set_state(c, conn_swallow);
             return;
