@@ -82,14 +82,14 @@ void *ssl_accept(conn *c, int sfd, bool *fail) {
                 // SYSCALL specifically means we need to check errno/strerror.
                 // Else we need to look at the main error stack.
                 if (err == SSL_ERROR_SYSCALL) {
-                    LOGGER_LOG(c->thread->l, LOG_CONNEVENTS, LOGGER_CONNECTION_TLSERROR,
+                    LOGGER_LOG(NULL, LOG_CONNEVENTS, LOGGER_CONNECTION_TLSERROR,
                             NULL, c->sfd, strerror(errno));
                 } else {
                     char ssl_err[SSL_ERROR_MSG_SIZE];
                     // OpenSSL internal error. One or more, but lets only care about
                     // the top error for now.
                     print_ssl_error(ssl_err, SSL_ERROR_MSG_SIZE);
-                    LOGGER_LOG(c->thread->l, LOG_CONNEVENTS, LOGGER_CONNECTION_TLSERROR,
+                    LOGGER_LOG(NULL, LOG_CONNEVENTS, LOGGER_CONNECTION_TLSERROR,
                             NULL, c->sfd, ssl_err);
                 }
                 ERR_clear_error();

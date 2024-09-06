@@ -5947,6 +5947,7 @@ int main (int argc, char **argv) {
     /* initialize other stuff */
     stats_init();
     logger_init();
+    logger_create(); // main process logger
     conn_init();
     bool reuse_mem = false;
     void *mem_base = NULL;
