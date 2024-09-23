@@ -864,4 +864,6 @@ int mcplib_open_hash_xxhash(lua_State *L);
 
 __attribute__((unused)) void dump_stack(lua_State *L, const char *msg);
 __attribute__((unused)) void dump_registry(lua_State *L, const char *msg);
+__attribute__((unused)) void dump_funcgen(lua_State *L, const char *name, const char *msg);
+__attribute__((unused)) void dump_pools(lua_State *L, const char *msg);
 #endif

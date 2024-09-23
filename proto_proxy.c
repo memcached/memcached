@@ -1526,11 +1526,15 @@ __attribute__((unused)) void dump_stack(lua_State *L, const char *msg) {
     fprintf(stderr, "--TOP OF STACK [%d] | %s\n", top, msg);
     for (; i < top + 1; i++) {
         int type = lua_type(L, i);
+        void *udata = NULL;
         // lets find the metatable of this userdata to identify it.
         if (lua_getmetatable(L, i) != 0) {
             lua_pushstring(L, "__name");
             if (lua_rawget(L, -2) != LUA_TNIL) {
-                fprintf(stderr, "--|%d| [%s] (%s)\n", i, lua_typename(L, type), lua_tostring(L, -1));
+                if (type == LUA_TUSERDATA) {
+                    udata = lua_touserdata(L, i);
+                }
+                fprintf(stderr, "--|%d| [%s] (%s) [ptr: %p]\n", i, lua_typename(L, type), lua_tostring(L, -1), udata);
                 lua_pop(L, 2);
                 continue;
             }
@@ -1539,7 +1543,10 @@ __attribute__((unused)) void dump_stack(lua_State *L, const char *msg) {
         if (type == LUA_TSTRING) {
             fprintf(stderr, "--|%d| [%s] | %s\n", i, lua_typename(L, type), lua_tostring(L, i));
         } else {
-            fprintf(stderr, "--|%d| [%s]\n", i, lua_typename(L, type));
+            if (type == LUA_TUSERDATA) {
+                udata = lua_touserdata(L, i);
+            }
+            fprintf(stderr, "--|%d| [%s] [ptr: %p]\n", i, lua_typename(L, type), udata);
         }
     }
     fprintf(stderr, "-----------------\n");
@@ -1583,4 +1590,86 @@ __attribute__((unused)) void dump_registry(lua_State *L, const char *msg) {
     fprintf(stderr, "### FUNCTION\t[%d]\n", function );
     fprintf(stderr, "### TABLE\t[%d]\n", table);
     fprintf(stderr, "-----------------\n");
+}
+
+// Searches for a function generator with a specific name attached.
+// Adding breakpoints on the print lines lets you inspect the fgen and its
+// slots.
+__attribute__((unused)) void dump_funcgen(lua_State *L, const char *name, const char *msg) {
+    int ref_size = lua_rawlen(L, LUA_REGISTRYINDEX);
+    fprintf(stderr, "--LUA FUNCGEN FINDER [%d] | %s\n", ref_size, msg);
+    // walk registry
+    int ridx = lua_absindex(L, LUA_REGISTRYINDEX);
+    lua_pushnil(L);
+    while (lua_next(L, ridx) != 0) {
+        int type = lua_type(L, -1);
+        if (type == LUA_TUSERDATA) {
+            mcp_funcgen_t *f = luaL_testudata(L, -1, "mcp.funcgen");
+            if (f != NULL && strcmp(name, f->name) == 0) {
+                fprintf(stderr, "===found funcgen [%s] [%p]===\n", f->name, (void *)f);
+                lua_getiuservalue(L, -1, 1);
+                int tidx = lua_absindex(L, -1);
+                lua_pushnil(L);
+                while (lua_next(L, tidx) != 0) {
+                    mcp_rcontext_t *rctx = lua_touserdata(L, -1);
+                    if (rctx != NULL) {
+                        fprintf(stderr, "-- slot: [%p]\n", (void *)rctx);
+                    }
+                    lua_pop(L, 1); // drop value
+                }
+                lua_pop(L, 1); // drop slot table
+            }
+        }
+        lua_pop(L, 1); // drop value
+    }
+    fprintf(stderr, "-----------------\n");
+}
+
+static void dump_pool_info(mcp_pool_t *p) {
+    fprintf(stderr, "--pool: [%s] size: [%d] be_total: [%d] rc: [%d] io: [%d]\n",
+            p->beprefix, p->pool_size, p->pool_be_total, p->g.refcount, p->use_iothread);
+
+    for (int x = 0; x < p->pool_be_total; x++) {
+        mcp_backend_t *be = p->pool[x].be;
+        // Dumb: pool_be_total is wrong if pool is using iothread. Why?
+        if (be != NULL) {
+            fprintf(stderr, "  --be[%d] label: [%s] name: [%s] conns: [%d] depth: [%d]\n",
+                    x, be->label, be->name, be->conncount, be->depth);
+            for (int i = 0; i < be->conncount; i++) {
+                struct mcp_backendconn_s *bec = &be->be[i];
+                fprintf(stderr, "    --bec[%d] bad: [%d] failcnt: [%d] depth: [%d] state: [%d] can_write[%d] write_event[%d]\n",
+                        i, bec->bad, bec->failed_count, bec->depth, bec->state, bec->can_write, event_pending(&bec->timeout_event, EV_WRITE, NULL));
+            }
+        }
+    }
+    fprintf(stderr, "=======\n");
+}
+
+// Dumps some info about pools.
+// If given the config thread, it should find the main pools
+// If given a worker thread, it will look for the pool proxy objects and find
+// the main pools that way.
+__attribute__((unused)) void dump_pools(lua_State *L, const char *msg) {
+    int ref_size = lua_rawlen(L, LUA_REGISTRYINDEX);
+    fprintf(stderr, "--LUA POOL DUMPER [%d] | %s\n", ref_size, msg);
+    // walk registry
+    int ridx = lua_absindex(L, LUA_REGISTRYINDEX);
+    lua_pushnil(L);
+    while (lua_next(L, ridx) != 0) {
+        int type = lua_type(L, -1);
+        if (type == LUA_TUSERDATA) {
+            mcp_pool_t *p = luaL_testudata(L, -1, "mcp.pool");
+            if (p != NULL) {
+                dump_pool_info(p);
+            } else {
+                mcp_pool_proxy_t *pp = luaL_testudata(L, -1, "mcp.pool_proxy");
+                if (pp != NULL) {
+                    dump_pool_info(pp->main);
+                }
+            }
+        }
+        lua_pop(L, 1); // drop value
+    }
+    fprintf(stderr, "-----------------\n");
+
 }
