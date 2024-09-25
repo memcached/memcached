@@ -14,6 +14,7 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <event.h>
+#include <event2/thread.h>
 #include <netdb.h>
 #include <pthread.h>
 #include <unistd.h>

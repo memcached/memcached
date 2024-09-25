@@ -5901,6 +5901,8 @@ int main (int argc, char **argv) {
     }
 
     /* initialize main thread libevent instance */
+    evthread_use_pthreads();
+    event_enable_debug_mode();
 #if defined(LIBEVENT_VERSION_NUMBER) && LIBEVENT_VERSION_NUMBER >= 0x02000101
     /* If libevent version is larger/equal to 2.0.2-alpha, use newer version */
     struct event_config *ev_config;
