@@ -545,9 +545,6 @@ void conn_worker_readd(conn *c) {
 
     switch (c->state) {
         case conn_closing:
-            // might be fixable: only need to do this because we can't do
-            // event_del() without the event being armed.
-            _conn_event_readd(c);
             drive_machine(c);
             break;
         case conn_io_pending:
@@ -561,6 +558,7 @@ void conn_worker_readd(conn *c) {
             drive_machine(c);
             break;
         default:
+            event_del(&c->event);
             _conn_event_readd(c);
             conn_set_state(c, conn_new_cmd);
     }
