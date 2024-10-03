@@ -4986,6 +4986,11 @@ int main (int argc, char **argv) {
 #else
     while (-1 != (c = getopt(argc, argv, shortopts))) {
 #endif
+        if (optarg) {
+            while(isspace(optarg[0])) {
+                optarg++;
+            }
+        }
         switch (c) {
         case 'A':
             /* enables "shutdown" command */
