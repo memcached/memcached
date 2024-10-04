@@ -31,8 +31,8 @@ is(<$w>, "OK\r\n");
 
 {
     test_mgintres();
-    #test_mgreq();
-    #test_mgres();
+    test_mgreq();
+    test_mgres();
 }
 
 sub test_mgintres {
@@ -44,6 +44,12 @@ sub test_mgintres {
 
     subtest 'flagtoken and flagint' => sub {
         $t->c_send("mg intres/tokenint f t s Omoo\r\n");
+        $t->c_recv("SERVER_ERROR O[true]: moo t[true]: -1\r\n");
+        $t->clear();
+    };
+
+    subtest 'flagtoken and flagint with value returned' => sub {
+        $t->c_send("mg intres/tokenint v f t s Omoo\r\n");
         $t->c_recv("SERVER_ERROR O[true]: moo t[true]: -1\r\n");
         $t->clear();
     };
@@ -115,6 +121,15 @@ sub test_mgres {
         $t->c_send("mg reshasf/foo f t s\r\n");
         $t->be_recv_c(0);
         $t->be_send(0, "HD f1234 t9995\r\n");
+        $t->c_recv("SERVER_ERROR f: true t: true\r\n");
+        $t->clear();
+    };
+
+    subtest 'has flags with value returned' => sub {
+        $t->c_send("mg reshasf/foo v f t s\r\n");
+        $t->be_recv_c(0);
+        $t->be_send(0, "VA 4 f1234 t9995\r\n");
+        $t->be_send(0, "data\r\n");
         $t->c_recv("SERVER_ERROR f: true t: true\r\n");
         $t->clear();
     };
