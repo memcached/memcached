@@ -1506,7 +1506,7 @@ static inline const char *_mcp_router_longsep(const char *key, const int klen, c
     // find the last possible position
     const char *last = key + (klen - nlen);
 
-    while (end != last) {
+    while (end <= last) {
         if (*end == needle[0] && memcmp(end, needle, nlen) == 0) {
             lookup = key;
             *len = end - key;

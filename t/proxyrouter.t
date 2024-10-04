@@ -112,6 +112,9 @@ sub test_separators {
 
         $t->c_send("ms one+#found 2\r\nhi\r\n");
         $t->c_recv("SERVER_ERROR default route\r\n", 'got default route');
+
+        $t->c_send("ms borked+ 2\r\nhi\r\n");
+        $t->c_recv("SERVER_ERROR default route\r\n", 'got default route');
         $t->clear();
     };
 
