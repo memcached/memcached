@@ -32,6 +32,8 @@
 #define XXH_INLINE_ALL // modifier for xxh3's include below
 #include "xxhash.h"
 
+#include "crc32c.h"
+
 #ifdef PROXY_DEBUG
 #define P_DEBUG(...) \
     do { \

@@ -16,6 +16,7 @@ enum mcp_ins_steptype {
     mcp_ins_step_flagtoken,
     mcp_ins_step_flagint,
     mcp_ins_step_flagis,
+    mcp_ins_step_valcrc,
     mcp_ins_step_final, // not used.
 };
 
@@ -473,6 +474,30 @@ static int mcp_inspector_flagis_r(lua_State *L, struct mcp_inspector *ins, struc
     return 2;
 }
 
+static int mcp_inspector_valcrc_c(lua_State *L, int tidx) {
+    return 0;
+}
+
+static int mcp_inspector_valcrc_i(lua_State *L, int tidx, int sc, struct mcp_inspector *ins) {
+    return 0;
+}
+
+static int mcp_inspector_valcrc_r(lua_State *L, struct mcp_inspector *ins, struct mcp_ins_step *s, void *arg) {
+    if (ins->type == INS_REQ) {
+        mcp_request_t *rq = arg;
+        if (rq->pr.vlen > 2 && rq->pr.vbuf) {
+            // don't skip the "\r\n"
+            uint32_t crc = crc32c(0, rq->pr.vbuf, rq->pr.vlen-2);
+            lua_pushinteger(L, crc);
+        } else {
+            lua_pushnil(L);
+        }
+    } else {
+        lua_pushnil(L);
+    }
+    return 1;
+}
+
 // END STEPS
 
 typedef int (*mcp_ins_c)(lua_State *L, int tidx);
@@ -497,6 +522,7 @@ static const struct mcp_ins_entry mcp_ins_entries[] = {
     [mcp_ins_step_flagtoken] = {"flagtoken", mcp_inspector_flag_c_g, mcp_inspector_flag_i_g, mcp_inspector_flagtoken_r, INS_REQ|INS_RES, 2},
     [mcp_ins_step_flagint] = {"flagint", mcp_inspector_flag_c_g, mcp_inspector_flag_i_g, mcp_inspector_flagint_r, INS_REQ|INS_RES, 2},
     [mcp_ins_step_flagis] = {"flagis", mcp_inspector_flagstr_c, mcp_inspector_flagstr_i, mcp_inspector_flagis_r, INS_REQ|INS_RES, 2},
+    [mcp_ins_step_valcrc] = {"valcrc", mcp_inspector_valcrc_c, mcp_inspector_valcrc_i, mcp_inspector_valcrc_r, INS_REQ, 1},
 };
 
 // call with type string on top
@@ -639,6 +665,7 @@ int mcplib_inspector_gc(lua_State *L) {
             case mcp_ins_step_flagtoken:
             case mcp_ins_step_flagint:
             case mcp_ins_step_flagis:
+            case mcp_ins_step_valcrc:
             case mcp_ins_step_none:
             case mcp_ins_step_final:
                 break;
