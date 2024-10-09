@@ -37,10 +37,31 @@ is(<$w>, "OK\r\n");
 
 sub test_mgintres {
     note 'testing mcp.internal()';
-    $t->c_send("ms intres/tokenint 5 F5\r\n");
-    $t->c_send("hello\r\n");
-    $t->c_recv("HD\r\n");
-    $t->clear();
+    subtest 'mgintres 0b init' => sub {
+        $t->c_send("ms intres/tokenint 0 F7\r\n");
+        $t->c_send("\r\n");
+        $t->c_recv("HD\r\n");
+        $t->clear();
+    };
+
+    subtest 'flagtoken and flagint 0b' => sub {
+        $t->c_send("mg intres/tokenint f t s Omoo\r\n");
+        $t->c_recv("SERVER_ERROR O[true]: moo t[true]: -1\r\n");
+        $t->clear();
+    };
+
+    subtest 'flagtoken and flagint with 0b value returned' => sub {
+        $t->c_send("mg intres/tokenint v f t s Omoo\r\n");
+        $t->c_recv("SERVER_ERROR O[true]: moo t[true]: -1\r\n");
+        $t->clear();
+    };
+
+    subtest 'mgintres 5b init' => sub {
+        $t->c_send("ms intres/tokenint 5 F5\r\n");
+        $t->c_send("hello\r\n");
+        $t->c_recv("HD\r\n");
+        $t->clear();
+    };
 
     subtest 'flagtoken and flagint' => sub {
         $t->c_send("mg intres/tokenint f t s Omoo\r\n");
