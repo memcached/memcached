@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <limits.h>
+#include <ctype.h>
 
 // TODO: move these structs into mcmc.h, but only expose them if
 // MCMC_EXPOSE_INTERNALS is defined... for tests and this thing.
@@ -57,6 +58,7 @@ typedef struct mcmc_ctx {
 // break so long as the passed in 'len' is reasonable.
 MCMC_STATIC int _mcmc_tokenize_meta(mcmc_tokenizer_t *t, const char *line, size_t len, const int mstart, const int max) {
     const char *s = line;
+    t->metaflags = 0;
 
     // since multigets can be huge, we can't purely judge reqlen against this
     // limit, but we also can't index past it since the tokens are shorts.
@@ -82,7 +84,7 @@ MCMC_STATIC int _mcmc_tokenize_meta(mcmc_tokenizer_t *t, const char *line, size_
                     if (curtoken >= mstart) {
                         if (*s > 64 && *s < 123) {
                             t->metaflags |= (uint64_t)1 << (*s - 65);
-                        } else {
+                        } else if (isdigit(*s) == 0) {
                             return MCMC_NOK;
                         }
                     }
