@@ -487,7 +487,7 @@ static void process_delete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
         pthread_mutex_lock(&t->stats.mutex);
         t->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
         pthread_mutex_unlock(&t->stats.mutex);
-
+        LOGGER_LOG(NULL, LOG_DELETIONS, LOGGER_DELETIONS, it, LOG_TYPE_DELETE);
         do_item_unlink(it, hv);
         STORAGE_delete(t->storage, it);
         do_item_remove(it);      /* release our reference */
@@ -1367,6 +1367,8 @@ static void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *r
             pthread_mutex_lock(&t->stats.mutex);
             t->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
             pthread_mutex_unlock(&t->stats.mutex);
+            LOGGER_LOG(NULL, LOG_DELETIONS, LOGGER_DELETIONS, it, LOG_TYPE_META_DELETE);
+
             if (!of.remove_val) {
                 do_item_unlink(it, hv);
                 STORAGE_delete(t->storage, it);
