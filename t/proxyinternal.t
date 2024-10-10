@@ -171,6 +171,32 @@ subtest 'fetch from extstore' => sub {
     }
 }
 
+subtest 'watch deletions' => sub {
+    my $watcher = $p_srv->new_sock;
+    print $watcher "watch deletions\n";
+    is(<$watcher>, "OK\r\n", "deletions watcher enabled");
+
+    # verify watcher for delete
+    print $ps "set vfoo 0 0 4\r\nvbar\r\n";
+    is(<$ps>, "STORED\r\n", "stored the key");
+
+    print $ps "delete vfoo\r\n";
+    is(<$ps>, "DELETED\r\n", "key was deleted");
+
+    like(<$watcher>, qr/ts=\d+\.\d+\ gid=\d+ type=deleted key=vfoo cmd=delete .+ size=4/,
+        "delete command logged with correct size");
+
+    # verify watcher for md
+    print $ps "set vfoo 0 0 4\r\nvbar\r\n";
+    is(<$ps>, "STORED\r\n", "stored the key");
+
+    print $ps "md vfoo\r\n";
+    is(<$ps>, "HD\r\n", "key was deleted");
+
+    like(<$watcher>, qr/ts=\d+\.\d+\ gid=\d+ type=deleted key=vfoo cmd=md .+ size=4/,
+        "meta-delete command logged with correct size");
+};
+
 done_testing();
 
 END {
