@@ -135,9 +135,11 @@ static void mcp_rcontext_cleanup(lua_State *L, mcp_funcgen_t *fgen, mcp_rcontext
 // require fewer test rounds for unit tests.
 #define FGEN_FREE_PRESSURE_MAX 100
 #define FGEN_FREE_PRESSURE_DROP 10
+#define FGEN_FREE_WAIT 0
 #else
-#define FGEN_FREE_PRESSURE_MAX 4000
-#define FGEN_FREE_PRESSURE_DROP 100
+#define FGEN_FREE_PRESSURE_MAX 5000
+#define FGEN_FREE_PRESSURE_DROP 200
+#define FGEN_FREE_WAIT 60 // seconds.
 #endif
 static void _mcplib_funcgen_cache(mcp_funcgen_t *fgen, mcp_rcontext_t *rctx) {
     bool do_cache = true;
@@ -148,23 +150,29 @@ static void _mcplib_funcgen_cache(mcp_funcgen_t *fgen, mcp_rcontext_t *rctx) {
     // - If free rctx are less than half of total, reduce pressure.
     // - If pressure is too high, immediately free the rctx, then drop the
     // pressure slightly.
+    // - If pressure is too high, and has been for more than FGEN_FREE_WAIT
+    // seconds, immediately free the rctx, then drop the pressure slightly.
     //
     // This should allow bursty traffic to avoid spinning on alloc/frees,
-    // while one-time bursts will slowly free slots back down to a minimum of
-    // 1.
+    // while one-time bursts will slowly free slots back down to a min of 1.
     if (fgen->free > fgen->total/2 - 1) {
         if (fgen->free_pressure++ > FGEN_FREE_PRESSURE_MAX) {
+            struct timespec now;
+            clock_gettime(CLOCK_REALTIME, &now);
+            if (fgen->free_waiter.tv_sec == 0) {
+                fgen->free_waiter.tv_sec = now.tv_sec + FGEN_FREE_WAIT;
+            }
+
+            if (now.tv_sec >= fgen->free_waiter.tv_sec) {
+                do_cache = false;
+            }
+            // check again in a little while.
             fgen->free_pressure -= FGEN_FREE_PRESSURE_DROP;
-            // do not cache the rctx
-            assert(fgen->self_ref);
-            lua_State *L = fgen->thread->L;
-            lua_rawgeti(L, LUA_REGISTRYINDEX, fgen->self_ref);
-            mcp_rcontext_cleanup(L, fgen, rctx, lua_absindex(L, -1));
-            lua_pop(L, 1); // drop fgen
-            do_cache = false;
         }
     } else {
         fgen->free_pressure >>= 1;
+        // must be too-free for a full wait period before releasing.
+        fgen->free_waiter.tv_sec = 0;
     }
 
     if (do_cache) {
@@ -178,6 +186,13 @@ static void _mcplib_funcgen_cache(mcp_funcgen_t *fgen, mcp_rcontext_t *rctx) {
         }
         fgen->list[fgen->free] = rctx;
         fgen->free++;
+    } else {
+        // do not cache the rctx
+        assert(fgen->self_ref);
+        lua_State *L = fgen->thread->L;
+        lua_rawgeti(L, LUA_REGISTRYINDEX, fgen->self_ref);
+        mcp_rcontext_cleanup(L, fgen, rctx, lua_absindex(L, -1));
+        lua_pop(L, 1); // drop fgen
     }
 
     // we're closed and every outstanding request slot has been
@@ -385,6 +400,7 @@ mcp_rcontext_t *mcp_funcgen_get_rctx(lua_State *L, int fgen_ref, mcp_funcgen_t *
     if (fgen->free == 0) {
         // reset free pressure so we try to keep the rctx cached
         fgen->free_pressure = 0;
+        fgen->free_waiter.tv_sec = 0;
         // TODO (perf): pre-create this c closure somewhere hidden.
         lua_pushcclosure(L, _mcplib_funcgen_gencall, 0);
         // pull in the funcgen object
