@@ -41,10 +41,13 @@ enum authfile_ret authfile_load(const char *file) {
         return AUTHFILE_STATFAIL;
     }
 
-    auth_data = calloc(1, sb.st_size + 1);
+    auth_data = calloc(1, sb.st_size + 2);
 
     char *auth_cur = auth_data;
-    char *auth_end = auth_data + sb.st_size;
+    // fgets will stop at EOF or a newline, reading at most one bytes less
+    // than the size limit. If a user supplies a file without an ending
+    // newline we will end up chopping the last character of the password.
+    char *auth_end = auth_data + sb.st_size + 1;
     auth_t *entry_cur = auth_entries;
     int used = 0;
 
