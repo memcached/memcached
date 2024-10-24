@@ -1,6 +1,6 @@
 #!/bin/sh
-GITHASH="44a55dee1d41c3ae92524df9f0dd8a747db79f04"
-SHA="8d79b8f096c68ed827743dfded55981f1c7f297d"
+GITHASH="726411c595ef64b4bd3a8bd7d72a49116c508d92"
+SHA="f07f23eef030fa60fa5e24fb8a88ac15b1bbb4d3"
 FILE="${GITHASH}.tar.gz"
 
 if ! command -v shasum >/dev/null 2>&1; then
