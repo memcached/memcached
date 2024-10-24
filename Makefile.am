@@ -68,7 +68,8 @@ memcached_SOURCES += proto_proxy.c proto_proxy.h vendor/mcmc/mcmc.h \
 					 proxy_config.c proxy_ring_hash.c \
 					 proxy_internal.c \
 					 proxy_tls.c proxy_tls.h \
-					 md5.c md5.h
+					 md5.c md5.h \
+					 vendor/routelib/routelib.h
 endif
 
 if ENABLE_EXTSTORE
@@ -151,6 +152,7 @@ EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4 README.m
 EXTRA_DIST += vendor/Makefile vendor/lua/doc/* vendor/lua/Makefile vendor/lua/README
 EXTRA_DIST += vendor/lua/src/*.c vendor/lua/src/*.h vendor/lua/src/Makefile
 EXTRA_DIST += vendor/mcmc/LICENSE vendor/mcmc/Makefile vendor/mcmc/README.md vendor/mcmc/*.c vendor/mcmc/*.h
+EXTRA_DIST += vendor/routelib/*.h vendor/routelib/*.lua
 
 if ENABLE_PROXY
 SUBDIRS += vendor

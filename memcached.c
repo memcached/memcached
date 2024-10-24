@@ -4176,8 +4176,11 @@ static void usage(void) {
     verify_default("ext_item_age", settings.ext_item_age == UINT_MAX);
 #endif
 #ifdef PROXY
-    printf("   - proxy_config:        path to lua library file. separate with ':' for multiple files\n");
-    printf("   - proxy_arg:           string to pass to lua library\n");
+    printf("   - proxy_config:        path to lua library file. separate with ':' for multiple files\n"
+           "                          use proxy_config=routelib to use built-in library\n"
+            );
+    printf("   - proxy_arg:           argument string (file path) to pass to proxy config\n"
+            );
 #endif
     ssl_help();
     printf("-N, --napi_ids            number of napi ids. see doc/napi_ids.txt for more details\n");

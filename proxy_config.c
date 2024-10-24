@@ -3,6 +3,7 @@
 // TODO (v2): move worker thread related code back out of here.
 
 #include "proxy.h"
+#include "vendor/routelib/routelib.h"
 
 // not using queue.h becuase those require specific storage for HEAD.
 // it's not possible to have the HEAD simply be in the proxy context because
@@ -455,7 +456,11 @@ static int proxy_load_files(proxy_ctx_t *ctx) {
         memset(db->buf, 0, db->size);
         db->used = 0;
 
-        res = luaL_loadfile(L, db->fname);
+        if (strcmp(db->fname, "routelib") == 0) {
+            res = luaL_loadbuffer(L, routelib_lua, routelib_lua_len, "routelib");
+        } else {
+            res = luaL_loadfile(L, db->fname);
+        }
         if (res != LUA_OK) {
             fprintf(stderr, "ERROR: Failed to load proxy_startfile: %s\n", lua_tostring(L, -1));
             return -1;
