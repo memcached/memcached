@@ -453,8 +453,7 @@ int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
 
 // FIXME (v2): any reason to pass in command/cmdlen separately?
 mcp_request_t *mcp_new_request(lua_State *L, mcp_parser_t *pr, const char *command, size_t cmdlen) {
-    // reserving an upvalue for key.
-    mcp_request_t *rq = lua_newuserdatauv(L, sizeof(mcp_request_t) + MCP_REQUEST_MAXLEN + KEY_MAX_LENGTH, 1);
+    mcp_request_t *rq = lua_newuserdatauv(L, sizeof(mcp_request_t) + MCP_REQUEST_MAXLEN, 0);
     // TODO (v2): memset only the non-data part? as the rest gets memcpy'd
     // over.
     memset(rq, 0, sizeof(mcp_request_t));
@@ -639,6 +638,11 @@ int mcplib_request(lua_State *L) {
                 vlen = rq->pr.vlen;
             }
         }
+    }
+
+    if (len > MCP_REQUEST_MAXLEN) {
+        proxy_lua_error(L, "request length too long");
+        return 0;
     }
 
     // FIXME (v2): if we inline the userdata we can avoid memcpy'ing the parser

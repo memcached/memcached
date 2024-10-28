@@ -152,4 +152,14 @@ subtest 'req:token_int()' => sub {
     $t->clear();
 };
 
+subtest 'mcp.request' => sub {
+    # This test doesn't look at the request that was created inside lua, we
+    # just ensure that it got through the loop without crashing.
+    $t->c_send("mg toolong\r\n");
+    $t->be_recv(0, "mg toolong\r\n");
+    $t->be_send(0, "HD\r\n");
+    $t->c_recv_be("internally created long requests");
+    $t->clear();
+};
+
 done_testing();

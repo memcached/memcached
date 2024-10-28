@@ -447,7 +447,7 @@ mcp_rcontext_t *mcp_funcgen_start(lua_State *L, mcp_funcgen_t *fgen, mcp_parser_
     // Note that we can _technically_ fail with an OOM here, but we've not set
     // up lua in a way that OOM's are possible.
     if (rctx->request_ref == 0) {
-        mcp_request_t *rq = lua_newuserdatauv(L, sizeof(mcp_request_t) + MCP_REQUEST_MAXLEN + KEY_MAX_LENGTH, 0);
+        mcp_request_t *rq = lua_newuserdatauv(L, sizeof(mcp_request_t) + MCP_REQUEST_MAXLEN, 0);
         memset(rq, 0, sizeof(mcp_request_t));
         luaL_getmetatable(L, "mcp.request");
         lua_setmetatable(L, -2);

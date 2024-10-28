@@ -19,7 +19,6 @@ function mcp_config_pools(oldss)
     local no_label = srv('', '127.0.0.1', 11414)
 
     -- convert the backends to pools.
-    -- as per a normal full config see simple.lua or t/startfile.lua
     local zones = {
         z1 = mcp.pool(b1z),
         z2 = mcp.pool(b2z),

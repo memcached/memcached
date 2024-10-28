@@ -12,7 +12,6 @@ function mcp_config_routes(p)
             local k = r:key()
 
             if k == "setints" then
-                print("FKEY:", k)
                 local flags = r:token_int(3)
                 local ttl = r:token_int(4)
                 local bytes = r:token_int(5)
@@ -95,6 +94,20 @@ function mcp_config_routes(p)
                 token = token * 10 + 1
                 r:flag_set("F", token)
                 return rctx:enqueue_and_wait(r, h)
+            end
+
+            if k == "toolong" then
+                local str = {"."}
+                while true do
+                    local res, err = pcall(function()
+                        local nreq = mcp.request("mg P" .. table.concat(str))
+                        table.insert(str, ".")
+                    end)
+                    -- ensure that we do eventually error
+                    if res == false then
+                        return rctx:enqueue_and_wait(r, h)
+                    end
+                end
             end
         end
     end})
