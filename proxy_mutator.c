@@ -55,13 +55,14 @@ struct mcp_mut_part;
 
 typedef int (*mcp_mut_c)(lua_State *L, int tidx);
 typedef int (*mcp_mut_i)(lua_State *L, int tidx, int sc, struct mcp_mutator *mut);
-typedef int (*mcp_mut_r)(struct mcp_mut_run *run, struct mcp_mut_step *s, struct mcp_mut_part *p);
+typedef int (*mcp_mut_n)(struct mcp_mut_run *run, struct mcp_mut_step *s, struct mcp_mut_part *p);
+typedef void (*mcp_mut_r)(struct mcp_mut_run *run, struct mcp_mut_step *s, struct mcp_mut_part *p);
 
 struct mcp_mut_entry {
     const char *s; // string name
     mcp_mut_c c; // argument checker
     mcp_mut_i i; // argument initializer
-    mcp_mut_r n; // runtime length totaller
+    mcp_mut_n n; // runtime length totaller
     mcp_mut_r r; // runtime assembly
     unsigned int t; // allowed object types
     int rc; // number of results to expect
@@ -93,7 +94,7 @@ struct mcp_mut_step {
     enum mcp_mut_steptype type;
     unsigned int idx; // common: input argument position
     enum mcp_mut_step_arg arg; // common: type of input argument
-    mcp_mut_r n; // totaller function
+    mcp_mut_n n; // totaller function
     mcp_mut_r r; // data copy function
     union {
         struct mcp_mut_string string;
@@ -133,7 +134,7 @@ struct mcp_mut_run {
 
 #define mut_step_c(n) static int mcp_mutator_##n##_c(lua_State *L, int tidx)
 #define mut_step_i(n) static int mcp_mutator_##n##_i(lua_State *L, int tidx, int sc, struct mcp_mutator *mut)
-#define mut_step_r(n) static int mcp_mutator_##n##_r(struct mcp_mut_run *run, struct mcp_mut_step *s, struct mcp_mut_part *p)
+#define mut_step_r(n) static void mcp_mutator_##n##_r(struct mcp_mut_run *run, struct mcp_mut_step *s, struct mcp_mut_part *p)
 #define mut_step_n(n) static int mcp_mutator_##n##_n(struct mcp_mut_run *run, struct mcp_mut_step *s, struct mcp_mut_part *p)
 
 // PRIVATE INTERFACE
@@ -252,8 +253,6 @@ mut_step_r(cmdset) {
 
     memcpy(run->d_pos, str, c->len);
     run->d_pos += c->len;
-
-    return 0;
 }
 
 // TODO: validate we're at the right stage to copy a command (no command set)
@@ -293,7 +292,6 @@ mut_step_n(cmdcopy) {
 mut_step_r(cmdcopy) {
     memcpy(run->d_pos, p->src, p->slen);
     run->d_pos += p->slen;
-    return 0;
 }
 
 // TODO: validate a cmd is already slated to be set
@@ -328,7 +326,6 @@ mut_step_n(keycopy) {
 mut_step_r(keycopy) {
     memcpy(run->d_pos, p->src, p->slen);
     run->d_pos += p->slen;
-    return 0;
 }
 
 // TODO: check we're okay to set a key
@@ -380,7 +377,6 @@ mut_step_r(keyset) {
 
     memcpy(run->d_pos, str, c->len);
     run->d_pos += c->len;
-    return 0;
 }
 
 // TODO: ensure step is first
@@ -420,7 +416,6 @@ mut_step_r(rescodeset) {
 
     memcpy(run->d_pos, str, c->len);
     run->d_pos += c->len;
-    return 0;
 }
 
 // TODO: check we're the first step
@@ -454,20 +449,18 @@ mut_step_n(rescodecopy) {
     }
     int len = 0;
     p->src = mcmc_token_get(srs->buf, &srs->tok, 0, &len);
+    if (len < 2) {
+        return -1;
+    }
+
     p->slen = len;
     return len;
 }
 
 // TODO: take a string or number from that position.
 mut_step_r(rescodecopy) {
-    // FIXME: error propagation
-    // FIXME: can we do all the error handling in the totalling phase?
-    if (p->slen < 2) {
-        return -1;
-    }
     memcpy(run->d_pos, p->src, p->slen);
     run->d_pos += p->slen;
-    return 0;
 }
 
 // TODO: can be no other steps after an error is set.
@@ -568,7 +561,6 @@ mut_step_r(reserr) {
     // set error code first
     memcpy(run->d_pos, str, len);
     run->d_pos += len;
-    return 0;
 }
 
 // TODO: track which flags we've already set and error on dupes
@@ -629,7 +621,6 @@ mut_step_r(flagset) {
         run->d_pos += len;
     }
 
-    return 0;
 }
 
 mut_step_c(flagcopy) {
@@ -713,7 +704,6 @@ mut_step_r(flagcopy) {
         memcpy(run->d_pos, p->src, p->slen);
         run->d_pos += p->slen;
     }
-    return 0;
 }
 
 // TODO: check that the value hasn't been set yet.
@@ -835,7 +825,6 @@ mut_step_n(valcopy) {
 // we remove the \r\n from the protocol length
 mut_step_r(valcopy) {
     run->d_pos = itoa_u64(run->vlen-2, run->d_pos);
-    return 0;
 }
 
 // END STEPS
@@ -966,12 +955,9 @@ static inline int _mcp_mut_run_assemble(struct mcp_mut_run *run, struct mcp_mut_
     for (int x = 0; x < mut->scount; x++) {
         struct mcp_mut_step *s = &mut->steps[x];
         assert(s->type != mcp_mut_step_none);
-        // TODO: handle -1 errors, halt.
-        // TODO: can we structure this so we don't have to check for errors at
-        // this stage, only the first one? would be nice to cut the branch out
-        if (s->r(run, s, &parts[x]) < 0) {
-            assert(1 == 0);
-        }
+        // Error handling is pushed to the totalling phase.
+        // In this phase we should just be copying data and cannot fail.
+        s->r(run, s, &parts[x]);
 
         *(run->d_pos) = ' ';
         run->d_pos++;
@@ -1011,8 +997,6 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
 
         _mcp_mut_run_assemble(run, parts);
 
-        // TODO: process_request()
-        // if run->vbuf, malloc/copy vbuf.
         if (process_request(&rq->pr, rq->request, run->d_pos - rq->request) != 0) {
             // TODO: throw error or return false?
             assert(1 == 0);
@@ -1035,7 +1019,6 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
         // FIXME: cleanup should be managed by slot rctx.
         mcp_response_cleanup(t, rs);
 
-        // TODO: alloc big enough result buffer.
         rs->buf = malloc(total);
         if (rs->buf == NULL) {
             // FIXME: proper error.
@@ -1059,7 +1042,7 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
 
         rs->blen = run->d_pos - rs->buf;
         // NOTE: We increment but don't check the memory limits here. Any
-        // incoming request or incoming response will alos check the memory
+        // incoming request or incoming response will also check the memory
         // limits, and just doing an increment here removes some potential
         // error handling. Requests that are already started should be allowed
         // to complete to minimize impact of hitting memory limits.
