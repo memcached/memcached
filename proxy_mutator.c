@@ -37,14 +37,6 @@ enum mcp_mut_steptype {
     mcp_mut_step_final, // not used.
 };
 
-enum mcp_mut_step_arg {
-    mcp_mut_step_arg_none = 0,
-    mcp_mut_step_arg_request,
-    mcp_mut_step_arg_response,
-    mcp_mut_step_arg_string,
-    mcp_mut_step_arg_int,
-};
-
 // START STEP STRUCTS
 
 // struct forward declarations for entry/step function pointers
@@ -93,7 +85,6 @@ struct mcp_mut_flagval {
 struct mcp_mut_step {
     enum mcp_mut_steptype type;
     unsigned int idx; // common: input argument position
-    enum mcp_mut_step_arg arg; // common: type of input argument
     mcp_mut_n n; // totaller function
     mcp_mut_r r; // data copy function
     union {
@@ -194,6 +185,24 @@ static void _mut_init_flag(lua_State *L, int tidx, struct mcp_mut_flag *c) {
         c->bit = (uint64_t)1 << (c->f - 65);
     }
     lua_pop(L, 1); // val or nil
+}
+
+// mutator must be at position 1. index to check at idx.
+// pulls metatables and compares them to see if we have a request or response
+// object. then fills the appropriate pointer and returns.
+static inline void _mut_checkudata(lua_State *L, unsigned int idx, mcp_request_t **srq, mcp_resp_t **srs) {
+    lua_getmetatable(L, idx);
+    lua_getiuservalue(L, 1, MUT_REQ);
+    if (lua_rawequal(L, -1, -2)) {
+        lua_pop(L, 2);
+        *srq = lua_touserdata(L, idx);
+        return;
+    }
+    lua_getiuservalue(L, 1, MUT_RES);
+    if (lua_rawequal(L, -1, -3)) {
+        *srs = lua_touserdata(L, idx);
+    }
+    lua_pop(L, 3);
 }
 
 // END COMMMON ARG HANDLERS
@@ -644,56 +653,67 @@ mut_step_i(flagcopy) {
     return 0;
 }
 
-// TODO: any reason for a req to pull from a res or vice versa?
-// FIXME: handling when source flag doesn't exist might need a special case.
 mut_step_n(flagcopy) {
-    struct mcp_mutator *mut = run->mut;
     struct mcp_mut_flag *c = &s->c.flag;
 
-    unsigned idx = s->idx;
-    // TODO: validate idx or use cached entry.
-    if (mut->type == MUT_REQ) {
-        mcp_request_t *srq = lua_touserdata(run->L, idx);
-        if (srq->pr.cmd_type != CMD_TYPE_META) {
-            return -1;
-        }
-        if (srq->pr.t.meta.flags & c->bit) {
-            const char *tok = NULL;
-            size_t tlen = 0;
-            mcp_request_find_flag_token(srq, c->f, &tok, &tlen);
+    lua_State *L = run->L;
+    unsigned int idx = s->idx;
+    mcp_request_t *srq = NULL;
+    mcp_resp_t *srs = NULL;
 
-            if (tlen > 0) {
-                p->src = tok;
-                p->slen = tlen;
-            } else {
-                p->slen = 0;
-            }
-        }
-    } else {
-        mcp_resp_t *srs = lua_touserdata(run->L, idx);
-        if (srs->resp.type != MCMC_RESP_META) {
-            // FIXME: error, can't copy flag from non-meta res
+    switch (lua_type(L, idx)) {
+        case LUA_TSTRING:
+            p->src = lua_tolstring(L, idx, &p->slen);
+            break;
+        case LUA_TNUMBER:
+            // TODO: unimplemented
             return -1;
-        }
-        mcmc_tokenize_res(srs->buf, srs->resp.reslen, &srs->tok);
-        if (mcmc_token_has_flag_bit(&srs->tok, c->bit) == MCMC_OK) {
-            // flag exists, so copy that in.
-            // realistically this func is only used if we're also copying a
-            // token, so we look for that too.
-            // could add an option to avoid checking for a token?
-            int len = 0;
-            const char *tok = mcmc_token_get_flag(srs->buf, &srs->tok, c->f, &len);
+            break;
+        case LUA_TUSERDATA:
+            _mut_checkudata(L, idx, &srq, &srs);
+            p->slen = 0;
+            if (srq) {
+                if (srq->pr.cmd_type != CMD_TYPE_META) {
+                    return -1;
+                }
+                if (srq->pr.t.meta.flags & c->bit) {
+                    const char *tok = NULL;
+                    size_t tlen = 0;
+                    mcp_request_find_flag_token(srq, c->f, &tok, &tlen);
 
-            if (len > 0) {
-                p->src = tok;
-                p->slen = len;
+                    if (tlen > 0) {
+                        p->src = tok;
+                        p->slen = tlen;
+                    }
+                }
+            } else if (srs) {
+                if (srs->resp.type != MCMC_RESP_META) {
+                    // FIXME: error, can't copy flag from non-meta res
+                    return -1;
+                }
+                mcmc_tokenize_res(srs->buf, srs->resp.reslen, &srs->tok);
+                if (mcmc_token_has_flag_bit(&srs->tok, c->bit) == MCMC_OK) {
+                    // flag exists, so copy that in.
+                    // realistically this func is only used if we're also copying a
+                    // token, so we look for that too.
+                    // could add an option to avoid checking for a token?
+                    int len = 0;
+                    const char *tok = mcmc_token_get_flag(srs->buf, &srs->tok, c->f, &len);
+
+                    if (len > 0) {
+                        p->src = tok;
+                        p->slen = len;
+                    }
+                }
             } else {
-                p->slen = 0;
+                return -1;
             }
-        }
+            break;
+        default:
+            return -1;
     }
 
-    return 0;
+    return p->slen;
 }
 
 mut_step_r(flagcopy) {
@@ -710,19 +730,6 @@ mut_step_r(flagcopy) {
 mut_step_c(valcopy) {
     _mut_check_idx(L, tidx);
 
-    // TODO: lift to common func
-    if (lua_getfield(L, tidx, "arg") == LUA_TSTRING) {
-        const char *a = lua_tostring(L, -1);
-        if (strcmp(a, "request") != 0 &&
-            strcmp(a, "response") != 0 &&
-            strcmp(a, "string") != 0 &&
-            strcmp(a, "int") != 0) {
-            proxy_lua_ferror(L, "mutator step %d: 'arg' must be request, response, string or int", tidx);
-        }
-    } else {
-        proxy_lua_ferror(L, "mutator step %d: missing 'arg' for input type", tidx);
-    }
-    lua_pop(L, 1);
     return 0;
 }
 
@@ -734,79 +741,39 @@ mut_step_i(valcopy) {
     }
     lua_pop(L, 1);
 
-    // TODO: lift to common func
-    if (lua_getfield(L, tidx, "arg") == LUA_TSTRING) {
-        const char *a = lua_tostring(L, -1);
-        if (strcmp(a, "request") == 0) {
-            s->arg = mcp_mut_step_arg_request;
-        } else if (strcmp(a, "response") == 0) {
-            s->arg = mcp_mut_step_arg_response;
-        } else if (strcmp(a, "string") == 0) {
-            s->arg = mcp_mut_step_arg_string;
-        } else if (strcmp(a, "int") == 0) {
-            s->arg = mcp_mut_step_arg_int;
-        } else {
-            proxy_lua_ferror(L, "mutator step %d: 'arg' must be request, response, string or int", tidx);
-        }
-    }
-    lua_pop(L, 1);
-
     return 0;
 }
 
 mut_step_n(valcopy) {
     lua_State *L = run->L;
-    unsigned idx = s->idx;
+    unsigned int idx = s->idx;
     // extract the string + length we need to copy
-    mcp_request_t *srq;
-    //mcp_resp_t *srs;
+    mcp_request_t *srq = NULL;
+    mcp_resp_t *srs = NULL;
 
-    // TODO: lift to common func?
-    // parts of it? with callback?
-    switch (s->arg) {
-        case mcp_mut_step_arg_none:
-            // can't get here.
+    switch (lua_type(L, idx)) {
+        case LUA_TSTRING:
+            run->vbuf = lua_tolstring(L, idx, &run->vlen);
             break;
-        case mcp_mut_step_arg_request:
-            lua_getmetatable(L, idx);
-            lua_getiuservalue(L, 1, MUT_REQ);
-            if (lua_rawequal(L, -1, -2) == 0) {
-                // FIXME: error propagation
+        case LUA_TNUMBER:
+            // TODO: unimplemented
+            break;
+        case LUA_TUSERDATA:
+            _mut_checkudata(L, idx, &srq, &srs);
+            if (srq) {
+                if (srq->pr.vbuf) {
+                    run->vbuf = srq->pr.vbuf;
+                    run->vlen = srq->pr.vlen;
+                }
+            } else if (srs) {
+                // TODO: need to locally parse the result to get the actual val
+                // offsets until later refactoring takes place.
+            } else {
                 return -1;
             }
-            lua_pop(L, 2);
-            srq = lua_touserdata(L, idx);
-            if (srq->pr.vbuf) {
-                run->vbuf = srq->pr.vbuf;
-                run->vlen = srq->pr.vlen;
-            }
             break;
-        case mcp_mut_step_arg_response:
-            lua_getmetatable(L, idx);
-            lua_getiuservalue(L, 1, MUT_RES);
-            if (lua_rawequal(L, -1, -2) == 0) {
-                // FIXME: error propagation
-                return -1;
-            }
-            lua_pop(L, 2);
-            assert(1 == 0);
-            //srs = lua_touserdata(L, idx);
-            // TODO: need to locally parse the result to get the actual val
-            // offsets until later refactoring takes place.
-            break;
-        case mcp_mut_step_arg_string:
-            if (lua_isstring(L, idx)) {
-                // TODO: do we require the user supplies "\r\n"?
-                // detect it here and add a flag or adjust or etc?
-                run->vbuf = lua_tolstring(L, idx, &run->vlen);
-            }
-            break;
-        case mcp_mut_step_arg_int:
-            // TODO: just do number instead of int? meh.
-            // we want to not auto-convert this to a string.
-            lua_isnumber(L, idx);
-            assert(1 == 0); // TODO: unimplemented.
-            break;
+        default:
+            return -1;
     }
 
     // count the number of digits in vlen to reserve space.
@@ -883,7 +850,7 @@ static int mcp_mutator_new(lua_State *L, enum mcp_mut_type type) {
 
     size_t extsize = sizeof(struct mcp_mut_step) * scount;
     struct mcp_mutator *mut = lua_newuserdatauv(L, sizeof(*mut) + extsize, 2);
-    memset(mut, 0, sizeof(*mut));
+    memset(mut, 0, sizeof(*mut) + extsize);
 
     mut->arena = malloc(size);
     if (mut->arena == NULL) {

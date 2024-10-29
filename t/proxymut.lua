@@ -80,6 +80,10 @@ function mcp_config_routes(p)
                     local res = rctx:enqueue_and_wait(r, mgfgh)
                     local ret = mut_mgresflag(nres, res)
                     return nres
+                elseif key == "mgresflag2" then
+                    local res = rctx:enqueue_and_wait(r, mgfgh)
+                    local ret = mut_mgresflag(nres, "toast")
+                    return nres
                 end
             end
         end

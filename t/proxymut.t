@@ -75,6 +75,14 @@ sub test_mg {
         $t->c_recv("HD t37 Omgresflag\r\n");
         $t->clear();
     };
+
+    subtest 'mgresflag2' => sub {
+        $t->c_send("mg mgresflag2\r\n");
+        $t->be_recv(0, "mg mgresflag2\r\n");
+        $t->be_send(0, "HD s2 Omgresflag2 f3\r\n");
+        $t->c_recv("HD t37 Otoast\r\n");
+        $t->clear();
+    };
 }
 
 done_testing();
