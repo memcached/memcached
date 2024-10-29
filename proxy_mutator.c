@@ -439,13 +439,13 @@ mut_step_n(rescodecopy) {
     // TODO: validate metatable matches or pull from cached entry
     mcp_resp_t *srs = lua_touserdata(run->L, idx);
 
-    // TODO: can't recover the exact from the mcmc resp object, so lets make
+    // TODO: can't recover the exact code from the mcmc resp object, so lets make
     // sure it's tokenized and copy the first token.
     if (srs->resp.type == MCMC_RESP_META) {
         mcmc_tokenize_res(srs->buf, srs->resp.reslen, &srs->tok);
     } else {
         // FIXME: above only does meta responses
-        assert(1 == 0);
+        return -1;
     }
     int len = 0;
     p->src = mcmc_token_get(srs->buf, &srs->tok, 0, &len);
@@ -935,8 +935,7 @@ static inline int _mcp_mut_run_total(struct mcp_mut_run *run, struct mcp_mut_par
         assert(s->type != mcp_mut_step_none);
         int len = s->n(run, s, &parts[x]);
         if (len < 0) {
-            assert(1 == 0);
-            break;
+            return -1;
         } else {
             total += len;
         }
@@ -981,7 +980,10 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
 
     // first accumulate the length tally
     int total = _mcp_mut_run_total(run, parts);
-    // FIXME: error handling from total call
+    if (total < 0) {
+        lua_pushboolean(run->L, 0);
+        return 1;
+    }
 
     // ensure space and/or allocate memory then seed our destination pointer.
     if (mut->type == MUT_REQ) {
@@ -990,22 +992,23 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
         mcp_request_cleanup(t, rq);
         // future.. should be able to dynamically assign request buffer.
         if (total > MCP_REQUEST_MAXLEN) {
-            // FIXME: proper error.
-            assert(1 == 0);
+            proxy_lua_error(run->L, "mutator: new request is too long");
+            return 0;
         }
         run->d_pos = rq->request;
 
         _mcp_mut_run_assemble(run, parts);
 
         if (process_request(&rq->pr, rq->request, run->d_pos - rq->request) != 0) {
-            // TODO: throw error or return false?
-            assert(1 == 0);
+            proxy_lua_error(run->L, "mutator: failed to parse new request");
+            return 0;
         }
 
         if (run->vbuf) {
             rq->pr.vbuf = malloc(run->vlen);
             if (rq->pr.vbuf == NULL) {
-                assert(1 == 0);
+                proxy_lua_error(run->L, "mutator: failed to allocate value buffer");
+                return 0;
             }
             pthread_mutex_lock(&t->proxy_limit_lock);
             t->proxy_buffer_memory_used += rq->pr.vlen;
@@ -1021,8 +1024,8 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
 
         rs->buf = malloc(total);
         if (rs->buf == NULL) {
-            // FIXME: proper error.
-            assert(1 == 0);
+            proxy_lua_error(run->L, "mutator: failed to allocate result buffer");
+            return 0;
         }
         run->d_pos = rs->buf;
 
@@ -1030,8 +1033,8 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
 
         rs->tok.ntokens = 0; // TODO: handler from mcmc?
         if (mcmc_parse_buf(rs->buf, run->d_pos - rs->buf, &rs->resp) != MCMC_OK) {
-            // TODO: throw error or return false?
-            assert(1 == 0);
+            proxy_lua_error(run->L, "mutator: failed to parse new result");
+            return 0;
         }
 
         // results are sequential buffers, copy the value in.
