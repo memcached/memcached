@@ -209,10 +209,6 @@ static inline void _mut_checkudata(lua_State *L, unsigned int idx, mcp_request_t
 
 // START STEPS
 
-// FIXME: decide on if this should take an mcp.CMD_etc instead, or at least
-// optionally.
-// we could also parse this into the int to avoid copying a string here.
-// FIXME: track step progress and validate we're the first one.
 mut_step_c(cmdset) {
     size_t len = 0;
 
@@ -264,7 +260,6 @@ mut_step_r(cmdset) {
     run->d_pos += c->len;
 }
 
-// TODO: validate we're at the right stage to copy a command (no command set)
 mut_step_c(cmdcopy) {
     _mut_check_idx(L, tidx);
     return 0;
@@ -282,7 +277,8 @@ mut_step_i(cmdcopy) {
 
 mut_step_n(cmdcopy) {
     unsigned idx = s->idx;
-    // TODO: validate metatable matches or pull from cached entry
+    // TODO: use flagcopy/valcopy method here, vs assuming it's another
+    // request object.
     mcp_request_t *srq = lua_touserdata(run->L, idx);
 
     // command must be at the start
@@ -311,7 +307,6 @@ mut_step_c(keycopy) {
     return 0;
 }
 
-// FIXME: idx_i_g?
 mut_step_i(keycopy) {
     struct mcp_mut_step *s = &mut->steps[sc];
     if (lua_getfield(L, tidx, "idx") != LUA_TNIL) {
@@ -323,7 +318,7 @@ mut_step_i(keycopy) {
 
 mut_step_n(keycopy) {
     unsigned idx = s->idx;
-    // TODO: validate metatable table matches or pull from cached entry
+    // TODO: copy valcopy/flagcopy routine
     mcp_request_t *srq = lua_touserdata(run->L, idx);
 
     p->src = MCP_PARSER_KEY(srq->pr);
@@ -337,7 +332,6 @@ mut_step_r(keycopy) {
     run->d_pos += p->slen;
 }
 
-// TODO: check we're okay to set a key
 mut_step_c(keyset) {
     size_t len = 0;
 
@@ -388,7 +382,6 @@ mut_step_r(keyset) {
     run->d_pos += c->len;
 }
 
-// TODO: ensure step is first
 // TODO: pre-validate that it's an accepted code?
 mut_step_c(rescodeset) {
     return _mut_check_strlen(L, tidx, "val");
@@ -427,7 +420,6 @@ mut_step_r(rescodeset) {
     run->d_pos += c->len;
 }
 
-// TODO: check we're the first step
 mut_step_c(rescodecopy) {
     _mut_check_idx(L, tidx);
     return 0;
@@ -445,7 +437,7 @@ mut_step_i(rescodecopy) {
 
 mut_step_n(rescodecopy) {
     unsigned idx = s->idx;
-    // TODO: validate metatable matches or pull from cached entry
+    // TODO: use valcopy/flagcopy routine
     mcp_resp_t *srs = lua_touserdata(run->L, idx);
 
     // TODO: can't recover the exact code from the mcmc resp object, so lets make
@@ -466,7 +458,6 @@ mut_step_n(rescodecopy) {
     return len;
 }
 
-// TODO: take a string or number from that position.
 mut_step_r(rescodecopy) {
     memcpy(run->d_pos, p->src, p->slen);
     run->d_pos += p->slen;
@@ -613,7 +604,6 @@ mut_step_n(flagset) {
     return c->str.len + 1; // room for flag
 }
 
-// TODO: validate we're okay to set flags.
 // FIXME: triple check that this is actually the same code for req vs res?
 // seems like it is.
 mut_step_r(flagset) {
@@ -629,7 +619,6 @@ mut_step_r(flagset) {
         memcpy(run->d_pos, str, len);
         run->d_pos += len;
     }
-
 }
 
 mut_step_c(flagcopy) {
