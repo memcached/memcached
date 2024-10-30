@@ -947,6 +947,10 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
     struct mcp_mut_part parts[mut->scount];
 
     // first accumulate the length tally
+    // FIXME: noticed off-by-one's sometimes.
+    // maybe add a debug assert to verify the written total (d_pos - etc)
+    // matches total?
+    // This isn't critical so long as total is > actual, which it has been
     int total = _mcp_mut_run_total(run, parts);
     if (total < 0) {
         lua_pushboolean(run->L, 0);
@@ -986,7 +990,9 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
     } else {
         mcp_resp_t *rs = run->arg;
 
-        rs->buf = malloc(total);
+        // value is inlined in result buffers. future intention to allow more
+        // complex objects so we can refcount values.
+        rs->buf = malloc(total + run->vlen);
         if (rs->buf == NULL) {
             proxy_lua_error(run->L, "mutator: failed to allocate result buffer");
             return 0;
