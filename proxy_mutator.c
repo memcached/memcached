@@ -140,8 +140,8 @@ static void _mut_check_idx(lua_State *L, int tidx) {
         if (!isnum) {
             proxy_lua_ferror(L, "mutator step %d: must provide 'idx' argument as an integer", tidx);
         }
-        if (i < 2) {
-            proxy_lua_ferror(L, "mutator step %d: 'idx' argument must be greater than 1", tidx);
+        if (i < 1) {
+            proxy_lua_ferror(L, "mutator step %d: 'idx' argument must be greater than 0", tidx);
         }
     } else {
         proxy_lua_ferror(L, "mutator step %d: must provide 'idx' argument", tidx);
@@ -880,7 +880,8 @@ static int mcp_mutator_new(lua_State *L, enum mcp_mut_type type) {
             // around the much larger mcp_mut_entries at runtime.
             mut->steps[scount].n = mcp_mut_entries[st].n;
             mut->steps[scount].r = mcp_mut_entries[st].r;
-            mut->steps[scount].idx++; // actual args are "self, etc, etc"
+            // actual args are "self, dst, args". start user idx's at 3
+            mut->steps[scount].idx += 2;
         }
         lua_pop(L, 1); // drop t or nil
         scount++;

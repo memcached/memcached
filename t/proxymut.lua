@@ -40,14 +40,14 @@ function mcp_config_routes(p)
     -- res with value.
     local mut_mgresval = mcp.res_mutator_new(
         { t = "rescodeset", str = "VA" },
-        { t = "valcopy", idx = 2, arg = "string" }
+        { t = "valcopy", idx = 1, arg = "string" }
     )
 
     -- res with flags.
     local mut_mgresflag = mcp.res_mutator_new(
         { t = "rescodeset", str = "HD" },
         { t = "flagset", flag = "t", val = "37" },
-        { t = "flagcopy", flag = "O", idx = 2 }
+        { t = "flagcopy", flag = "O", idx = 1 }
     )
 
     mgfg:ready({
