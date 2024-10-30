@@ -341,13 +341,13 @@ mut_step_r(keycopy) {
 mut_step_c(keyset) {
     size_t len = 0;
 
-    if (lua_getfield(L, tidx, "str") != LUA_TNIL) {
+    if (lua_getfield(L, tidx, "val") != LUA_TNIL) {
         lua_tolstring(L, -1, &len);
         if (len < 1) {
-            proxy_lua_ferror(L, "mutator step %d: 'str' must have nonzero length", tidx);
+            proxy_lua_ferror(L, "mutator step %d: 'val' must have nonzero length", tidx);
         }
     } else {
-        proxy_lua_ferror(L, "mutator step %d: must provide 'str' argument", tidx);
+        proxy_lua_ferror(L, "mutator step %d: must provide 'val' argument", tidx);
     }
     lua_pop(L, 1); // val or nil
 
@@ -360,7 +360,7 @@ mut_step_i(keyset) {
     size_t len = 0;
 
     // store our match string in the arena space that we reserved before.
-    if (lua_getfield(L, tidx, "str") != LUA_TNIL) {
+    if (lua_getfield(L, tidx, "val") != LUA_TNIL) {
         const char *str = lua_tolstring(L, -1, &len);
         c->str = mut->aused;
         c->len = len;
@@ -391,7 +391,7 @@ mut_step_r(keyset) {
 // TODO: ensure step is first
 // TODO: pre-validate that it's an accepted code?
 mut_step_c(rescodeset) {
-    return _mut_check_strlen(L, tidx, "str");
+    return _mut_check_strlen(L, tidx, "val");
 }
 
 mut_step_i(rescodeset) {
@@ -399,7 +399,7 @@ mut_step_i(rescodeset) {
     struct mcp_mut_string *c = &s->c.string;
     size_t len = 0;
 
-    if (lua_getfield(L, tidx, "str") != LUA_TNIL) {
+    if (lua_getfield(L, tidx, "val") != LUA_TNIL) {
         const char *str = lua_tolstring(L, -1, &len);
         c->str = mut->aused;
         c->len = len;

@@ -19,13 +19,13 @@ function mcp_config_routes(p)
     -- basic; no flags at all.
     local mut_mgreq = mcp.req_mutator_new(
         { t = "cmdset", cmd = "mg" },
-        { t = "keyset", str = "override" }
+        { t = "keyset", val = "override" }
     )
 
     -- set a bunch of flags
     local mut_mgflagreq = mcp.req_mutator_new(
         { t = "cmdset", cmd = "mg" },
-        { t = "keyset", str = "override" },
+        { t = "keyset", val = "override" },
         { t = "flagset", flag = "s" },
         { t = "flagset", flag = "t" },
         { t = "flagset", flag = "O", val = "opaque" },
@@ -34,18 +34,18 @@ function mcp_config_routes(p)
 
     -- basic res: no flags.
     local mut_mgres = mcp.res_mutator_new(
-        { t = "rescodeset", str = "HD" }
+        { t = "rescodeset", val = "HD" }
     )
 
     -- res with value.
     local mut_mgresval = mcp.res_mutator_new(
-        { t = "rescodeset", str = "VA" },
-        { t = "valcopy", idx = 1, arg = "string" }
+        { t = "rescodeset", val = "VA" },
+        { t = "valcopy", idx = 1 }
     )
 
     -- res with flags.
     local mut_mgresflag = mcp.res_mutator_new(
-        { t = "rescodeset", str = "HD" },
+        { t = "rescodeset", val = "HD" },
         { t = "flagset", flag = "t", val = "37" },
         { t = "flagcopy", flag = "O", idx = 1 }
     )
