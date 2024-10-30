@@ -955,8 +955,6 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
     // ensure space and/or allocate memory then seed our destination pointer.
     if (mut->type == MUT_REQ) {
         mcp_request_t *rq = run->arg;
-        // FIXME: cleanup should be managed by slot rctx.
-        mcp_request_cleanup(t, rq);
         // future.. should be able to dynamically assign request buffer.
         if (total > MCP_REQUEST_MAXLEN) {
             proxy_lua_error(run->L, "mutator: new request is too long");
@@ -986,8 +984,6 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
         }
     } else {
         mcp_resp_t *rs = run->arg;
-        // FIXME: cleanup should be managed by slot rctx.
-        mcp_response_cleanup(t, rs);
 
         rs->buf = malloc(total);
         if (rs->buf == NULL) {

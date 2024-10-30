@@ -51,7 +51,7 @@ function mcp_config_routes(p)
     )
 
     mgfg:ready({
-        n = "mgtest", f = function(rctx)
+        n = "mgtest", u = 2, f = function(rctx)
             -- make blank request objects for handing to mutator
 
             -- these objects must be made per slot (rctx)
@@ -90,7 +90,7 @@ function mcp_config_routes(p)
     })
 
     msfg:ready({
-        n = "mstest", f = function(rctx)
+        n = "mstest", u = 2, f = function(rctx)
             return function(r)
                 local key = r:key()
                 -- test tree

@@ -109,6 +109,19 @@ static void mcp_rcontext_cleanup(lua_State *L, mcp_funcgen_t *fgen, mcp_rcontext
         }
     }
 
+    // look for rctx-local objects.
+    if (rctx->obj_count) {
+        int lim = fgen->max_queues + rctx->obj_count;
+        for (int x = fgen->max_queues; x < lim; x++) {
+            struct mcp_rqueue_s *rqu = &rctx->qslots[x];
+            // Don't need to look at the type:
+            // - slot has to be freed (thus cleaned up) before getting here
+            // - any uobj is ref'ed into obj_ref
+            luaL_unref(L, LUA_REGISTRYINDEX, rqu->obj_ref);
+            rqu->obj_ref = 0;
+        }
+    }
+
     // nuke alarm if set.
     // should only be paranoia here, but just in case.
     if (event_pending(&rctx->timeout_event, EV_TIMEOUT, NULL)) {
@@ -207,7 +220,8 @@ static int _mcplib_funcgen_gencall(lua_State *L) {
     mcp_funcgen_t *fgen = luaL_checkudata(L, -2, "mcp.funcgen");
     int fgen_idx = lua_absindex(L, -2);
     // create the ctx object.
-    size_t rctx_len = sizeof(mcp_rcontext_t) + sizeof(struct mcp_rqueue_s) * fgen->max_queues;
+    int total_queues = fgen->max_queues + fgen->extra_queues;
+    size_t rctx_len = sizeof(mcp_rcontext_t) + sizeof(struct mcp_rqueue_s) * total_queues;
     mcp_rcontext_t *rc = lua_newuserdatauv(L, rctx_len, 0);
     memset(rc, 0, rctx_len);
 
@@ -366,6 +380,24 @@ static void _mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
         rqu->rq = NULL;
         if (rqu->obj_type == RQUEUE_TYPE_FGEN) {
             _mcp_funcgen_return_rctx(rqu->obj);
+        }
+    }
+
+    // look for rctx-local objects.
+    if (rctx->obj_count) {
+        int lim = fgen->max_queues + rctx->obj_count;
+        for (int x = fgen->max_queues; x < lim; x++) {
+            struct mcp_rqueue_s *rqu = &rctx->qslots[x];
+            if (rqu->obj_type == RQUEUE_TYPE_UOBJ_REQ) {
+                mcp_request_t *rq = rqu->obj;
+                mcp_request_cleanup(fgen->thread, rq);
+            } else if (rqu->obj_type == RQUEUE_TYPE_UOBJ_RES) {
+                mcp_resp_t *rs = rqu->obj;
+                mcp_response_cleanup(fgen->thread, rs);
+            } else {
+                // no known type. only crash the debug binary.
+                assert(1 == 0);
+            }
         }
     }
 }
@@ -706,6 +738,16 @@ int mcplib_funcgen_ready(lua_State *L) {
         strncpy(fgen->name, "anonymous", FGEN_NAME_MAXLEN);
         lua_pop(L, 1);
     }
+
+    if (lua_getfield(L, 2, "u") == LUA_TNUMBER) {
+        int extra_queues = luaL_checkinteger(L, -1);
+        if (extra_queues < 1 || extra_queues > RQUEUE_UOBJ_MAX) {
+            proxy_lua_ferror(L, "user obj ('u') in fgen:ready must be between 1 and %d", RQUEUE_UOBJ_MAX);
+            return 0;
+        }
+        fgen->extra_queues = extra_queues;
+    }
+    lua_pop(L, 1);
 
     // now we test the generator function and create the first slot.
     lua_pushvalue(L, 1); // copy the funcgen to pass into gencall
@@ -1447,22 +1489,49 @@ int mcplib_rcontext_tls_peer_cn(lua_State *L) {
     return 1;
 }
 
-// TODO: stub function.
-// need to attach request function to rcontext, by using another function that
-// doesn't fill out the request info
+// Creates request object that's tracked by request context so we can call
+// cleanup routines post-run.
 int mcplib_rcontext_request_new(lua_State *L) {
-    mcp_parser_t pr = {0};
+    mcp_rcontext_t *rctx = lua_touserdata(L, 1);
+    if (rctx->obj_count == rctx->fgen->extra_queues) {
+        proxy_lua_error(L, "rctx request new: object count limit reached");
+        return 0;
+    }
 
-    mcp_new_request(L, &pr, " ", 1);
+    // create new request object
+    mcp_parser_t pr = {0};
+    mcp_request_t *rq = mcp_new_request(L, &pr, " ", 1);
+
+    lua_pushvalue(L, -1); // dupe rq for the rqueue slot
+    struct mcp_rqueue_s *rqu = &rctx->qslots[rctx->fgen->max_queues + rctx->obj_count];
+    rctx->obj_count++;
+    // hold the request reference into the rctx for memory management.
+    rqu->obj_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    rqu->obj_type = RQUEUE_TYPE_UOBJ_REQ;
+    rqu->obj = rq;
+
     return 1;
 }
 
-// TODO: stub function, see request_new above.
 int mcplib_rcontext_response_new(lua_State *L) {
+    mcp_rcontext_t *rctx = lua_touserdata(L, 1);
+    if (rctx->obj_count == rctx->fgen->extra_queues) {
+        proxy_lua_error(L, "rctx request new: object count limit reached");
+        return 0;
+    }
+
     mcp_resp_t *r = lua_newuserdatauv(L, sizeof(mcp_resp_t), 0);
     memset(r, 0, sizeof(mcp_resp_t));
     luaL_getmetatable(L, "mcp.response");
     lua_setmetatable(L, -2);
+
+    lua_pushvalue(L, -1); // dupe rq for the rqueue slot
+    struct mcp_rqueue_s *rqu = &rctx->qslots[rctx->fgen->max_queues + rctx->obj_count];
+    rctx->obj_count++;
+    // hold the request reference into the rctx for memory management.
+    rqu->obj_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    rqu->obj_type = RQUEUE_TYPE_UOBJ_RES;
+    rqu->obj = r;
     return 1;
 }
 

@@ -653,6 +653,7 @@ struct mcp_funcgen_s {
     int self_ref; // self-reference if we're attached anywhere
     int argument_ref; // reference to an argument to pass to generator
     int max_queues; // how many queue slots rctx's have
+    int extra_queues; // how many extra queue slots for object storage we have
     unsigned int refcount; // reference counter
     unsigned int total; // total contexts managed
     unsigned int free; // free contexts
@@ -702,12 +703,16 @@ struct mcp_funcgen_router {
 #define RQUEUE_TYPE_NONE 0
 #define RQUEUE_TYPE_POOL 1
 #define RQUEUE_TYPE_FGEN 2
+#define RQUEUE_TYPE_UOBJ 3 // user tracked object types past this point
+#define RQUEUE_TYPE_UOBJ_REQ 4
+#define RQUEUE_TYPE_UOBJ_RES 5
 #define RQUEUE_ASSIGNED (1<<0)
 #define RQUEUE_R_RESUME (1<<1)
 #define RQUEUE_R_GOOD (1<<3)
 #define RQUEUE_R_OK (1<<4)
 #define RQUEUE_R_ANY (1<<5)
 #define RQUEUE_R_ERROR (1<<7)
+#define RQUEUE_UOBJ_MAX UINT8_MAX
 
 enum mcp_rqueue_state {
     RQUEUE_IDLE = 0,
@@ -735,7 +740,6 @@ struct mcp_rcontext_s {
     int request_ref; // top level request for this context.
     int function_ref; // ref to the created route function.
     int coroutine_ref; // ref to our encompassing coroutine.
-    unsigned int async_pending; // legacy async handling
     int pending_reqs; // pending requests and sub-requests
     unsigned int wait_count;
     unsigned int wait_done; // TODO: change these variables to uint8's
@@ -744,6 +748,7 @@ struct mcp_rcontext_s {
     int conn_fd; // fd of the originating client, as *c can become invalid
     enum mcp_rqueue_e wait_mode;
     uint8_t lua_narg; // number of responses to push when yield resuming.
+    uint8_t obj_count; // number of extra tracked req/res objects.
     bool first_queue; // HACK
     lua_State *Lc; // coroutine thread pointer.
     mcp_request_t *request; // ptr to the above reference.
