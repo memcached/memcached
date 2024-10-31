@@ -10,8 +10,6 @@
  * allow code experiments and further information gathering before completing
  * the interface.
  *
- * it currently has bugs, unfinished features, and will not immediately
- * release request or result buffers after a request completes.
  */
 
 // space or \r\n
