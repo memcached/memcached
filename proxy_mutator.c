@@ -276,22 +276,39 @@ mut_step_i(cmdcopy) {
 }
 
 mut_step_n(cmdcopy) {
+    lua_State *L = run->L;
     unsigned idx = s->idx;
-    // TODO: use flagcopy/valcopy method here, vs assuming it's another
-    // request object.
-    mcp_request_t *srq = lua_touserdata(run->L, idx);
+    mcp_request_t *srq = NULL;
+    mcp_resp_t *srs = NULL;
 
-    // command must be at the start
-    const char *cmd = srq->pr.request;
-    // command ends at the first token
-    int clen = srq->pr.tokens[1];
-    if (cmd[clen] == ' ') {
-        clen--;
+    switch (lua_type(L, idx)) {
+        case LUA_TSTRING:
+            p->src = lua_tolstring(L, idx, &p->slen);
+            break;
+        case LUA_TUSERDATA:
+            _mut_checkudata(L, idx, &srq, &srs);
+            p->slen = 0;
+            if (srq) {
+                // command must be at the start
+                const char *cmd = srq->pr.request;
+                // command ends at the first token
+                int clen = srq->pr.tokens[1];
+                if (cmd[clen] == ' ') {
+                    clen--;
+                }
+                p->src = cmd;
+                p->slen = clen;
+            } else {
+                // can only use a request object
+                return -1;
+            }
+            break;
+        default:
+            // ints/etc unsupported
+            return -1;
     }
-    p->src = cmd;
-    p->slen = clen;
 
-    return clen;
+    return p->slen;
 }
 
 mut_step_r(cmdcopy) {
@@ -317,12 +334,30 @@ mut_step_i(keycopy) {
 }
 
 mut_step_n(keycopy) {
+    lua_State *L = run->L;
     unsigned idx = s->idx;
-    // TODO: copy valcopy/flagcopy routine
-    mcp_request_t *srq = lua_touserdata(run->L, idx);
+    mcp_request_t *srq = NULL;
+    mcp_resp_t *srs = NULL;
 
-    p->src = MCP_PARSER_KEY(srq->pr);
-    p->slen = srq->pr.klen;
+    switch (lua_type(L, idx)) {
+        case LUA_TSTRING:
+            p->src = lua_tolstring(L, idx, &p->slen);
+            break;
+        case LUA_TUSERDATA:
+            _mut_checkudata(L, idx, &srq, &srs);
+            if (srq) {
+                p->src = MCP_PARSER_KEY(srq->pr);
+                p->slen = srq->pr.klen;
+            } else {
+                // TODO: if a result object:
+                // - if meta, and 'k' flag, copy flag token.
+                return -1;
+            }
+            break;
+        default:
+            // ints/etc unsupported
+            return -1;
+    }
 
     return p->slen;
 }
@@ -436,26 +471,42 @@ mut_step_i(rescodecopy) {
 }
 
 mut_step_n(rescodecopy) {
+    lua_State *L = run->L;
     unsigned idx = s->idx;
-    // TODO: use valcopy/flagcopy routine
-    mcp_resp_t *srs = lua_touserdata(run->L, idx);
+    mcp_request_t *srq = NULL;
+    mcp_resp_t *srs = NULL;
 
-    // TODO: can't recover the exact code from the mcmc resp object, so lets make
-    // sure it's tokenized and copy the first token.
-    if (srs->resp.type == MCMC_RESP_META) {
-        mcmc_tokenize_res(srs->buf, srs->resp.reslen, &srs->tok);
-    } else {
-        // FIXME: above only does meta responses
-        return -1;
-    }
-    int len = 0;
-    p->src = mcmc_token_get(srs->buf, &srs->tok, 0, &len);
-    if (len < 2) {
-        return -1;
+    switch (lua_type(L, idx)) {
+        case LUA_TSTRING:
+            p->src = lua_tolstring(L, idx, &p->slen);
+            break;
+        case LUA_TUSERDATA:
+            _mut_checkudata(L, idx, &srq, &srs);
+            if (srs) {
+                // can't recover the exact code from the mcmc resp object, so lets make
+                // sure it's tokenized and copy the first token.
+                if (srs->resp.type == MCMC_RESP_META) {
+                    mcmc_tokenize_res(srs->buf, srs->resp.reslen, &srs->tok);
+                } else {
+                    // FIXME: only supports meta responses
+                    return -1;
+                }
+                int len = 0;
+                p->src = mcmc_token_get(srs->buf, &srs->tok, 0, &len);
+                p->slen = len;
+                if (len < 2) {
+                    return -1;
+                }
+            } else {
+                return -1;
+            }
+            break;
+        default:
+            // ints/etc unsupported
+            return -1;
     }
 
-    p->slen = len;
-    return len;
+    return p->slen;
 }
 
 mut_step_r(rescodecopy) {
