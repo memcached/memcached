@@ -653,7 +653,7 @@ struct mcp_funcgen_s {
     int self_ref; // self-reference if we're attached anywhere
     int argument_ref; // reference to an argument to pass to generator
     int max_queues; // how many queue slots rctx's have
-    int extra_queues; // how many extra queue slots for object storage we have
+    int uobj_queues; // how many extra queue slots for object storage we have
     unsigned int refcount; // reference counter
     unsigned int total; // total contexts managed
     unsigned int free; // free contexts
@@ -748,7 +748,7 @@ struct mcp_rcontext_s {
     int conn_fd; // fd of the originating client, as *c can become invalid
     enum mcp_rqueue_e wait_mode;
     uint8_t lua_narg; // number of responses to push when yield resuming.
-    uint8_t obj_count; // number of extra tracked req/res objects.
+    uint8_t uobj_count; // number of extra tracked req/res objects.
     bool first_queue; // HACK
     lua_State *Lc; // coroutine thread pointer.
     mcp_request_t *request; // ptr to the above reference.
