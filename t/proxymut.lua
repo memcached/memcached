@@ -22,6 +22,11 @@ function mcp_config_routes(p)
         { t = "keyset", val = "override" }
     )
 
+    local mut_mgreqcopy = mcp.req_mutator_new(
+        { t = "cmdcopy", idx = 1 },
+        { t = "keycopy", idx = 2 }
+    )
+
     -- set a bunch of flags
     local mut_mgflagreq = mcp.req_mutator_new(
         { t = "cmdset", cmd = "mg" },
@@ -39,8 +44,8 @@ function mcp_config_routes(p)
 
     -- res with value.
     local mut_mgresval = mcp.res_mutator_new(
-        { t = "rescodeset", val = "VA" },
-        { t = "valcopy", idx = 1 }
+        { t = "rescodecopy", idx = 1 },
+        { t = "valcopy", idx = 2 }
     )
 
     -- res with flags.
@@ -48,6 +53,11 @@ function mcp_config_routes(p)
         { t = "rescodeset", val = "HD" },
         { t = "flagset", flag = "t", val = "37" },
         { t = "flagcopy", flag = "O", idx = 1 }
+    )
+
+    -- error res.
+    local mut_reserr = mcp.res_mutator_new(
+        { t = "reserr", code = "server", msg = "teapot" }
     )
 
     mgfg:ready({
@@ -70,11 +80,14 @@ function mcp_config_routes(p)
                 elseif key == "mgflagreq" then
                     local ret = mut_mgflagreq(nreq)
                     return rctx:enqueue_and_wait(nreq, mgfgh)
+                elseif key == "mgreqcopy" then
+                    local ret = mut_mgreqcopy(nreq, "md", "differentkey")
+                    return rctx:enqueue_and_wait(nreq, mgfgh)
                 elseif key == "mgres" then
                     local ret = mut_mgres(nres)
                     return nres
                 elseif key == "mgresval" then
-                    local ret = mut_mgresval(nres, "example value\r\n")
+                    local ret = mut_mgresval(nres, "VA", "example value\r\n")
                     return nres
                 elseif key == "mgresflag" then
                     local res = rctx:enqueue_and_wait(r, mgfgh)
@@ -83,6 +96,9 @@ function mcp_config_routes(p)
                 elseif key == "mgresflag2" then
                     local res = rctx:enqueue_and_wait(r, mgfgh)
                     local ret = mut_mgresflag(nres, "toast")
+                    return nres
+                elseif key == "mgresteapot" then
+                    local res = mut_reserr(nres)
                     return nres
                 end
             end

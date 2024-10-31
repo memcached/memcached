@@ -515,6 +515,7 @@ mut_step_r(rescodecopy) {
 }
 
 // TODO: can be no other steps after an error is set.
+// TODO: if idx given instead of msg copy an input string.
 mut_step_c(reserr) {
     size_t total = 0;
     char *code = NULL;
@@ -572,21 +573,25 @@ mut_step_i(reserr) {
             proxy_lua_ferror(L, "mutator step %d: code must be 'error', server', or 'client'", tidx);
         }
 
+        // Start our string here.
+        c->str = mut->aused;
         size_t clen = strlen(code);
         memcpy(a, code, clen);
         a += clen;
         *a = ' ';
         a++;
-        mut->aused += clen + 1;
+        clen++;
+        mut->aused += clen;
+        c->len += clen;
     } else {
         proxy_lua_ferror(L, "mutator step %d: must provide 'code' argument", tidx);
     }
     lua_pop(L, 1);
 
     if (lua_getfield(L, tidx, "msg") != LUA_TNIL) {
+        // Extend the string with a msg if supplied.
         const char *str = lua_tolstring(L, -1, &len);
-        c->str = mut->aused;
-        c->len = len;
+        c->len += len;
         memcpy(a, str, len);
         mut->aused += len;
     } else {
@@ -594,7 +599,7 @@ mut_step_i(reserr) {
     }
     lua_pop(L, 1);
 
-    return len;
+    return c->len;
 }
 
 mut_step_n(reserr) {
@@ -1052,7 +1057,8 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
         _mcp_mut_run_assemble(run, parts);
 
         rs->tok.ntokens = 0; // TODO: handler from mcmc?
-        if (mcmc_parse_buf(rs->buf, run->d_pos - rs->buf, &rs->resp) != MCMC_OK) {
+        mcmc_parse_buf(rs->buf, run->d_pos - rs->buf, &rs->resp);
+        if (rs->resp.type == MCMC_RESP_FAIL) {
             proxy_lua_error(run->L, "mutator: failed to parse new result");
             return 0;
         }

@@ -52,6 +52,14 @@ sub test_mg {
         $t->clear();
     };
 
+    subtest 'mgreqcopy' => sub {
+        $t->c_send("mg mgreqcopy\r\n");
+        $t->be_recv(0, "md differentkey\r\n");
+        $t->be_send(0, "NF\r\n");
+        $t->c_recv_be();
+        $t->clear();
+    };
+
     subtest 'mgres' => sub {
         $t->c_send("mg mgres\r\n");
         $t->c_recv("HD\r\n");
@@ -81,6 +89,12 @@ sub test_mg {
         $t->be_recv(0, "mg mgresflag2\r\n");
         $t->be_send(0, "HD s2 Omgresflag2 f3\r\n");
         $t->c_recv("HD t37 Otoast\r\n");
+        $t->clear();
+    };
+
+    subtest 'mgreserr' => sub {
+        $t->c_send("mg mgresteapot\r\n");
+        $t->c_recv("SERVER_ERROR teapot\r\n");
         $t->clear();
     };
 }
