@@ -2903,6 +2903,7 @@ static enum transmit_result transmit_udp(conn *c) {
     if (settings.verbose > 0)
         perror("Failed to write, and not due to blocking");
 
+    conn_release_items(c);
     conn_set_state(c, conn_read);
     return TRANSMIT_HARD_ERROR;
 }
