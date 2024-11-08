@@ -216,6 +216,7 @@ struct proxy_tunables {
     struct timeval read;
     struct timeval flap; // need to stay connected this long or it's flapping
     float flap_backoff_ramp; // factorial for retry time
+    float gc_ratio; // how much lua VM growth to allow before running GC
     uint32_t flap_backoff_max; // don't backoff longer than this.
     int backend_depth_limit; // requests fast fail once depth over this limit
     int backend_failure_limit;

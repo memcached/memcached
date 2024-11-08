@@ -13,6 +13,7 @@
 #define PROCESS_MULTIGET true
 #define PROCESS_NORMAL false
 #define PROXY_GC_BACKGROUND_SECONDS 2
+#define PROXY_GC_DEFAULT_RATIO 1.9
 static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool multiget);
 static void *mcp_profile_alloc(void *ud, void *ptr, size_t osize, size_t nsize);
 
@@ -48,6 +49,8 @@ static inline void _proxy_advance_lastkb(lua_State *L, LIBEVENT_THREAD *t) {
 // processing network events.
 void proxy_gc_poke(LIBEVENT_THREAD *t) {
     lua_State *L = t->L;
+    proxy_ctx_t *ctx = t->proxy_ctx;
+    float ratio = ctx->tunables.gc_ratio;
     struct proxy_int_stats *is = t->proxy_int_stats;
     int vm_kb = lua_gc(L, LUA_GCCOUNT) + t->proxy_vm_extra_kb;
     if (t->proxy_vm_last_kb == 0) {
@@ -59,9 +62,9 @@ void proxy_gc_poke(LIBEVENT_THREAD *t) {
 
     // equivalent of luagc "pause" value
     int last = t->proxy_vm_last_kb;
-    if (t->proxy_vm_gcrunning <= 0 && vm_kb > last * 2) {
+    if (t->proxy_vm_gcrunning <= 0 && vm_kb > last * ratio) {
         t->proxy_vm_gcrunning = 1;
-        //fprintf(stderr, "PROXYGC: proxy_gc_poke START [cur: %d - last: %d]\n", vm_kb, last);
+        //fprintf(stderr, "PROXYGC: proxy_gc_poke START [cur: %d - last: %d - ratio: %f]\n", vm_kb, last, ratio);
     }
 
     // We configure small GC "steps" then increase the number of times we run
@@ -97,7 +100,7 @@ void proxy_gc_poke(LIBEVENT_THREAD *t) {
         }
 
         // increase the aggressiveness by memory bloat level.
-        if (t->proxy_vm_gcrunning && (last*2) + (last * t->proxy_vm_gcrunning*0.25) < vm_kb) {
+        if (t->proxy_vm_gcrunning && (last*ratio) + (last * t->proxy_vm_gcrunning*0.25) < vm_kb) {
             t->proxy_vm_gcrunning++;
             //fprintf(stderr, "PROXYGC: proxy_gc_poke INCREASING AGGRESSIVENESS [cur: %d - aggro: %d]\n", t->proxy_vm_last_kb, t->proxy_vm_gcrunning);
         } else if (t->proxy_vm_gcrunning > 1) {
@@ -374,6 +377,7 @@ void *proxy_init(bool use_uring, bool proxy_memprofile) {
     ctx->tunables.read.tv_sec = 3;
     ctx->tunables.flap_backoff_ramp = 1.5;
     ctx->tunables.flap_backoff_max = 3600;
+    ctx->tunables.gc_ratio = PROXY_GC_DEFAULT_RATIO;
     ctx->tunables.backend_depth_limit = 0;
     ctx->tunables.max_ustats = MAX_USTATS_DEFAULT;
     ctx->tunables.use_iothread = false;

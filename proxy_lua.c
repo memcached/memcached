@@ -1155,6 +1155,20 @@ static int mcplib_backend_flap_backoff_max(lua_State *L) {
     return 0;
 }
 
+static int mcplib_luagc_ratio(lua_State *L) {
+    float ratio = luaL_checknumber(L, -1);
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
+    if (ratio < 1.1) {
+        ratio = 1.1;
+    }
+
+    STAT_L(ctx);
+    ctx->tunables.gc_ratio = ratio;
+    STAT_UL(ctx);
+
+    return 0;
+}
+
 static int mcplib_stat_limit(lua_State *L) {
     proxy_ctx_t *ctx = PROXY_GET_CTX(L);
     int limit = luaL_checkinteger(L, -1);
@@ -1673,6 +1687,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"backend", mcplib_backend},
         {"add_stat", mcplib_add_stat},
         {"ratelim_global_tbf", mcplib_ratelim_global_tbf},
+        {"luagc_ratio", mcplib_luagc_ratio},
         {"stat_limit", mcplib_stat_limit},
         {"backend_connect_timeout", mcplib_backend_connect_timeout},
         {"backend_retry_timeout", mcplib_backend_retry_timeout},
