@@ -752,7 +752,7 @@ typedef struct {
     int proxy_vm_last_kb;
     unsigned int proxy_vm_negative_delta;
     int proxy_vm_gcrunning;
-    bool proxy_vm_needspoke;
+    int proxy_vm_gcpokemem;
     uint64_t proxy_active_req_limit;
     uint64_t proxy_buffer_memory_limit; // protected by limit_lock
     uint64_t proxy_buffer_memory_used; // protected by limit_lock

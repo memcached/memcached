@@ -12,7 +12,7 @@
 
 #define PROCESS_MULTIGET true
 #define PROCESS_NORMAL false
-#define PROXY_GC_BACKGROUND_SECONDS 2
+#define PROXY_GC_BACKGROUND_SECONDS 4
 #define PROXY_GC_DEFAULT_RATIO 1.9
 static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool multiget);
 static void *mcp_profile_alloc(void *ud, void *ptr, size_t osize, size_t nsize);
@@ -53,9 +53,6 @@ void proxy_gc_poke(LIBEVENT_THREAD *t) {
     float ratio = ctx->tunables.gc_ratio;
     struct proxy_int_stats *is = t->proxy_int_stats;
     int vm_kb = lua_gc(L, LUA_GCCOUNT) + t->proxy_vm_extra_kb;
-    if (t->proxy_vm_last_kb == 0) {
-        t->proxy_vm_last_kb = vm_kb;
-    }
     WSTAT_L(t);
     is->vm_memory_kb = vm_kb;
     WSTAT_UL(t);
@@ -70,7 +67,7 @@ void proxy_gc_poke(LIBEVENT_THREAD *t) {
     // We configure small GC "steps" then increase the number of times we run
     // a step based on current memory usage.
     if (t->proxy_vm_gcrunning > 0) {
-        t->proxy_vm_needspoke = false;
+        t->proxy_vm_gcpokemem = 0;
         int loops = t->proxy_vm_gcrunning;
         int done = 0;
         /*fprintf(stderr, "PROXYGC: proxy_gc_poke [cur: %d - last: %d - loops: %d]\n",
@@ -97,16 +94,10 @@ void proxy_gc_poke(LIBEVENT_THREAD *t) {
             is->vm_gc_runs++;
             WSTAT_UL(t);
             //fprintf(stderr, "PROXYGC: proxy_gc_poke COMPLETE [cur: %d next: %d]\n", lua_gc(L, LUA_GCCOUNT), t->proxy_vm_last_kb);
-        }
-
-        // increase the aggressiveness by memory bloat level.
-        if (t->proxy_vm_gcrunning && (last*ratio) + (last * t->proxy_vm_gcrunning*0.25) < vm_kb) {
+        } else if ((last*ratio) * (1 + t->proxy_vm_gcrunning*0.20) < vm_kb) {
+            // increase the aggressiveness by memory bloat level.
             t->proxy_vm_gcrunning++;
             //fprintf(stderr, "PROXYGC: proxy_gc_poke INCREASING AGGRESSIVENESS [cur: %d - aggro: %d]\n", t->proxy_vm_last_kb, t->proxy_vm_gcrunning);
-        } else if (t->proxy_vm_gcrunning > 1) {
-            // memory can drop during a run, let the GC slow down again.
-            t->proxy_vm_gcrunning--;
-            //fprintf(stderr, "PROXYGC: proxy_gc_poke DECREASING AGGRESSIVENESS [cur: %d - aggro: %d]\n", t->proxy_vm_last_kb, t->proxy_vm_gcrunning);
         }
     }
 }
@@ -120,9 +111,11 @@ static void proxy_gc_timerpoke(evutil_socket_t fd, short event, void *arg) {
     LIBEVENT_THREAD *t = arg;
     struct timeval next = { PROXY_GC_BACKGROUND_SECONDS, 0 };
     evtimer_add(t->proxy_gc_timer, &next);
-    // if GC ran within the last few seconds, don't do anything.
-    if (!t->proxy_vm_needspoke) {
-        t->proxy_vm_needspoke = true;
+    // if GC ran recently, don't do anything.
+    // also if memory changed recently, don't do anything.
+    int curmem = lua_gc(t->L, LUA_GCCOUNT);
+    if (t->proxy_vm_gcpokemem == 0 || curmem != t->proxy_vm_gcpokemem) {
+        t->proxy_vm_gcpokemem = curmem;
         return;
     }
 
@@ -133,10 +126,15 @@ static void proxy_gc_timerpoke(evutil_socket_t fd, short event, void *arg) {
     }
 
     // only advance GC if we're doing our own timer run.
-    if (t->proxy_vm_gcrunning == -1 && lua_gc(t->L, LUA_GCSTEP, 0)) {
-        _proxy_advance_lastkb(t->L, t);
-        t->proxy_vm_extra_kb = 0;
-        t->proxy_vm_gcrunning = 0;
+    if (t->proxy_vm_gcrunning == -1) {
+        if (lua_gc(t->L, LUA_GCSTEP, 0)) {
+            // don't advance last_kb: let the main algo decide when to run.
+            t->proxy_vm_gcrunning = 0;
+            t->proxy_vm_gcpokemem = 0;
+        } else {
+            // only continue running if memory stays where we expect it.
+            t->proxy_vm_gcpokemem = lua_gc(t->L, LUA_GCCOUNT);
+        }
     }
 }
 
@@ -471,6 +469,9 @@ void proxy_thread_init(void *ctx, LIBEVENT_THREAD *thr) {
         thr->proxy_rng[x] = rand();
     }
 
+    // init our internal GC checker.
+    thr->proxy_vm_last_kb = lua_gc(L, LUA_GCCOUNT);
+    assert(thr->proxy_vm_last_kb != 0);
     thr->proxy_gc_timer = evtimer_new(thr->base, proxy_gc_timerpoke, thr);
     // kick off the timer loop.
     proxy_gc_timerpoke(0, 0, thr);
