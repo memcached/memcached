@@ -1409,13 +1409,13 @@ static int mcplib_log_req(lua_State *L) {
     return 0;
 }
 
-static inline uint32_t _rotl(const uint32_t x, int k) {
+static inline uint32_t _mcp_rotl(const uint32_t x, int k) {
     return (x << k) | (x >> (32 - k));
 }
 
 // xoroshiro128++ 32bit version.
-static uint32_t _nextrand(uint32_t *s) {
-    const uint32_t result = _rotl(s[0] + s[3], 7) + s[0];
+static uint32_t _mcp_nextrand(uint32_t *s) {
+    const uint32_t result = _mcp_rotl(s[0] + s[3], 7) + s[0];
 
     const uint32_t t = s[1] << 9;
 
@@ -1426,7 +1426,7 @@ static uint32_t _nextrand(uint32_t *s) {
 
     s[2] ^= t;
 
-    s[3] = _rotl(s[3], 11);
+    s[3] = _mcp_rotl(s[3], 11);
 
     return result;
 }
@@ -1474,7 +1474,7 @@ static int mcplib_log_reqsample(lua_State *L) {
     } else if (rate > 0) {
         // slightly biased random-to-rate without adding a loop, which is
         // completely fine for this use case.
-        uint32_t rnd = (uint64_t)_nextrand(t->proxy_rng) * (uint64_t)rate >> 32;
+        uint32_t rnd = (uint64_t)_mcp_nextrand(t->proxy_rng) * (uint64_t)rate >> 32;
         if (rnd == 0) {
             do_log = true;
         }
