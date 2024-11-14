@@ -1,20 +1,14 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #include "memcached.h"
 #include "bipbuffer.h"
-#include "slab_automove.h"
 #include "storage.h"
-#ifdef EXTSTORE
-#include "slab_automove_extstore.h"
-#endif
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/resource.h>
 #include <fcntl.h>
 #include <netinet/in.h>
-#include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <signal.h>
 #include <string.h>
 #include <time.h>
 #include <assert.h>
@@ -178,7 +172,7 @@ item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
         if (!settings.lru_segmented) {
             lru_pull_tail(id, COLD_LRU, 0, 0, 0, NULL);
         }
-        it = slabs_alloc(ntotal, id, 0);
+        it = slabs_alloc(id, 0);
 
         if (it == NULL) {
             // We send '0' in for "total_bytes" as this routine is always
@@ -353,7 +347,6 @@ item *do_item_alloc(const char *key, const size_t nkey, const client_flags_t fla
 }
 
 void item_free(item *it) {
-    size_t ntotal = ITEM_ntotal(it);
     unsigned int clsid;
     assert((it->it_flags & ITEM_LINKED) == 0);
     assert(it != heads[it->slabs_clsid]);
@@ -363,7 +356,7 @@ void item_free(item *it) {
     /* so slab size changer can tell later if item is already free or not */
     clsid = ITEM_clsid(it);
     DEBUG_REFCNT(it, 'F');
-    slabs_free(it, ntotal, clsid);
+    slabs_free(it, clsid);
 }
 
 /**
@@ -694,7 +687,7 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
     return buffer;
 }
 
-/* With refactoring of the various stats code the automover won't need a
+/* With refactoring of the various stats code the automover shouldn't need a
  * custom function here.
  */
 void fill_item_stats_automove(item_stats_automove *am) {
@@ -981,26 +974,6 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, LIBEVEN
     item *it = assoc_find(key, nkey, hv);
     if (it != NULL) {
         refcount_incr(it);
-        /* Optimization for slab reassignment. prevents popular items from
-         * jamming in busy wait. Can only do this here to satisfy lock order
-         * of item_lock, slabs_lock. */
-        /* This was made unsafe by removal of the cache_lock:
-         * slab_rebalance_signal and slab_rebal.* are modified in a separate
-         * thread under slabs_lock. If slab_rebalance_signal = 1, slab_start =
-         * NULL (0), but slab_end is still equal to some value, this would end
-         * up unlinking every item fetched.
-         * This is either an acceptable loss, or if slab_rebalance_signal is
-         * true, slab_start/slab_end should be put behind the slabs_lock.
-         * Which would cause a huge potential slowdown.
-         * Could also use a specific lock for slab_rebal.* and
-         * slab_rebalance_signal (shorter lock?)
-         */
-        /*if (slab_rebalance_signal &&
-            ((void *)it >= slab_rebal.slab_start && (void *)it < slab_rebal.slab_end)) {
-            do_item_unlink(it, hv);
-            do_item_remove(it);
-            it = NULL;
-        }*/
     }
     int was_found = 0;
 
@@ -1237,9 +1210,6 @@ int lru_pull_tail(const int orig_id, const int cur_lru,
                     STORAGE_delete(ext_storage, search);
                     do_item_unlink_nolock(search, hv);
                     removed++;
-                    if (settings.slab_automove == 2) {
-                        slabs_reassign(-1, orig_id);
-                    }
                 } else if (flags & LRU_PULL_RETURN_ITEM) {
                     /* Keep a reference to this item and return it. */
                     ret_it->it = it;
@@ -1567,35 +1537,16 @@ static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata, log
     }
 }
 
-slab_automove_reg_t slab_automove_default = {
-    .init = slab_automove_init,
-    .free = slab_automove_free,
-    .run = slab_automove_run
-};
-#ifdef EXTSTORE
-slab_automove_reg_t slab_automove_extstore = {
-    .init = slab_automove_extstore_init,
-    .free = slab_automove_extstore_free,
-    .run = slab_automove_extstore_run
-};
-#endif
 static pthread_t lru_maintainer_tid;
 
 #define MAX_LRU_MAINTAINER_SLEEP (1000000-1)
 #define MIN_LRU_MAINTAINER_SLEEP 1000
 
 static void *lru_maintainer_thread(void *arg) {
-    slab_automove_reg_t *sam = &slab_automove_default;
-#ifdef EXTSTORE
-    void *storage = arg;
-    if (storage != NULL)
-        sam = &slab_automove_extstore;
-#endif
     int i;
     useconds_t to_sleep = MIN_LRU_MAINTAINER_SLEEP;
     useconds_t last_sleep = MIN_LRU_MAINTAINER_SLEEP;
     rel_time_t last_crawler_check = 0;
-    rel_time_t last_automove_check = 0;
     useconds_t next_juggles[MAX_NUMBER_OF_SLAB_CLASSES] = {0};
     useconds_t backoff_juggles[MAX_NUMBER_OF_SLAB_CLASSES] = {0};
     struct crawler_expired_data *cdata =
@@ -1611,9 +1562,6 @@ static void *lru_maintainer_thread(void *arg) {
         fprintf(stderr, "Failed to allocate logger for LRU maintainer thread\n");
         abort();
     }
-
-    double last_ratio = settings.slab_automove_ratio;
-    void *am = sam->init(&settings);
 
     pthread_mutex_lock(&lru_maintainer_lock);
     if (settings.verbose > 2)
@@ -1672,31 +1620,8 @@ static void *lru_maintainer_thread(void *arg) {
             lru_maintainer_crawler_check(cdata, l);
             last_crawler_check = current_time;
         }
-
-        if (settings.slab_automove == 1 && last_automove_check != current_time) {
-            if (last_ratio != settings.slab_automove_ratio) {
-                sam->free(am);
-                am = sam->init(&settings);
-                last_ratio = settings.slab_automove_ratio;
-            }
-            int src, dst;
-            sam->run(am, &src, &dst);
-            if (src != -1 && dst != -1) {
-                slabs_reassign(src, dst);
-                LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_SLAB_MOVE, NULL,
-                        src, dst);
-            }
-            // dst == 0 means reclaim to global pool, be more aggressive
-            if (dst != 0) {
-                last_automove_check = current_time;
-            } else if (dst == 0) {
-                // also ensure we minimize the thread sleep
-                to_sleep = 1000;
-            }
-        }
     }
     pthread_mutex_unlock(&lru_maintainer_lock);
-    sam->free(am);
     // LRU crawler *must* be stopped.
     free(cdata);
     if (settings.verbose > 2)

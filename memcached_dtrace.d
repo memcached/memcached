@@ -61,19 +61,17 @@ provider memcached {
 
    /**
     * Allocate memory from the slab allocator.
-    * @param size the requested size
     * @param slabclass the allocation will be fulfilled in this class
     * @param slabsize the size of each item in this class
     * @param ptr pointer to allocated memory
     */
-   probe slabs__allocate(int size, int slabclass, int slabsize, void* ptr);
+   probe slabs__allocate(int slabclass, int slabsize, void* ptr);
 
    /**
     * Failed to allocate memory (out of memory).
-    * @param size the requested size
     * @param slabclass the class that failed to fulfill the request
     */
-   probe slabs__allocate__failed(int size, int slabclass);
+   probe slabs__allocate__failed(int slabclass);
 
    /**
     * Fired when a slab class attempts to allocate more space.

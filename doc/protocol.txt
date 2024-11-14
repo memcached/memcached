@@ -1421,9 +1421,6 @@ integers separated by a colon (treat this as a floating point number).
 | slab_global_page_pool | 32u     | Slab pages returned to global pool for    |
 |                       |         | reassignment to other slab classes.       |
 | slab_reassign_rescues | 64u     | Items rescued from eviction in page move  |
-| slab_reassign_evictions_nomem                                               |
-|                       | 64u     | Valid items evicted during a page move    |
-|                       |         | (due to no free memory in slab)           |
 | slab_reassign_chunk_rescues                                                 |
 |                       | 64u     | Individual sections of an item rescued    |
 |                       |         | during a page move.                       |
@@ -1434,6 +1431,10 @@ integers separated by a colon (treat this as a floating point number).
 | slab_reassign_busy_items                                                    |
 |                       | 64u     | Items busy during page move, requiring a  |
 |                       |         | retry before page can be moved.           |
+| slab_reassign_busy_nomem                                                    |
+|                       | 64u     | Times waiting for free slab memory before |
+|                       |         | being able to rescue valid items during   |
+                        |         | a page move.                              |
 | slab_reassign_busy_deletes                                                  |
 |                       | 64u     | Items busy during page move, requiring    |
 |                       |         | deletion before page can be moved.        |

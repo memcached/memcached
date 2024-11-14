@@ -46,6 +46,7 @@
 #endif
 
 #include "itoa_ljust.h"
+#include "slabs_mover.h"
 #include "protocol_binary.h"
 #include "cache.h"
 #include "logger.h"
@@ -394,11 +395,11 @@ struct stats {
     uint64_t      listen_disabled_num;
     uint64_t      slabs_moved;       /* times slabs were moved around */
     uint64_t      slab_reassign_rescues; /* items rescued during slab move */
-    uint64_t      slab_reassign_evictions_nomem; /* valid items lost during slab move */
     uint64_t      slab_reassign_inline_reclaim; /* valid items lost during slab move */
     uint64_t      slab_reassign_chunk_rescues; /* chunked-item chunks recovered */
     uint64_t      slab_reassign_busy_items; /* valid temporarily unmovable */
     uint64_t      slab_reassign_busy_deletes; /* refcounted items killed */
+    uint64_t      slab_reassign_busy_nomem; /* valid items lost during slab move */
     uint64_t      lru_crawler_starts; /* Number of item crawlers kicked off */
     uint64_t      lru_maintainer_juggles; /* number of LRU bg pokes */
     uint64_t      time_in_listen_disabled_us;  /* elapsed time in microseconds while server unable to process new connections */
@@ -432,6 +433,7 @@ struct stats_state {
     uint64_t      curr_bytes;
     uint64_t      curr_conns;
     uint64_t      hash_bytes;       /* size used for hash tables */
+    float         extstore_memory_pressure; /* when extstore might memory evict */
     unsigned int  conn_structs;
     unsigned int  reserved_fds;
     unsigned int  hash_power_level; /* Better hope it's not over 9000 */
@@ -483,7 +485,9 @@ struct settings {
     bool slab_reassign;     /* Whether or not slab reassignment is allowed */
     bool ssl_enabled; /* indicates whether SSL is enabled */
     int slab_automove;     /* Whether or not to automatically move slabs */
+    unsigned int slab_automove_version; /* bump if AM config args change */
     double slab_automove_ratio; /* youngest must be within pct of oldest */
+    double slab_automove_freeratio; /* % of memory to hold free as buffer */
     unsigned int slab_automove_window; /* window mover for algorithm */
     int hashpower_init;     /* Starting hash power level */
     bool shutdown_command; /* allow shutdown command */
@@ -507,6 +511,7 @@ struct settings {
     bool drop_privileges;   /* Whether or not to drop unnecessary process privileges */
     bool watch_enabled; /* allows watch commands to be dropped */
     bool relaxed_privileges;   /* Relax process restrictions when running testapp */
+    struct slab_rebal_thread *slab_rebal; /* struct for page mover thread */
 #ifdef EXTSTORE
     unsigned int ext_io_threadcount; /* number of IO threads to run. */
     unsigned int ext_page_size; /* size in megabytes of storage pages. */
@@ -519,7 +524,6 @@ struct settings {
     unsigned int ext_drop_under; /* when fewer than this many pages, drop COLD items */
     unsigned int ext_max_sleep; /* maximum sleep time for extstore bg threads, in us */
     double ext_max_frag; /* ideal maximum page fragmentation */
-    double slab_automove_freeratio; /* % of memory to hold free as buffer */
     bool ext_drop_unread; /* skip unread items during compaction */
     /* start flushing to extstore after memory below this */
     unsigned int ext_global_pool_min;
@@ -918,27 +922,6 @@ extern volatile bool is_paused;
 extern volatile int64_t delta;
 #endif
 
-/* TODO: Move to slabs.h? */
-extern volatile int slab_rebalance_signal;
-
-struct slab_rebalance {
-    void *slab_start;
-    void *slab_end;
-    void *slab_pos;
-    int s_clsid;
-    int d_clsid;
-    uint32_t busy_items;
-    uint32_t rescues;
-    uint32_t evictions_nomem;
-    uint32_t inline_reclaim;
-    uint32_t chunk_rescues;
-    uint32_t busy_deletes;
-    uint32_t busy_loops;
-    uint8_t done;
-    uint8_t *completed;
-};
-
-extern struct slab_rebalance slab_rebal;
 #ifdef EXTSTORE
 extern void *ext_storage;
 #endif

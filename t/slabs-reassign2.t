@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 12;
+use Test::More tests => 11;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -80,6 +80,7 @@ for (1 .. $keycount) {
 }
 
 # Force reassign evictions by moving too much memory manually.
+# NOTE: evictions_nomem is gone. check other stats?
 {
     my $s = mem_stats($sock, 'slabs');
     my $max_pages = 0;
@@ -95,11 +96,8 @@ for (1 .. $keycount) {
     for ($tries = 10; $tries > 0; $tries--) {
         print $sock "slabs reassign $scls 1\r\n";
         my $res = <$sock>;
-        sleep 1;
         my $s = mem_stats($sock);
-        last if $s->{slab_reassign_evictions_nomem} > 0;
     }
-    cmp_ok($tries, '>', 0, 'some reassign evictions happened');
 }
 cmp_ok($hits, '>', 2000, 'were able to fetch back some of the small keys');
 my $stats_done = mem_stats($sock);

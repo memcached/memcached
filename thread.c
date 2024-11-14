@@ -157,7 +157,7 @@ void pause_threads(enum pause_thread_types type) {
 
     switch (type) {
         case PAUSE_ALL_THREADS:
-            slabs_rebalancer_pause();
+            slab_maintenance_pause(settings.slab_rebal);
             lru_maintainer_pause();
             lru_crawler_pause();
 #ifdef EXTSTORE
@@ -169,7 +169,7 @@ void pause_threads(enum pause_thread_types type) {
             pthread_mutex_lock(&worker_hang_lock);
             break;
         case RESUME_ALL_THREADS:
-            slabs_rebalancer_resume();
+            slab_maintenance_resume(settings.slab_rebal);
             lru_maintainer_resume();
             lru_crawler_resume();
 #ifdef EXTSTORE
@@ -239,7 +239,7 @@ void stop_threads(void) {
             fprintf(stderr, "stopped maintainer\n");
     }
     if (settings.slab_reassign) {
-        stop_slab_maintenance_thread();
+        stop_slab_maintenance_thread(settings.slab_rebal);
         if (settings.verbose > 0)
             fprintf(stderr, "stopped slab mover\n");
     }

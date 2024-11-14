@@ -110,6 +110,7 @@ void storage_stats(ADD_STAT add_stats, void *c) {
     struct extstore_stats st;
     if (ext_storage) {
         STATS_LOCK();
+        APPEND_STAT("extstore_memory_pressure", "%.2f", stats_state.extstore_memory_pressure);
         APPEND_STAT("extstore_compact_lost", "%llu", (unsigned long long)stats.extstore_compact_lost);
         APPEND_STAT("extstore_compact_rescues", "%llu", (unsigned long long)stats.extstore_compact_rescues);
         APPEND_STAT("extstore_compact_resc_cold", "%llu", (unsigned long long)stats.extstore_compact_resc_cold);
@@ -405,7 +406,7 @@ static void recache_or_free(io_pending_t *pending) {
         // item header alone.
         do_free = false;
         size_t ntotal = ITEM_ntotal(p->hdr_it);
-        slabs_free(it, ntotal, slabs_clsid(ntotal));
+        slabs_free(it, slabs_clsid(ntotal));
 
         io_queue_t *q = conn_io_queue_get(c, p->io_queue_type);
         q->count--;
@@ -418,7 +419,7 @@ static void recache_or_free(io_pending_t *pending) {
         do_free = false;
         size_t ntotal = ITEM_ntotal(p->hdr_it);
         item_unlink(p->hdr_it);
-        slabs_free(it, ntotal, slabs_clsid(ntotal));
+        slabs_free(it, slabs_clsid(ntotal));
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.miss_from_extstore++;
         if (p->badcrc)
@@ -453,7 +454,7 @@ static void recache_or_free(io_pending_t *pending) {
             item_trylock_unlock(hold_lock);
     }
     if (do_free)
-        slabs_free(it, ITEM_ntotal(it), ITEM_clsid(it));
+        slabs_free(it, ITEM_clsid(it));
 
     p->io_ctx.buf = NULL;
     p->io_ctx.next = NULL;
@@ -575,7 +576,7 @@ static int storage_write(void *storage, const int clsid, const int item_age) {
                 LOGGER_LOG(NULL, LOG_EVICTIONS, LOGGER_EXTSTORE_WRITE, it, bucket);
             } else {
                 /* Failed to write for some reason, can't continue. */
-                slabs_free(hdr_it, ITEM_ntotal(hdr_it), ITEM_clsid(hdr_it));
+                slabs_free(hdr_it, ITEM_clsid(hdr_it));
             }
         }
     }
@@ -622,7 +623,8 @@ static void *storage_write_thread(void *arg) {
         if (to_sleep > settings.ext_max_sleep)
             to_sleep = settings.ext_max_sleep;
 
-        for (int x = 0; x < MAX_NUMBER_OF_SLAB_CLASSES; x++) {
+        // the largest items have the least overhead from going to disk.
+        for (int x = MAX_NUMBER_OF_SLAB_CLASSES-1; x > 0; x--) {
             bool did_move = false;
             bool mem_limit_reached = false;
             unsigned int chunks_free;

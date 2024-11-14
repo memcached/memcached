@@ -11,8 +11,6 @@
 #include <string.h>
 
 #define MIN_PAGES_FOR_SOURCE 2
-#define MIN_PAGES_FOR_RECLAIM 2.5
-#define MIN_PAGES_FREE 1.5
 
 struct window_data {
     uint64_t age;
@@ -22,6 +20,8 @@ struct window_data {
     unsigned int relaxed;
 };
 
+// TODO: use ptrs for before/after to cut the memcpy
+// after reach run and save some cpu.
 typedef struct {
     struct window_data *window_data;
     struct settings *settings;
@@ -83,13 +83,13 @@ static void window_sum(struct window_data *wd, struct window_data *w,
     }
 }
 
-static int global_pool_check(slab_automove *a) {
+static int global_pool_check(slab_automove *a, unsigned int *count) {
     bool mem_limit_reached;
     unsigned int free = a->global_pool_watermark;
-    unsigned int count = global_page_pool_size(&mem_limit_reached);
+    *count = global_page_pool_size(&mem_limit_reached);
     if (!mem_limit_reached)
         return 0;
-    if (count < free) {
+    if (*count < free) {
         a->pool_filled_once = true;
         return 1;
     } else {
@@ -140,7 +140,13 @@ void slab_automove_extstore_run(void *arg, int *src, int *dst) {
     *src = -1;
     *dst = -1;
 
-    int global_low = global_pool_check(a);
+    // calculate how much memory pressure extstore is under.
+    // 100% means we need to evict item headers.
+    unsigned int total_low_pages = 0;
+    unsigned int total_high_pages = 0;
+
+    unsigned int global_count = 0;
+    int global_low = global_pool_check(a, &global_count);
     // fill after structs
     fill_item_stats_automove(a->iam_after);
     fill_slab_stats_automove(a->sam_after);
@@ -155,21 +161,33 @@ void slab_automove_extstore_run(void *arg, int *src, int *dst) {
         struct window_data *wd = get_window_data(a, n);
         int w_offset = n * a->window_size;
         memset(wd, 0, sizeof(struct window_data));
-        unsigned int free_target = a->sam_after[n].chunks_per_page * MIN_PAGES_FREE;
+        unsigned int free_target = a->sam_after[n].chunks_per_page * MIN_PAGES_FOR_SOURCE;
+
+        if (small_slab) {
+            total_low_pages += a->sam_after[n].total_pages;
+        } else {
+            unsigned int pages = a->sam_after[n].total_pages;
+            // only include potentially movable pages
+            if (pages > MIN_PAGES_FOR_SOURCE) {
+                total_high_pages += a->sam_after[n].total_pages;
+            }
+        }
 
         // if page delta, oom, or evicted delta, mark window dirty
         // classes marked dirty cannot donate memory back to global pool.
-        if (a->iam_after[n].evicted - a->iam_before[n].evicted > 0 ||
-            a->iam_after[n].outofmemory - a->iam_before[n].outofmemory > 0) {
-            wd->evicted = 1;
-            wd->dirty = 1;
+        if (small_slab) {
+            if (a->iam_after[n].evicted - a->iam_before[n].evicted > 0 ||
+                a->iam_after[n].outofmemory - a->iam_before[n].outofmemory > 0) {
+                wd->evicted = 1;
+                wd->dirty = 1;
+            }
+            if (a->sam_after[n].total_pages - a->sam_before[n].total_pages > 0) {
+                wd->dirty = 1;
+            }
         }
-        if (a->sam_after[n].total_pages - a->sam_before[n].total_pages > 0) {
-            wd->dirty = 1;
-        }
-        // double the free requirements means we may have memory we can
-        // reclaim to global, if it stays this way for the whole window.
-        if (a->sam_after[n].free_chunks > (free_target * 2)) {
+
+        // reclaim excessively free memory to global after a full window
+        if (a->sam_after[n].free_chunks > free_target) {
             wd->excess_free = 1;
         }
 
@@ -180,37 +198,41 @@ void slab_automove_extstore_run(void *arg, int *src, int *dst) {
         memset(&w_sum, 0, sizeof(struct window_data));
         window_sum(&a->window_data[w_offset], &w_sum, a->window_size);
 
-        // grab age as average of window total
-        uint64_t age = w_sum.age / a->window_size;
-
-        // if > N free chunks and not dirty, reclaim memory
-        // small slab classes aren't age balanced and rely more on global
-        // pool. reclaim them more aggressively.
-        if (a->sam_after[n].free_chunks > a->sam_after[n].chunks_per_page * MIN_PAGES_FOR_RECLAIM
-                && w_sum.dirty == 0) {
-            if (small_slab) {
-                *src = n;
-                *dst = 0;
-                too_free = true;
-            } else if (!small_slab && w_sum.excess_free >= a->window_size) {
-                // If large slab and free chunks haven't decreased for a full
-                // window, reclaim pages.
-                *src = n;
-                *dst = 0;
-                too_free = true;
-            }
+        // If global page pool is nearly empty we need to force a move
+        // from any possible source. Otherwise avoid moving from this class if
+        // it appears dirty.
+        if (w_sum.dirty != 0 && global_count != 0) {
+            continue;
         }
 
+        // if > N free chunks, reclaim memory
+        // small slab classes aren't age balanced and rely more on global
+        if (w_sum.excess_free >= a->window_size) {
+            *src = n;
+            *dst = 0;
+            too_free = true;
+        }
+
+        // large slabs should push to extstore if we try to evict from them.
+        // so we can be aggressive there if the global pool is low.
         if (!small_slab) {
+            // grab age as average of window total
+            uint64_t age = w_sum.age / a->window_size;
             // if oldest and have enough pages, is oldest
             if (age > oldest_age
                     && a->sam_after[n].total_pages > MIN_PAGES_FOR_SOURCE) {
                 oldest = n;
                 oldest_age = age;
             }
-
         }
     }
+
+    // update the pressure calculation.
+    float total_pages = total_low_pages + total_high_pages + global_count;
+    float memory_pressure = (total_low_pages / total_pages) * 100;
+    STATS_LOCK();
+    stats_state.extstore_memory_pressure = memory_pressure;
+    STATS_UNLOCK();
 
     memcpy(a->iam_before, a->iam_after,
             sizeof(item_stats_automove) * MAX_NUMBER_OF_SLAB_CLASSES);

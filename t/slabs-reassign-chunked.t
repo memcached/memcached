@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 8;
+use Test::More tests => 7;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -61,7 +61,7 @@ my $todelete = 0;
         print $sock "slabs reassign 17 0\r\n";
         my $res = scalar <$sock>;
         chomp $res;
-    #    print STDERR "SLABS REASSIGN RESULT: $res\n";
+        #print STDERR "SLABS REASSIGN RESULT: $res\n";
         sleep 1;
     }
 }
@@ -137,5 +137,4 @@ cmp_ok($stats_done->{slab_reassign_chunk_rescues}, '>', 0, 'some reassign chunk 
 # Reassign rescues won't happen here because the headers are of a different
 # size and we aren't moving pages out of that slab class
 #cmp_ok($stats_done->{slab_reassign_rescues}, '>', 0, 'some reassign rescues happened');
-cmp_ok($stats_done->{slab_reassign_evictions_nomem}, '>', 0, 'some reassign evictions happened');
 

@@ -23,10 +23,10 @@ unsigned int slabs_size(const int clsid);
 
 /** Allocate object of given length. 0 on error */ /*@null@*/
 #define SLABS_ALLOC_NO_NEWPAGE 1
-void *slabs_alloc(const size_t size, unsigned int id, unsigned int flags);
+void *slabs_alloc(unsigned int id, unsigned int flags);
 
 /** Free previously allocated object */
-void slabs_free(void *ptr, size_t size, unsigned int id);
+void slabs_free(void *ptr, unsigned int id);
 
 /** Adjust global memory limit up or down */
 bool slabs_adjust_mem_limit(size_t new_mem_limit);
@@ -49,22 +49,16 @@ unsigned int slabs_available_chunks(unsigned int id, bool *mem_flag, unsigned in
 void slabs_mlock(void);
 void slabs_munlock(void);
 
-int start_slab_maintenance_thread(void);
-void stop_slab_maintenance_thread(void);
+/* utilities for page moving */
+void *slabs_peek_page(const unsigned int id, uint32_t *size, uint32_t *perslab);
+void do_slabs_unlink_free_chunk(const unsigned int id, item *it);
+void slabs_finalize_page_move(const unsigned int sid, const unsigned int did, void *page);
+int slabs_pick_any_for_reassign(const unsigned int did);
+int slabs_page_count(const unsigned int id);
 
-enum reassign_result_type {
-    REASSIGN_OK=0, REASSIGN_RUNNING, REASSIGN_BADCLASS, REASSIGN_NOSPARE,
-    REASSIGN_SRC_DST_SAME
-};
-
-enum reassign_result_type slabs_reassign(int src, int dst);
-
-void slabs_rebalancer_pause(void);
-void slabs_rebalancer_resume(void);
-
-#ifdef EXTSTORE
-void slabs_set_storage(void *arg);
-#endif
+typedef int (*slabs_cb)(void *arg);
+int slabs_locked_callback(slabs_cb cb, void *arg);
+int slabs_grow_slab_list(const unsigned int id);
 
 /* Fixup for restartable code. */
 unsigned int slabs_fixup(char *chunk, const int border);

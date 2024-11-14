@@ -17,6 +17,7 @@
 #include "storage.h"
 #include "authfile.h"
 #include "restart.h"
+#include "slabs_mover.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -107,8 +108,6 @@ struct settings settings;
 time_t process_started;     /* when the process was started */
 conn **conns;
 
-struct slab_rebalance slab_rebal;
-volatile int slab_rebalance_signal;
 #ifdef EXTSTORE
 /* hoping this is temporary; I'd prefer to cut globals, but will complete this
  * battle another day.
@@ -258,8 +257,9 @@ static void settings_init(void) {
     settings.hashpower_init = 0;
     settings.slab_reassign = true;
     settings.slab_automove = 1;
+    settings.slab_automove_version = 0;
     settings.slab_automove_ratio = 0.8;
-    settings.slab_automove_window = 30;
+    settings.slab_automove_window = 10;
     settings.shutdown_command = false;
     settings.tail_repair_time = TAIL_REPAIR_TIME_DEFAULT;
     settings.flush_enabled = true;
@@ -1872,10 +1872,10 @@ void server_stats(ADD_STAT add_stats, void *c) {
     if (settings.slab_reassign) {
         APPEND_STAT("slab_reassign_rescues", "%llu", stats.slab_reassign_rescues);
         APPEND_STAT("slab_reassign_chunk_rescues", "%llu", stats.slab_reassign_chunk_rescues);
-        APPEND_STAT("slab_reassign_evictions_nomem", "%llu", stats.slab_reassign_evictions_nomem);
         APPEND_STAT("slab_reassign_inline_reclaim", "%llu", stats.slab_reassign_inline_reclaim);
         APPEND_STAT("slab_reassign_busy_items", "%llu", stats.slab_reassign_busy_items);
         APPEND_STAT("slab_reassign_busy_deletes", "%llu", stats.slab_reassign_busy_deletes);
+        APPEND_STAT("slab_reassign_busy_nomem", "%llu", stats.slab_reassign_busy_nomem);
         APPEND_STAT("slab_reassign_running", "%u", stats_state.slab_reassign_running);
         APPEND_STAT("slabs_moved", "%llu", stats.slabs_moved);
     }
@@ -6033,7 +6033,6 @@ int main (int argc, char **argv) {
     }
 #endif
 #ifdef EXTSTORE
-    slabs_set_storage(storage);
     memcached_thread_init(settings.num_threads, storage);
     init_lru_crawler(storage);
 #else
@@ -6075,9 +6074,11 @@ int main (int argc, char **argv) {
         return 1;
     }
 
-    if (settings.slab_reassign &&
-        start_slab_maintenance_thread() == -1) {
-        exit(EXIT_FAILURE);
+    if (settings.slab_reassign) {
+        settings.slab_rebal = start_slab_maintenance_thread(storage);
+        if (!settings.slab_rebal) {
+            exit(EXIT_FAILURE);
+        }
     }
 
     if (settings.idle_timeout && start_conn_timeout_thread() == -1) {
