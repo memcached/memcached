@@ -13,7 +13,7 @@
 #define PROCESS_MULTIGET true
 #define PROCESS_NORMAL false
 #define PROXY_GC_BACKGROUND_SECONDS 4
-#define PROXY_GC_DEFAULT_RATIO 1.9
+#define PROXY_GC_DEFAULT_RATIO 2.0
 static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool multiget);
 static void *mcp_profile_alloc(void *ud, void *ptr, size_t osize, size_t nsize);
 
