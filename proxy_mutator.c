@@ -529,12 +529,12 @@ mut_step_c(reserr) {
         } else if (strcmp(val, "client") == 0) {
             code = RESERR_CLIENT_STR;
         } else {
-            proxy_lua_ferror(L, "mutator step %d: mode must be 'error', server', or 'client'", tidx);
+            proxy_lua_ferror(L, "mutator step %d: code must be 'error', server', or 'client'", tidx);
         }
 
         total += strlen(code);
     } else {
-        proxy_lua_ferror(L, "mutator step %d: must provide 'mode' argument", tidx);
+        proxy_lua_ferror(L, "mutator step %d: must provide 'code' argument", tidx);
     }
     lua_pop(L, 1);
 
