@@ -1055,7 +1055,7 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
         _mcp_mut_run_assemble(run, parts);
 
         rs->tok.ntokens = 0; // TODO: handler from mcmc?
-        mcmc_parse_buf(rs->buf, run->d_pos - rs->buf, &rs->resp);
+        rs->status = mcmc_parse_buf(rs->buf, run->d_pos - rs->buf, &rs->resp);
         if (rs->resp.type == MCMC_RESP_FAIL) {
             proxy_lua_error(run->L, "mutator: failed to parse new result");
             return 0;

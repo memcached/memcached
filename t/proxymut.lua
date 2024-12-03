@@ -99,6 +99,9 @@ function mcp_config_routes(p)
                     return nres
                 elseif key == "mgresteapot" then
                     local res = mut_reserr(nres)
+                    if nres:ok() or nres:hit() then
+                        return "SERVER_ERROR NOT a teapot\r\n"
+                    end
                     return nres
                 end
             end
