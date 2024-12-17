@@ -944,6 +944,8 @@ static void mcp_resume_rctx_from_cb(mcp_rcontext_t *rctx) {
     if (rctx->parent) {
         struct mcp_rqueue_s *rqu = &rctx->parent->qslots[rctx->parent_handle];
         if (res == LUA_OK) {
+            mcp_rcontext_t *parent = rctx->parent;
+            int handle = rctx->parent_handle;
             int type = lua_type(rctx->Lc, 1);
             mcp_resp_t *r = NULL;
             if (type == LUA_TUSERDATA && (r = luaL_testudata(rctx->Lc, 1, "mcp.response")) != NULL) {
@@ -963,10 +965,12 @@ static void mcp_resume_rctx_from_cb(mcp_rcontext_t *rctx) {
                 // generate a generic object with an error.
                 _mcp_resume_rctx_process_error(rctx, rqu);
             }
-            if (rctx->parent->wait_count) {
-                mcp_process_rctx_wait(rctx->parent, rctx->parent_handle);
-            }
+
+            // return ourself before telling the parent to wait.
             mcp_funcgen_return_rctx(rctx);
+            if (parent->wait_count) {
+                mcp_process_rctx_wait(parent, handle);
+            }
         } else if (res == LUA_YIELD) {
             // normal.
             _mcp_queue_hack(rctx->c);
