@@ -2549,8 +2549,11 @@ static void process_extstore_command(conn *c, token_t *tokens, const size_t ntok
             }
         }
     } else if (strcmp(tokens[1].value, "item_size") == 0) {
-        if (!safe_strtoul(tokens[2].value, &settings.ext_item_size))
+        if (safe_strtoul(tokens[2].value, &settings.ext_item_size)) {
+            settings.slab_automove_version++;
+        } else {
             ok = false;
+        }
     } else if (strcmp(tokens[1].value, "item_age") == 0) {
         if (!safe_strtoul(tokens[2].value, &settings.ext_item_age))
             ok = false;
