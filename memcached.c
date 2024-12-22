@@ -4891,8 +4891,8 @@ int main (int argc, char **argv) {
     /* init settings */
     settings_init();
     verify_default("hash_algorithm", hash_type == MURMUR3_HASH);
-#ifdef EXTSTORE
     void *storage = NULL;
+#ifdef EXTSTORE
     void *storage_cf = storage_init_config(&settings);
     bool storage_enabled = false;
     if (storage_cf == NULL) {

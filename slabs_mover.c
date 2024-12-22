@@ -713,8 +713,10 @@ struct slab_rebal_thread *start_slab_maintenance_thread(void *storage) {
     pthread_cond_init(&t->cond, NULL);
     t->run_thread = true;
     if (storage) {
+#ifdef EXTSTORE
         t->storage = storage;
         t->sam = &slab_automove_extstore;
+#endif
     } else {
         t->sam = &slab_automove_default;
     }
