@@ -408,7 +408,7 @@ static void *do_slabs_alloc(unsigned int id,
     item *it = NULL;
 
     if (id < POWER_SMALLEST || id > power_largest) {
-        MEMCACHED_SLABS_ALLOCATE_FAILED(id, 0);
+        MEMCACHED_SLABS_ALLOCATE_FAILED(id);
         return NULL;
     }
     p = &slabclass[id];
@@ -438,7 +438,7 @@ static void *do_slabs_alloc(unsigned int id,
     if (ret) {
         MEMCACHED_SLABS_ALLOCATE(id, p->size, ret);
     } else {
-        MEMCACHED_SLABS_ALLOCATE_FAILED(size, id);
+        MEMCACHED_SLABS_ALLOCATE_FAILED(id);
     }
 
     return ret;
