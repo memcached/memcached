@@ -2,6 +2,7 @@
 #include "memcached.h"
 #include "bipbuffer.h"
 #include "storage.h"
+#include "slabs_mover.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/resource.h>
@@ -1210,6 +1211,9 @@ int lru_pull_tail(const int orig_id, const int cur_lru,
                     STORAGE_delete(ext_storage, search);
                     do_item_unlink_nolock(search, hv);
                     removed++;
+                    if (settings.slab_automove == 2) {
+                        slabs_reassign(settings.slab_rebal, -1, orig_id, SLABS_REASSIGN_ALLOW_EVICTIONS);
+                    }
                 } else if (flags & LRU_PULL_RETURN_ITEM) {
                     /* Keep a reference to this item and return it. */
                     ret_it->it = it;
