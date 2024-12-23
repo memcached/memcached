@@ -91,7 +91,7 @@ provider memcached {
     * @param slabclass the class the memory belongs to
     * @param ptr pointer to the memory to release
     */
-   probe slabs__free(int size, int slabclass, void* ptr);
+   probe slabs__free(int slabclass, void* ptr);
 
    /**
     * Fired when the when we have searched the hash table for a named key.
