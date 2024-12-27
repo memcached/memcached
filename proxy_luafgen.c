@@ -71,7 +71,7 @@ static void mcp_rcontext_cleanup(lua_State *L, mcp_funcgen_t *fgen, mcp_rcontext
     // cleanup of request queue entries. recurse funcgen cleanup.
     for (int x = 0; x < fgen->max_queues; x++) {
         struct mcp_rqueue_s *rqu = &rctx->qslots[x];
-        if (rqu->obj_type == RQUEUE_TYPE_POOL) {
+        if (rqu->obj_type == RQUEUE_TYPE_POOL || rqu->obj_type == RQUEUE_TYPE_INT) {
             // nothing to do.
         } else if (rqu->obj_type == RQUEUE_TYPE_FGEN) {
             // don't need to recurse, just free the subrctx.
@@ -221,7 +221,7 @@ static int _mcplib_funcgen_gencall(lua_State *L) {
         struct mcp_rqueue_s *frqu = &fgen->queue_list[x];
         struct mcp_rqueue_s *rqu = &rc->qslots[x];
         rqu->obj_type = frqu->obj_type;
-        if (frqu->obj_type == RQUEUE_TYPE_POOL) {
+        if (frqu->obj_type == RQUEUE_TYPE_POOL || frqu->obj_type == RQUEUE_TYPE_INT) {
             rqu->obj_ref = 0;
             rqu->obj = frqu->obj;
             mcp_resp_t *r = mcp_prep_bare_resobj(L, fgen->thread);
@@ -530,7 +530,7 @@ static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
     if (fgen->queue_list) {
         for (int x = 0; x < fgen->max_queues; x++) {
             struct mcp_rqueue_s *rqu = &fgen->queue_list[x];
-            if (rqu->obj_type == RQUEUE_TYPE_POOL) {
+            if (rqu->obj_type == RQUEUE_TYPE_POOL || rqu->obj_type == RQUEUE_TYPE_INT) {
                 // just the obj_ref
                 luaL_unref(L, LUA_REGISTRYINDEX, rqu->obj_ref);
             } else if (rqu->obj_type == RQUEUE_TYPE_FGEN) {
@@ -641,6 +641,7 @@ int mcplib_funcgen_new_handle(lua_State *L) {
     mcp_funcgen_t *fgen = lua_touserdata(L, 1);
     mcp_pool_proxy_t *pp = NULL;
     mcp_funcgen_t *fg = NULL;
+    void *test = NULL;
 
     if (fgen->ready) {
         proxy_lua_error(L, "cannot modify function generator after calling ready");
@@ -649,6 +650,8 @@ int mcplib_funcgen_new_handle(lua_State *L) {
 
     if ((pp = luaL_testudata(L, 2, "mcp.pool_proxy")) != NULL) {
         // good.
+    } else if ((test = luaL_testudata(L, 2, "mcp.internal_be")) != NULL) {
+        // also good.
     } else if ((fg = luaL_testudata(L, 2, "mcp.funcgen")) != NULL) {
         if (fg->is_router) {
             proxy_lua_error(L, "cannot assign a router to a handle in new_handle");
@@ -682,6 +685,11 @@ int mcplib_funcgen_new_handle(lua_State *L) {
         rqu->obj_ref = luaL_ref(L, LUA_REGISTRYINDEX);
         rqu->obj_type = RQUEUE_TYPE_POOL;
         rqu->obj = pp;
+    } else if (test) {
+        // pops test from the stack
+        rqu->obj_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+        rqu->obj_type = RQUEUE_TYPE_INT;
+        rqu->obj = test;
     } else {
         // pops the fgen from the stack.
         mcp_funcgen_reference(L);
@@ -1151,6 +1159,44 @@ void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
             p->return_cb = proxy_return_rqu_cb;
             p->queue_handle = handle;
             rctx->pending_reqs++;
+        } else if (rqu->obj_type == RQUEUE_TYPE_INT) {
+            mcp_request_t *rq = rqu->rq;
+            mc_resp *resp = mcp_rcontext_internal(rctx, rq, rqu->res_obj);
+            if (resp == NULL) {
+                // NOTE: This can be OOM (no resp alloc)
+                // or bad parse (no such command)
+                // we _could_ set an ERRMSG here.
+                mcp_resp_t *r = rqu->res_obj;
+                r->status = MCMC_ERR;
+                r->resp.code = MCMC_CODE_SERVER_ERROR;
+                io_pending_proxy_t *p = mcp_queue_rctx_io(rctx, NULL, NULL, rqu->res_obj);
+                p->return_cb = proxy_return_rqu_cb;
+                p->queue_handle = handle;
+                p->background = true;
+                rctx->pending_reqs++;
+            } else if (resp->io_pending) {
+                resp->io_pending->return_cb = proxy_return_rqu_cb;
+                // Add io object to extstore submission queue.
+                io_queue_t *q = thread_io_queue_get(rctx->fgen->thread, IO_QUEUE_EXTSTORE);
+                io_pending_proxy_t *io = (io_pending_proxy_t *)resp->io_pending;
+                io->queue_handle = handle;
+                io->client_resp = rqu->res_obj;
+
+                STAILQ_INSERT_TAIL(&q->stack, (io_pending_t *)io, iop_next);
+
+                io->rctx = rctx;
+                io->c = rctx->c;
+                io->ascii_multiget = rq->ascii_multiget;
+                // mark the buffer into the mcp_resp for freeing later.
+                rqu->res_obj->buf = io->eio.buf;
+                rctx->pending_reqs++;
+            } else {
+                io_pending_proxy_t *p = mcp_queue_rctx_io(rctx, NULL, NULL, rqu->res_obj);
+                p->return_cb = proxy_return_rqu_cb;
+                p->queue_handle = handle;
+                p->background = true;
+                rctx->pending_reqs++;
+            }
         } else if (rqu->obj_type == RQUEUE_TYPE_FGEN) {
             // TODO: NULL the ->c post-return?
             mcp_rcontext_t *subrctx = rqu->obj;

@@ -521,6 +521,7 @@ struct _io_pending_proxy_t {
     // original struct ends here
 
     mcp_rcontext_t *rctx; // pointer to request context.
+    mcp_resp_t *client_resp; // reference (currently pointing to a lua object)
     int queue_handle; // queue slot to return this result to
     bool ascii_multiget; // passed on from mcp_r_t
     union {
@@ -541,7 +542,6 @@ struct _io_pending_proxy_t {
             struct iovec iov[2]; // request string + tail buffer
             int iovcnt; // 1 or 2...
             unsigned int iovbytes; // total bytes in the iovec
-            mcp_resp_t *client_resp; // reference (currently pointing to a lua object)
             bool flushed; // whether we've fully written this request to a backend.
             bool background; // dummy IO for backgrounded awaits
         };
@@ -608,6 +608,7 @@ io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, m
 // internal request interface
 int mcplib_internal(lua_State *L);
 int mcplib_internal_run(mcp_rcontext_t *rctx);
+void *mcp_rcontext_internal(mcp_rcontext_t *rctx, mcp_request_t *rq, mcp_resp_t *r);
 
 // user stats interface
 #define MAX_USTATS_DEFAULT 1024
@@ -697,10 +698,11 @@ struct mcp_funcgen_router {
 
 #define RQUEUE_TYPE_NONE 0
 #define RQUEUE_TYPE_POOL 1
-#define RQUEUE_TYPE_FGEN 2
-#define RQUEUE_TYPE_UOBJ 3 // user tracked object types past this point
-#define RQUEUE_TYPE_UOBJ_REQ 4
-#define RQUEUE_TYPE_UOBJ_RES 5
+#define RQUEUE_TYPE_INT  2
+#define RQUEUE_TYPE_FGEN 3
+#define RQUEUE_TYPE_UOBJ 4 // user tracked object types past this point
+#define RQUEUE_TYPE_UOBJ_REQ 5
+#define RQUEUE_TYPE_UOBJ_RES 6
 #define RQUEUE_ASSIGNED (1<<0)
 #define RQUEUE_R_RESUME (1<<1)
 #define RQUEUE_R_GOOD (1<<3)

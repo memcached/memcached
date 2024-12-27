@@ -2,9 +2,32 @@ function mcp_config_pools()
     return true
 end
 
--- Do specialized testing based on the key prefix.
+function make_sub()
+    local fg = mcp.funcgen_new()
+    local h = fg:new_handle(mcp.internal_handler)
+    fg:ready({ n = "subint", f = function(rctx)
+        return function(r)
+            return rctx:enqueue_and_wait(r, h)
+        end
+    end})
+    return fg
+end
+
 function mcp_config_routes(zones)
-    mcp.attach(mcp.CMD_ANY_STORAGE, function(r)
-        return mcp.internal(r)
-    end)
+    local fg = mcp.funcgen_new()
+    local subfg = make_sub()
+    local h = fg:new_handle(mcp.internal_handler)
+    local hsub = fg:new_handle(subfg)
+    fg:ready({ n = "internal", f = function(rctx)
+        return function(r)
+            local k = r:key()
+            if string.find(k, "^/sub/") then
+                return rctx:enqueue_and_wait(r, hsub)
+            else
+                return rctx:enqueue_and_wait(r, h)
+            end
+        end
+    end})
+
+    mcp.attach(mcp.CMD_ANY_STORAGE, fg)
 end

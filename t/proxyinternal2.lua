@@ -2,22 +2,20 @@ function mcp_config_pools()
     return true
 end
 
-local result_leak = {}
--- Do specialized testing based on the key prefix.
 function mcp_config_routes(zones)
-    mcp.attach(mcp.CMD_ANY_STORAGE, function(r)
-        local cmd = r:command()
-        if cmd == mcp.CMD_GET or cmd == mcp.CMD_MG then
-            -- marking the object as <close> will clean up its internal
-            -- references as soon as it drops out of scope.
-            -- it is an error to try to use this 'res' outside of this 'if'
-            -- statement!
-            local res <close> = mcp.internal(r)
-            local res2 = mcp.internal(r)
-            res2:close() -- test manual closing.
-            -- uncomment to test effects of leaking a res obj
-            table.insert(result_leak, res)
+    local fg = mcp.funcgen_new()
+    local h1 = fg:new_handle(mcp.internal_handler)
+    local h2 = fg:new_handle(mcp.internal_handler)
+    fg:ready({ n = "internal", f = function(rctx)
+        return function(r)
+            -- ensure we can't leak by grabbing a result we then don't use.
+            local cmd = r:command()
+            if cmd == mcp.CMD_GET or cmd == mcp.CMD_MG then
+                local res1 = rctx:enqueue_and_wait(r, h1)
+            end
+            return rctx:enqueue_and_wait(r, h2)
         end
-        return mcp.internal(r)
-    end)
+    end})
+
+    mcp.attach(mcp.CMD_ANY_STORAGE, fg)
 end

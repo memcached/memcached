@@ -91,6 +91,9 @@ note "ascii basic";
     # non-multiget get mode.
     print $ps "get /b/miss\r\n";
     is(scalar <$ps>, "END\r\n", "basic miss");
+    print $ps "get /sub/miss\r\n";
+    is(scalar <$ps>, "END\r\n", "basic subrctx miss");
+
     check_version($ps);
 }
 
@@ -108,8 +111,16 @@ note "ascii basic";
 {
     print $ps "set /b/foo 0 0 2\r\nhi\r\n";
     is(scalar <$ps>, "STORED\r\n", "int set");
+    print $ps "set /sub/foo 0 0 2\r\nhi\r\n";
+    is(scalar <$ps>, "STORED\r\n", "int set");
+
     print $ps "get /b/foo\r\n";
     is(scalar <$ps>, "VALUE /b/foo 0 2\r\n", "get response");
+    is(scalar <$ps>, "hi\r\n", "get value");
+    is(scalar <$ps>, "END\r\n", "get END");
+
+    print $ps "get /sub/foo\r\n";
+    is(scalar <$ps>, "VALUE /sub/foo 0 2\r\n", "get response");
     is(scalar <$ps>, "hi\r\n", "get value");
     is(scalar <$ps>, "END\r\n", "get END");
     check_version($ps);
@@ -149,10 +160,19 @@ subtest 'fetch from extstore' => sub {
     my $data = 'x' x 1000;
     print $ps "set /b/ext 0 0 1000\r\n$data\r\n";
     is(scalar <$ps>, "STORED\r\n", "int set for extstore");
+
+    print $ps "set /sub/ext 0 0 1000\r\n$data\r\n";
+    is(scalar <$ps>, "STORED\r\n", "int set for subrctx extstore");
+
     wait_ext_flush($ps);
 
     print $ps "get /b/ext\r\n";
     is(scalar <$ps>, "VALUE /b/ext 0 1000\r\n", "get response from extstore");
+    is(scalar <$ps>, "$data\r\n", "got data from extstore");
+    is(scalar <$ps>, "END\r\n", "get END");
+
+    print $ps "get /sub/ext\r\n";
+    is(scalar <$ps>, "VALUE /sub/ext 0 1000\r\n", "get response from subrctx extstore");
     is(scalar <$ps>, "$data\r\n", "got data from extstore");
     is(scalar <$ps>, "END\r\n", "get END");
 };

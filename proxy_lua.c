@@ -1801,6 +1801,10 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         luaL_newmetatable(L, "mcp.funcgen");
         lua_pop(L, 1);
 
+        // mt for magical null wrapper for using internal cache as backend
+        luaL_newmetatable(L, "mcp.internal_be");
+        lua_pop(L, 1);
+
         luaL_newlibtable(L, mcplib_f_routes);
     } else {
         // Change the extra space override for the configuration VM to just point
@@ -1833,6 +1837,12 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
 
         luaL_newlibtable(L, mcplib_f_config);
     }
+
+    // Create magic empty value to pass as an internal backend.
+    lua_newuserdatauv(L, 1, 0);
+    luaL_getmetatable(L, "mcp.internal_be");
+    lua_setmetatable(L, -2);
+    lua_setfield(L, -2, "internal_handler");
 
     // create main library table.
     //luaL_newlib(L, mcplib_f);
