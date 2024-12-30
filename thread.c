@@ -521,16 +521,17 @@ static void *worker_libevent(void *arg) {
     }
 
     register_thread_initialized();
-#ifdef PROXY
     while (!event_base_got_exit(me->base)) {
         event_base_loop(me->base, EVLOOP_ONCE);
+        // Run IO queues after the event loop to catch things like
+        // re-submissions from proxy callbacks.
+        thread_io_queue_submit(me);
+#ifdef PROXY
         if (me->proxy_ctx) {
             proxy_gc_poke(me);
         }
-    }
-#else
-    event_base_loop(me->base, 0);
 #endif
+    }
     // same mechanism used to watch for all threads exiting.
     register_thread_initialized();
 
@@ -637,7 +638,6 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
                     }
                 } else {
                     c->thread = me;
-                    conn_io_queue_setup(c);
 #ifdef TLS
                     if (settings.ssl_enabled && c->ssl != NULL) {
                         assert(c->thread && c->thread->ssl_wbuf);

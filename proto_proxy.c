@@ -487,8 +487,7 @@ void proxy_thread_init(void *ctx, LIBEVENT_THREAD *thr) {
 // of the next queue, as requests are dequeued from the head
 void proxy_submit_cb(io_queue_t *q) {
     proxy_event_thread_t *e = ((proxy_ctx_t *)q->ctx)->proxy_io_thread;
-    io_pending_proxy_t *p = q->stack_ctx;
-    io_head_t head;
+    iop_head_t head;
     be_head_t w_head; // worker local stack.
     STAILQ_INIT(&head);
     STAILQ_INIT(&w_head);
@@ -504,15 +503,11 @@ void proxy_submit_cb(io_queue_t *q) {
     // compatible with queue.h.
     // So for now we build the secondary list with an STAILQ, which
     // can be transplanted/etc.
-    while (p) {
+    while (!STAILQ_EMPTY(&q->stack)) {
         mcp_backend_t *be;
+        io_pending_proxy_t *p = (io_pending_proxy_t *)STAILQ_FIRST(&q->stack);
+        STAILQ_REMOVE_HEAD(&q->stack, iop_next);
         P_DEBUG("%s: queueing req for backend: %p\n", __func__, (void *)p);
-        if (p->qcount_incr) {
-            // funny workaround: async IOP's don't count toward
-            // resuming a connection, only the completion of the async
-            // condition.
-            q->count++;
-        }
 
         if (p->background) {
             P_DEBUG("%s: fast-returning background object: %p\n", __func__, (void *)p);
@@ -521,16 +516,15 @@ void proxy_submit_cb(io_queue_t *q) {
             // since the worker thread has to finish executing this
             // function in order to pick up the returned IO.
             return_io_pending((io_pending_t *)p);
-            p = p->next;
             continue;
         }
         be = p->backend;
 
         if (be->use_io_thread) {
-            STAILQ_INSERT_HEAD(&head, p, io_next);
+            STAILQ_INSERT_TAIL(&head, (io_pending_t *)p, iop_next);
         } else {
             // emulate some of handler_dequeue()
-            STAILQ_INSERT_HEAD(&be->io_head, p, io_next);
+            STAILQ_INSERT_TAIL(&be->iop_head, (io_pending_t *)p, iop_next);
             assert(be->depth > -1);
             be->depth++;
             if (!be->stacked) {
@@ -538,22 +532,20 @@ void proxy_submit_cb(io_queue_t *q) {
                 STAILQ_INSERT_TAIL(&w_head, be, be_next);
             }
         }
-
-        p = p->next;
     }
 
-    // clear out the submit queue so we can re-queue new IO's inline.
-    q->stack_ctx = NULL;
+    // q->stack must now be empty, so we can submit new IO's while handling
+    // the existing ones.
 
     if (!STAILQ_EMPTY(&head)) {
         bool do_notify = false;
         P_DEBUG("%s: submitting queue to IO thread\n", __func__);
         // Transfer request stack to event thread.
         pthread_mutex_lock(&e->mutex);
-        if (STAILQ_EMPTY(&e->io_head_in)) {
+        if (STAILQ_EMPTY(&e->iop_head_in)) {
             do_notify = true;
         }
-        STAILQ_CONCAT(&e->io_head_in, &head);
+        STAILQ_CONCAT(&e->iop_head_in, &head);
         // No point in holding the lock since we're not doing a cond signal.
         pthread_mutex_unlock(&e->mutex);
 
@@ -600,22 +592,12 @@ void proxy_return_rctx_cb(io_pending_t *pending) {
     mc_resp *resp = rctx->resp;
 
     proxy_run_rcontext(rctx);
-    mcp_funcgen_return_rctx(rctx);
 
-    io_queue_t *q = conn_io_queue_get(p->c, p->io_queue_type);
-    // Detatch the iop from the mc_resp and free it here.
-    conn *c = p->c;
-    if (p->io_type != IO_PENDING_TYPE_EXTSTORE) {
+    if (p->io_sub_type != IO_PENDING_TYPE_EXTSTORE) {
         // if we're doing an extstore subrequest, the iop needs to live until
         // resp's ->finish_cb is called.
         resp->io_pending = NULL;
         do_cache_free(p->thread->io_cache, p);
-    }
-
-    q->count--;
-    if (q->count == 0) {
-        // call re-add directly since we're already in the worker thread.
-        conn_worker_readd(c);
     }
 }
 
@@ -626,8 +608,10 @@ void proxy_return_rctx_cb(io_pending_t *pending) {
 // - the request context is freed before connection processing resumes.
 void proxy_finalize_rctx_cb(io_pending_t *pending) {
     io_pending_proxy_t *p = (io_pending_proxy_t *)pending;
+    // TODO: need to remove from stack if subtype is p->active
 
-    if (p->io_type == IO_PENDING_TYPE_EXTSTORE) {
+    if (p->io_sub_type == IO_PENDING_TYPE_EXTSTORE) {
+        assert(p->active == false);
         if (p->hdr_it) {
             // TODO: lock once, worst case this hashes/locks twice.
             if (p->miss) {
@@ -743,8 +727,8 @@ void complete_nread_proxy(conn *c) {
     thr->proxy_buffer_memory_used += rq->pr.vlen;
     pthread_mutex_unlock(&thr->proxy_limit_lock);
 
+    conn_resp_suspend(rctx->c, rctx->resp);
     proxy_run_rcontext(rctx);
-    mcp_funcgen_return_rctx(rctx);
 
     lua_settop(L, 0); // clear anything remaining on the main thread.
 
@@ -942,9 +926,14 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
             } else {
                 proxy_out_errstring(resp, PROXY_SERVER_ERROR, "bad response");
             }
-        }
 
-        rctx->pending_reqs--;
+            conn_resp_unsuspend(rctx->c, resp);
+            rctx->c = NULL; // *conn cannot be used past this point!
+            rctx->pending_reqs--;
+            mcp_funcgen_return_rctx(rctx);
+        } else {
+            rctx->pending_reqs--;
+        }
     } else if (cores == LUA_YIELD) {
         int yield_type = lua_tointeger(Lc, -1);
         P_DEBUG("%s: coroutine yielded. return type: %d\n", __func__, yield_type);
@@ -995,8 +984,13 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
         LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_ERROR, NULL, lua_tostring(Lc, -1));
         if (!rctx->parent) {
             proxy_out_errstring(resp, PROXY_SERVER_ERROR, "lua failure");
+            conn_resp_unsuspend(rctx->c, resp);
+            rctx->c = NULL; // *conn cannot be used past this point!
+            rctx->pending_reqs--;
+            mcp_funcgen_return_rctx(rctx);
+        } else {
+            rctx->pending_reqs--;
         }
-        rctx->pending_reqs--;
     }
 
     return cores;
@@ -1229,8 +1223,8 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
         return;
     }
 
+    conn_resp_suspend(rctx->c, rctx->resp);
     proxy_run_rcontext(rctx);
-    mcp_funcgen_return_rctx(rctx);
 
     lua_settop(L, 0); // clear any junk from the main thread.
 }
@@ -1310,7 +1304,7 @@ void mcp_resp_set_elapsed(mcp_resp_t *r) {
 // as though it is successful.
 io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, mcp_backend_t *be, mcp_resp_t *r) {
     conn *c = rctx->c;
-    io_queue_t *q = conn_io_queue_get(c, IO_QUEUE_PROXY);
+    io_queue_t *q = thread_io_queue_get(rctx->fgen->thread, IO_QUEUE_PROXY);
     io_pending_proxy_t *p = do_cache_alloc(c->thread->io_cache);
     if (p == NULL) {
         WSTAT_INCR(c->thread, proxy_conn_oom, 1);
@@ -1356,8 +1350,7 @@ io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, m
     // END HACK
 
     // link into the batch chain.
-    p->next = q->stack_ctx;
-    q->stack_ctx = p;
+    STAILQ_INSERT_TAIL(&q->stack, (io_pending_t *)p, iop_next);
     P_DEBUG("%s: queued\n", __func__);
 
     return p;
@@ -1642,8 +1635,8 @@ static void dump_pool_info(mcp_pool_t *p) {
                     x, be->label, be->name, be->conncount, be->depth);
             for (int i = 0; i < be->conncount; i++) {
                 struct mcp_backendconn_s *bec = &be->be[i];
-                fprintf(stderr, "    --bec[%d] bad: [%d] failcnt: [%d] depth: [%d] state: [%d] can_write[%d] write_event[%d]\n",
-                        i, bec->bad, bec->failed_count, bec->depth, bec->state, bec->can_write, event_pending(&bec->timeout_event, EV_WRITE, NULL));
+                fprintf(stderr, "    --bec[%d] bad: [%d] failcnt: [%d] depth: [%d] pendread: [%d] state: [%d] can_write[%d] write_event[%d]\n",
+                        i, bec->bad, bec->failed_count, bec->depth, bec->pending_read, bec->state, bec->can_write, event_pending(&bec->timeout_event, EV_WRITE, NULL));
             }
         }
     }

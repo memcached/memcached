@@ -537,13 +537,14 @@ static mcp_backend_wrap_t *_mcplib_make_backendconn(lua_State *L, mcp_backend_la
     strncpy(be->label, bel->label, MAX_LABELLEN+1);
     memcpy(&be->tunables, &bel->tunables, sizeof(bel->tunables));
     be->conncount = bel->conncount;
-    STAILQ_INIT(&be->io_head);
+    STAILQ_INIT(&be->iop_head);
 
     for (int x = 0; x < bel->conncount; x++) {
         struct mcp_backendconn_s *bec = &be->be[x];
         bec->be_parent = be;
         memcpy(&bec->tunables, &bel->tunables, sizeof(bel->tunables));
-        STAILQ_INIT(&bec->io_head);
+        STAILQ_INIT(&bec->iop_write);
+        STAILQ_INIT(&bec->iop_read);
         bec->state = mcp_backend_read;
 
         // this leaves a permanent buffer on the backend, which is fine
@@ -1659,7 +1660,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"tls_peer_cn", mcplib_rcontext_tls_peer_cn},
         {"request_new", mcplib_rcontext_request_new},
         {"response_new", mcplib_rcontext_response_new},
-        //{"sleep", mcplib_rcontext_sleep}, see comments on function
+        {"sleep", mcplib_rcontext_sleep},
         {NULL, NULL}
     };
 

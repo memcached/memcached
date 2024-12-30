@@ -12,21 +12,6 @@ static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen);
 static void mcp_resume_rctx_from_cb(mcp_rcontext_t *rctx);
 static void proxy_return_rqu_cb(io_pending_t *pending);
 
-static inline void _mcp_queue_hack(conn *c) {
-    if (c) {
-        // HACK
-        // see notes above proxy_run_rcontext.
-        // in case the above resume calls queued new work, we have to submit
-        // it to the backend handling system here.
-        for (io_queue_t *q = c->io_queues; q->type != IO_QUEUE_NONE; q++) {
-            if (q->stack_ctx != NULL) {
-                io_queue_cb_t *qcb = thread_io_queue_get(c->thread, q->type);
-                qcb->submit_cb(q);
-            }
-        }
-    }
-}
-
 // If we're GC'ed but not closed, it means it was created but never
 // attached to a function, so ensure everything is closed properly.
 int mcplib_funcgen_gc(lua_State *L) {
@@ -973,32 +958,10 @@ static void mcp_resume_rctx_from_cb(mcp_rcontext_t *rctx) {
             }
         } else if (res == LUA_YIELD) {
             // normal.
-            _mcp_queue_hack(rctx->c);
         } else {
             lua_pop(rctx->Lc, 1); // drop the error message.
             _mcp_resume_rctx_process_error(rctx, rqu);
             mcp_funcgen_return_rctx(rctx);
-        }
-    } else {
-        // Parent rctx has returned either a response or error to its top
-        // level resp object and is now complete.
-        // HACK
-        // see notes in proxy_run_rcontext()
-        // NOTE: this function is called from rqu_cb(), which pushes the
-        // submission loop. This code below can call drive_machine(), which
-        // calls submission loop if stuff is queued.
-        // Would remove redundancy if we can signal up to rqu_cb() and either
-        // q->count-- or do the inline submission at that level.
-        if (res != LUA_YIELD) {
-            mcp_funcgen_return_rctx(rctx);
-            io_queue_t *q = conn_io_queue_get(rctx->c, IO_QUEUE_PROXY);
-            q->count--;
-            if (q->count == 0) {
-                // call re-add directly since we're already in the worker thread.
-                conn_worker_readd(rctx->c);
-            }
-        } else if (res == LUA_YIELD) {
-            _mcp_queue_hack(rctx->c);
         }
     }
 }
@@ -1365,32 +1328,6 @@ int mcplib_rcontext_wait_handle(lua_State *L) {
     return lua_yield(L, 1);
 }
 
-// TODO: This is disabled due to issues with the IO subsystem. Fixing this
-// requires retiring of API1 to allow refactoring or some extra roundtrip
-// work.
-// - if rctx:sleep() is called, the coroutine is suspended.
-// - once resumed after the timeout, we may later suspend again and make
-// backend requests
-// - once the coroutine is completed, we need to check if the owning client
-// conn is ready to be resumed
-// - BUG: we can only get into the "conn is in IO queue wait" state if a
-// sub-IO was created and submitted somewhere.
-// - This means either rctx:sleep() needs to be implemented by submitting a
-// dummy IO req (as other code does)
-// - OR we need to refactor the IO system so the dummies aren't required
-// anymore.
-//
-// If a dummy is used, we would have to implement this as:
-// - immediately submit a dummy IO if sleep is called.
-// - this allows the IO system to move the connection into the right state
-// - will immediately circle back then set an alarm for the sleep timeout
-// - once the sleep resumes, run code as normal. resumption should work
-// properly since we've entered the correct state originally.
-//
-// This adds a lot of CPU overhead to sleep, which should be fine given the
-// nature of the function, but also adds a lot of code and increases the
-// chances of bugs. So I'm leaving it out until this can be implemented more
-// simply.
 int mcplib_rcontext_sleep(lua_State *L) {
     mcp_rcontext_t *rctx = lua_touserdata(L, 1);
     if (rctx->wait_mode != QWAIT_IDLE) {

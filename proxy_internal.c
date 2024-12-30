@@ -155,12 +155,13 @@ static int proxy_storage_get(LIBEVENT_THREAD *t, item *it, mc_resp *resp,
     // io_pending owns the reference for this object now.
     io->hdr_it = it;
     io->tresp = resp; // our mc_resp is a temporary object.
-    io->io_queue_type = IO_QUEUE_EXTSTORE;
-    io->io_type = IO_PENDING_TYPE_EXTSTORE; // proxy specific sub-type.
+    io->io_queue_type = IO_QUEUE_PROXY;
+    io->io_sub_type = IO_PENDING_TYPE_EXTSTORE; // proxy specific sub-type.
     io->gettype = type;
     io->thread = t;
     io->return_cb = proxy_return_rctx_cb;
     io->finalize_cb = proxy_finalize_rctx_cb;
+    io->payload = offsetof(io_pending_proxy_t, eio);
     obj_io *eio = &io->eio;
 
     eio->buf = malloc(ntotal);
@@ -1763,13 +1764,10 @@ int mcplib_internal_run(mcp_rcontext_t *rctx) {
         resp->io_pending = NULL;
 
         // Add io object to extstore submission queue.
-        io_queue_t *q = conn_io_queue_get(rctx->c, IO_QUEUE_EXTSTORE);
+        io_queue_t *q = thread_io_queue_get(rctx->fgen->thread, IO_QUEUE_EXTSTORE);
         io_pending_proxy_t *io = (io_pending_proxy_t *)rctx->resp->io_pending;
 
-        io->eio.next = q->stack_ctx;
-        q->stack_ctx = &io->eio;
-        assert(q->count >= 0);
-        q->count++;
+        STAILQ_INSERT_TAIL(&q->stack, (io_pending_t *)io, iop_next);
 
         io->rctx = rctx;
         io->c = rctx->c;

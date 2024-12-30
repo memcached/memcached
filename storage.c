@@ -29,7 +29,9 @@ static void storage_return_cb(io_pending_t *pending);
 // re-cast an io_pending_t into this more descriptive structure.
 // the first few items _must_ match the original struct.
 typedef struct _io_pending_storage_t {
-    int io_queue_type;
+    uint8_t io_queue_type;
+    uint8_t io_sub_type;
+    uint8_t payload; // payload offset
     LIBEVENT_THREAD *thread;
     conn *c;
     mc_resp *resp;
@@ -254,7 +256,7 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
 #else
     item_hdr *hdr = (item_hdr *)ITEM_data(it);
 #endif
-    io_queue_t *q = conn_io_queue_get(c, IO_QUEUE_EXTSTORE);
+    io_queue_t *q = thread_io_queue_get(c->thread, IO_QUEUE_EXTSTORE);
     size_t ntotal = ITEM_ntotal(it);
     unsigned int clsid = slabs_clsid(ntotal);
     item *new_it;
@@ -289,6 +291,7 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
     p->hdr_it = it;
     p->resp = resp;
     p->io_queue_type = IO_QUEUE_EXTSTORE;
+    p->payload = offsetof(io_pending_storage_t, io_ctx);
     obj_io *eio = &p->io_ctx;
 
     // FIXME: error handling.
@@ -344,17 +347,13 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
 
     // We can't bail out anymore, so mc_resp owns the IO from here.
     resp->io_pending = (io_pending_t *)p;
+    conn_resp_suspend(c, resp);
 
     eio->buf = (void *)new_it;
     p->c = c;
 
-    // We need to stack the sub-struct IO's together for submission.
-    eio->next = q->stack_ctx;
-    q->stack_ctx = eio;
+    STAILQ_INSERT_TAIL(&q->stack, (io_pending_t *)p, iop_next);
 
-    // No need to stack the io_pending's together as they live on mc_resp's.
-    assert(q->count >= 0);
-    q->count++;
     // reference ourselves for the callback.
     eio->data = (void *)p;
 
@@ -383,11 +382,19 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
 }
 
 void storage_submit_cb(io_queue_t *q) {
-    // Don't need to do anything special for extstore.
-    extstore_submit(q->ctx, q->stack_ctx);
-
-    // need to reset the stack for next use.
-    q->stack_ctx = NULL;
+    // TODO: until we decide to port extstore's internal code to use
+    // io_pending objs we "port" the IOP's into an obj_io chain just before
+    // submission here.
+    void *eio_head = NULL;
+    while(!STAILQ_EMPTY(&q->stack)) {
+        io_pending_t *p = STAILQ_FIRST(&q->stack);
+        STAILQ_REMOVE_HEAD(&q->stack, iop_next);
+        // FIXME: re-evaluate this.
+        obj_io *io_ctx = (obj_io *) ((char *)p + p->payload);
+        io_ctx->next = eio_head;
+        eio_head = io_ctx;
+    }
+    extstore_submit(q->ctx, eio_head);
 }
 
 // Runs locally in worker thread.
@@ -408,9 +415,13 @@ static void recache_or_free(io_pending_t *pending) {
         size_t ntotal = ITEM_ntotal(p->hdr_it);
         slabs_free(it, slabs_clsid(ntotal));
 
-        io_queue_t *q = conn_io_queue_get(c, p->io_queue_type);
-        q->count--;
-        assert(q->count >= 0);
+        p->resp->suspended = false;
+        c->resps_suspended--;
+        // this is an unsubmitted IO, so unlink ourselves.
+        // (note: slow but should be very rare op)
+        io_queue_t *q = thread_io_queue_get(p->thread, p->io_queue_type);
+        STAILQ_REMOVE(&q->stack, pending, _io_pending_t, iop_next);
+
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.get_aborted_extstore++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
@@ -466,11 +477,7 @@ static void recache_or_free(io_pending_t *pending) {
 
 // Called after an IO has been returned to the worker thread.
 static void storage_return_cb(io_pending_t *pending) {
-    io_queue_t *q = conn_io_queue_get(pending->c, pending->io_queue_type);
-    q->count--;
-    if (q->count == 0) {
-        conn_worker_readd(pending->c);
-    }
+    conn_resp_unsuspend(pending->c, pending->resp);
 }
 
 // Called after responses have been transmitted. Need to free up related data.

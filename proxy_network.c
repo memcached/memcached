@@ -47,7 +47,7 @@ static void proxy_beconn_handler(const int fd, const short which, void *arg);
 static void proxy_beconn_tls_handler(const int fd, const short which, void *arg);
 static void proxy_event_handler(evutil_socket_t fd, short which, void *arg);
 static void proxy_event_beconn(evutil_socket_t fd, short which, void *arg);
-static int _prep_pending_write(struct mcp_backendconn_s *be);
+static int _prep_pending_write(struct mcp_backendconn_s *be, int *count, int *bytes, bool *iov_limit);
 static void _post_pending_write(struct mcp_backendconn_s *be, ssize_t sent);
 static int _flush_pending_write(struct mcp_backendconn_s *be);
 static int _flush_pending_tls_write(struct mcp_backendconn_s *be);
@@ -140,27 +140,27 @@ struct mcp_backendconn_s *proxy_choose_beconn(mcp_backend_t *be) {
 }
 
 static void _proxy_event_handler_dequeue(proxy_event_thread_t *t) {
-    io_head_t head;
+    iop_head_t head;
 
     STAILQ_INIT(&head);
     STAILQ_INIT(&t->be_head);
 
     // Pull the entire stack of inbound into local queue.
     pthread_mutex_lock(&t->mutex);
-    STAILQ_CONCAT(&head, &t->io_head_in);
+    STAILQ_CONCAT(&head, &t->iop_head_in);
     pthread_mutex_unlock(&t->mutex);
 
     while (!STAILQ_EMPTY(&head)) {
-        io_pending_proxy_t *io = STAILQ_FIRST(&head);
-        io->flushed = false;
+        io_pending_proxy_t *p = (io_pending_proxy_t *)STAILQ_FIRST(&head);
+        p->flushed = false;
 
         // _no_ mutex on backends. they are owned by the event thread.
-        STAILQ_REMOVE_HEAD(&head, io_next);
+        STAILQ_REMOVE_HEAD(&head, iop_next);
         // paranoia about moving items between lists.
-        io->io_next.stqe_next = NULL;
+        p->iop_next.stqe_next = NULL;
 
-        mcp_backend_t *be = io->backend;
-        STAILQ_INSERT_TAIL(&be->io_head, io, io_next);
+        mcp_backend_t *be = p->backend;
+        STAILQ_INSERT_TAIL(&be->iop_head, (io_pending_t *)p, iop_next);
         assert(be->depth > -1);
         be->depth++;
         if (!be->stacked) {
@@ -189,7 +189,8 @@ static void _cleanup_backend(mcp_backend_t *be) {
             }
 
             // - assert on empty queue
-            assert(STAILQ_EMPTY(&bec->io_head));
+            assert(STAILQ_EMPTY(&bec->iop_write));
+            assert(STAILQ_EMPTY(&bec->iop_read));
 
             mcp_tls_shutdown(bec);
             mcmc_disconnect(bec->client);
@@ -298,9 +299,9 @@ static void _proxy_flush_backend_queue(mcp_backend_t *be) {
     io_pending_proxy_t *io = NULL;
     P_DEBUG("%s: fast failing request to bad backend (%s:%s) depth: %d\n", __func__, be->name, be->port, be->depth);
 
-    while (!STAILQ_EMPTY(&be->io_head)) {
-        io = STAILQ_FIRST(&be->io_head);
-        STAILQ_REMOVE_HEAD(&be->io_head, io_next);
+    while (!STAILQ_EMPTY(&be->iop_head)) {
+        io = (io_pending_proxy_t *)STAILQ_FIRST(&be->iop_head);
+        STAILQ_REMOVE_HEAD(&be->iop_head, iop_next);
         mcp_resp_set_elapsed(io->client_resp);
         io->client_resp->status = MCMC_ERR;
         io->client_resp->resp.code = MCMC_CODE_SERVER_ERROR;
@@ -330,11 +331,11 @@ void proxy_run_backend_queue(be_head_t *head) {
         }
 
         // drop new requests onto end of conn's io-head, reset the backend one.
-        STAILQ_CONCAT(&bec->io_head, &be->io_head);
+        STAILQ_CONCAT(&bec->iop_write, &be->iop_head);
         bec->depth += be->depth;
         be->depth = 0;
 
-        if (bec->connecting || bec->validating) {
+        if (bec->connecting || bec->validating || !bec->can_write) {
             P_DEBUG("%s: deferring IO pending connecting (%s:%s)\n", __func__, be->name, be->port);
         } else {
             if (!bec->ssl) {
@@ -454,9 +455,9 @@ static void _stop_timeout_event(struct mcp_backendconn_s *be) {
 
 static void _drive_machine_next(struct mcp_backendconn_s *be, io_pending_proxy_t *p) {
     // set the head here. when we break the head will be correct.
-    STAILQ_REMOVE_HEAD(&be->io_head, io_next);
+    assert(!STAILQ_EMPTY(&be->iop_read));
+    STAILQ_REMOVE_HEAD(&be->iop_read, iop_next);
     be->depth--;
-    assert(p != be->io_next); // don't remove what we need to flush.
     assert(be->depth > -1);
     be->pending_read--;
     assert(be->pending_read > -1);
@@ -477,7 +478,7 @@ static int proxy_backend_drive_machine(struct mcp_backendconn_s *be) {
     io_pending_proxy_t *p = NULL;
     int flags = 0;
 
-    p = STAILQ_FIRST(&be->io_head);
+    p = (io_pending_proxy_t *)STAILQ_FIRST(&be->iop_read);
     if (p == NULL) {
         // got a read event, but nothing was queued.
         // probably means a disconnect event.
@@ -694,7 +695,7 @@ static int proxy_backend_drive_machine(struct mcp_backendconn_s *be) {
         case mcp_backend_next:
             _drive_machine_next(be, p);
 
-            if (STAILQ_EMPTY(&be->io_head)) {
+            if (STAILQ_EMPTY(&be->iop_read)) {
                 stop = true;
                 // if there're no pending requests, the read buffer
                 // should also be empty.
@@ -703,7 +704,7 @@ static int proxy_backend_drive_machine(struct mcp_backendconn_s *be) {
                 }
                 break;
             } else {
-                p = STAILQ_FIRST(&be->io_head);
+                p = (io_pending_proxy_t *)STAILQ_FIRST(&be->iop_read);
             }
 
             // if leftover, keep processing IO's.
@@ -879,11 +880,10 @@ static void _reset_bad_backend(struct mcp_backendconn_s *be, enum proxy_be_failu
     // Can't use STAILQ_FOREACH() since r_io_p() free's the current
     // io. STAILQ_FOREACH_SAFE maybe?
     int depth = be->depth;
-    while (!STAILQ_EMPTY(&be->io_head)) {
-        io = STAILQ_FIRST(&be->io_head);
-        STAILQ_REMOVE_HEAD(&be->io_head, io_next);
-        // TODO (v2): Unsure if this is the best way of surfacing errors to lua,
-        // but will do for V1.
+    while (!STAILQ_EMPTY(&be->iop_write)) {
+        io = (io_pending_proxy_t *)STAILQ_FIRST(&be->iop_write);
+        STAILQ_REMOVE_HEAD(&be->iop_write, iop_next);
+
         mcp_resp_set_elapsed(io->client_resp);
         io->client_resp->status = MCMC_ERR;
         io->client_resp->resp.code = MCMC_CODE_SERVER_ERROR;
@@ -892,8 +892,20 @@ static void _reset_bad_backend(struct mcp_backendconn_s *be, enum proxy_be_failu
         return_io_pending((io_pending_t *)io);
     }
 
-    STAILQ_INIT(&be->io_head);
-    be->io_next = NULL; // also reset the write offset.
+    while (!STAILQ_EMPTY(&be->iop_read)) {
+        io = (io_pending_proxy_t *)STAILQ_FIRST(&be->iop_read);
+        STAILQ_REMOVE_HEAD(&be->iop_read, iop_next);
+
+        mcp_resp_set_elapsed(io->client_resp);
+        io->client_resp->status = MCMC_ERR;
+        io->client_resp->resp.code = MCMC_CODE_SERVER_ERROR;
+        be->depth--;
+        assert(be->depth > -1);
+        return_io_pending((io_pending_t *)io);
+    }
+
+    STAILQ_INIT(&be->iop_write);
+    STAILQ_INIT(&be->iop_read);
 
     // Only log if we don't already know it's messed up.
     if (!be->bad) {
@@ -917,44 +929,38 @@ static void _reset_bad_backend(struct mcp_backendconn_s *be, enum proxy_be_failu
     _backend_reschedule(be);
 }
 
-static int _prep_pending_write(struct mcp_backendconn_s *be) {
+static int _prep_pending_write(struct mcp_backendconn_s *be, int *count, int *bytes, bool *iov_limit) {
     struct iovec *iovs = be->write_iovs;
     io_pending_proxy_t *io = NULL;
     int iovused = 0;
-    if (be->io_next == NULL) {
-        // separate pointer for how far into the list we've flushed.
-        io = STAILQ_FIRST(&be->io_head);
-    } else {
-        io = be->io_next;
-    }
+    io = (io_pending_proxy_t *)STAILQ_FIRST(&be->iop_write);
     assert(io != NULL);
-    for (; io; io = STAILQ_NEXT(io, io_next)) {
-        // TODO (v2): paranoia for now, but this check should never fire
-        if (io->flushed)
-            continue;
+    for (; io; io = (io_pending_proxy_t *)STAILQ_NEXT(io, iop_next)) {
+        assert(io->flushed == false);
 
         if (io->iovcnt + iovused > BE_IOV_MAX) {
             // We will need to keep writing later.
+            *iov_limit = true;
             break;
         }
 
         memcpy(&iovs[iovused], io->iov, sizeof(struct iovec)*io->iovcnt);
         iovused += io->iovcnt;
+        *bytes += io->iovbytes;
+        (*count)++;
     }
     return iovused;
 }
 
 // returns true if any pending writes were fully flushed.
 static void _post_pending_write(struct mcp_backendconn_s *be, ssize_t sent) {
-    io_pending_proxy_t *io = be->io_next;
-    if (io == NULL) {
-        io = STAILQ_FIRST(&be->io_head);
-    }
+    io_pending_proxy_t *io = (io_pending_proxy_t *)STAILQ_FIRST(&be->iop_write);
 
-    for (; io; io = STAILQ_NEXT(io, io_next)) {
+    while (!STAILQ_EMPTY(&be->iop_write)) {
+        io = (io_pending_proxy_t *)STAILQ_FIRST(&be->iop_write);
         bool flushed = true;
-        if (io->flushed)
-            continue;
+        assert(io->flushed == false);
+
         if (sent >= io->iovbytes) {
             // short circuit for common case.
             sent -= io->iovbytes;
@@ -976,6 +982,8 @@ static void _post_pending_write(struct mcp_backendconn_s *be, ssize_t sent) {
         }
         io->flushed = flushed;
         if (flushed) {
+            STAILQ_REMOVE_HEAD(&be->iop_write, iop_next);
+            STAILQ_INSERT_TAIL(&be->iop_read, (io_pending_t *)io, iop_next);
             be->pending_read++;
         }
 
@@ -985,41 +993,34 @@ static void _post_pending_write(struct mcp_backendconn_s *be, ssize_t sent) {
             break;
         }
     } // for
-
-    // resume the flush from this point.
-    if (io != NULL) {
-        if (!io->flushed) {
-            be->io_next = io;
-        } else {
-            // Check for incomplete list because we hit the iovcnt limit.
-            io_pending_proxy_t *nio = STAILQ_NEXT(io, io_next);
-            if (nio != NULL && !nio->flushed) {
-                be->io_next = nio;
-            } else {
-                be->io_next = NULL;
-            }
-        }
-    } else {
-        be->io_next = NULL;
-    }
 }
 
 static int _flush_pending_write(struct mcp_backendconn_s *be) {
     int flags = 0;
+    bool iov_limit = false;
     // Allow us to be called with an empty stack to prevent dev errors.
-    if (STAILQ_EMPTY(&be->io_head)) {
+    if (STAILQ_EMPTY(&be->iop_write)) {
         return 0;
     }
 
-    int iovcnt = _prep_pending_write(be);
+    int count = 0;
+    int bytes = 0;
+    int iovcnt = _prep_pending_write(be, &count, &bytes, &iov_limit);
 
     ssize_t sent = writev(mcmc_fd(be->client), be->write_iovs, iovcnt);
     if (sent > 0) {
-        _post_pending_write(be, sent);
-        // still have unflushed pending IO's, check for write and re-loop.
-        if (be->io_next) {
-            be->can_write = false;
-            flags |= EV_WRITE;
+        if (bytes == sent && !iov_limit) {
+            // fast path if everything's sent.
+            be->pending_read += count;
+            STAILQ_CONCAT(&be->iop_read, &be->iop_write);
+        } else {
+            _post_pending_write(be, sent);
+            // still have unflushed pending IO's, check for write and re-loop.
+            if (!STAILQ_EMPTY(&be->iop_write)) {
+                // might still be writeable, just too many IOV's.
+                be->can_write = iov_limit;
+                flags |= EV_WRITE;
+            }
         }
     } else if (sent == -1) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -1035,21 +1036,30 @@ static int _flush_pending_write(struct mcp_backendconn_s *be) {
 
 static int _flush_pending_tls_write(struct mcp_backendconn_s *be) {
     int flags = 0;
+    bool iov_limit = false;
     // Allow us to be called with an empty stack to prevent dev errors.
-    if (STAILQ_EMPTY(&be->io_head)) {
+    if (STAILQ_EMPTY(&be->iop_write)) {
         return 0;
     }
 
-    int iovcnt = _prep_pending_write(be);
+    int count = 0;
+    int bytes = 0;
+    int iovcnt = _prep_pending_write(be, &count, &bytes, &iov_limit);
 
     int sent = mcp_tls_writev(be, iovcnt);
     if (sent > 0) {
-        _post_pending_write(be, sent);
-        // FIXME: can _post_pending_write do this and return EV_WRITE?
-        // still have unflushed pending IO's, check for write and re-loop.
-        if (be->io_next) {
-            be->can_write = false;
-            flags |= EV_WRITE;
+        if (bytes == sent && !iov_limit) {
+            // fast path if everything's sent.
+            be->pending_read += count;
+            STAILQ_CONCAT(&be->iop_read, &be->iop_write);
+        } else {
+            _post_pending_write(be, sent);
+            // still have unflushed pending IO's, check for write and re-loop.
+            if (!STAILQ_EMPTY(&be->iop_write)) {
+                // might still be writeable, just too many IOV's.
+                be->can_write = iov_limit;
+                flags |= EV_WRITE;
+            }
         }
     } else if (sent == MCP_TLS_NEEDIO) {
         // want io
@@ -1062,7 +1072,6 @@ static int _flush_pending_tls_write(struct mcp_backendconn_s *be) {
 
     return flags;
 }
-
 
 static void proxy_bevalidate_tls_handler(const int fd, const short which, void *arg) {
     assert(arg != NULL);
@@ -1368,7 +1377,7 @@ static void proxy_backend_tls_handler(const int fd, const short which, void *arg
         }
 
 #ifdef PROXY_DEBUG
-        if (!STAILQ_EMPTY(&be->io_head)) {
+        if (!STAILQ_EMPTY(&be->iop_head)) {
             P_DEBUG("backend has leftover IOs: %d\n", be->depth);
         }
 #endif
@@ -1430,7 +1439,7 @@ static void proxy_backend_handler(const int fd, const short which, void *arg) {
         }
 
 #ifdef PROXY_DEBUG
-        if (!STAILQ_EMPTY(&be->io_head)) {
+        if (!STAILQ_EMPTY(&be->iop_head)) {
             P_DEBUG("backend has leftover IOs: %d\n", be->depth);
         }
 #endif
@@ -1473,7 +1482,7 @@ void proxy_init_event_thread(proxy_event_thread_t *t, proxy_ctx_t *ctx, struct e
 #endif
 
     // incoming request queue.
-    STAILQ_INIT(&t->io_head_in);
+    STAILQ_INIT(&t->iop_head_in);
     STAILQ_INIT(&t->beconn_head_in);
     pthread_mutex_init(&t->mutex, NULL);
     pthread_cond_init(&t->cond, NULL);

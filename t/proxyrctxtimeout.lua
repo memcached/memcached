@@ -148,11 +148,55 @@ function rctx_sleep(p)
     local fgen = mcp.funcgen_new()
     local near = fgen:new_handle(p.z1)
 
+    local fgsub = mcp.funcgen_new()
+    local subnear = fgsub:new_handle(p.z1)
+    fgsub:ready({ n = "subsleep", f = function(rctx)
+        return function(r)
+            rctx:sleep(0.25)
+            local nres = rctx:enqueue_and_wait(r, subnear)
+            return nres
+        end
+    end})
+
+    local subh = fgen:new_handle(fgsub)
+
     fgen:ready({ n = "sleep", f = function(rctx)
         return function(r)
-            rctx:sleep(0.5)
-            local nres = rctx:enqueue_and_wait(r, near)
-            return nres
+            local k = r:key()
+            if k == "sleep/before" then
+                rctx:sleep(0.5)
+                local nres = rctx:enqueue_and_wait(r, near)
+                return nres
+            elseif k == "sleep/after" then
+                local nres = rctx:enqueue_and_wait(r, near)
+                rctx:sleep(0.5)
+                return nres
+            elseif k == "sleep/both" then
+                rctx:sleep(0.25)
+                local nres = rctx:enqueue_and_wait(r, near)
+                rctx:sleep(0.25)
+                return nres
+            elseif k == "sleep/twice" then
+                rctx:sleep(0.25)
+                rctx:sleep(0.25)
+                local nres = rctx:enqueue_and_wait(r, near)
+                return nres
+            elseif k == "sleep/enqueue" then
+                rctx:enqueue(r, near)
+                rctx:sleep(0.5)
+                rctx:wait_cond(1, mcp.WAIT_ANY)
+                local nres = rctx:result(near)
+                return nres
+            elseif k == "sleep/subwait" then
+                local nres = rctx:enqueue_and_wait(r, subh)
+                return nres
+            elseif k == "sleep/subdoublewait" then
+                local nres = rctx:enqueue_and_wait(r, subh)
+                rctx:sleep(0.5)
+                return nres
+            else
+                print("BAD SLEEP KEY", k)
+            end
         end
     end})
     return fgen

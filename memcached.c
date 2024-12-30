@@ -534,14 +534,7 @@ static void _conn_event_readd(conn *c) {
 
 /* bring conn back from a sidethread. could have had its event base moved. */
 void conn_worker_readd(conn *c) {
-    if (c->io_queues_submitted) { // TODO: ensure this is safe?
-        c->io_queues_submitted--;
-        // If we're still waiting for other queues to return, don't re-add the
-        // connection yet.
-        if (c->io_queues_submitted != 0) {
-            return;
-        }
-    }
+    assert(c->resps_suspended == 0); // TODO: remove assert.
 
     switch (c->state) {
         case conn_closing:
@@ -557,6 +550,13 @@ void conn_worker_readd(conn *c) {
             // machine will know how to return based on secondary state.
             drive_machine(c);
             break;
+        case conn_write:
+        case conn_mwrite:
+        case conn_read:
+        case conn_parse_cmd:
+            // No-ops if we weren't in a suspended state to begin with
+            // TODO: which other states for this?
+            break;
         default:
             event_del(&c->event);
             _conn_event_readd(c);
@@ -566,39 +566,19 @@ void conn_worker_readd(conn *c) {
 }
 
 void thread_io_queue_add(LIBEVENT_THREAD *t, int type, void *ctx, io_queue_stack_cb cb) {
-    io_queue_cb_t *q = t->io_queues;
+    io_queue_t *q = t->io_queues;
     while (q->type != IO_QUEUE_NONE) {
         q++;
     }
     q->type = type;
     q->ctx = ctx;
     q->submit_cb = cb;
+    STAILQ_INIT(&q->stack);
     return;
 }
 
-void conn_io_queue_setup(conn *c) {
-    io_queue_cb_t *qcb = c->thread->io_queues;
-    io_queue_t *q = c->io_queues;
-    while (qcb->type != IO_QUEUE_NONE) {
-        q->type = qcb->type;
-        q->ctx = qcb->ctx;
-        q->stack_ctx = NULL;
-        q->count = 0;
-        qcb++;
-        q++;
-    }
-}
-
-// To be called from conn_release_items to ensure the stack ptrs are reset.
-static void conn_io_queue_reset(conn *c) {
-    for (io_queue_t *q = c->io_queues; q->type != IO_QUEUE_NONE; q++) {
-        assert(q->count == 0);
-        q->stack_ctx = NULL;
-    }
-}
-
-io_queue_cb_t *thread_io_queue_get(LIBEVENT_THREAD *t, int type) {
-    io_queue_cb_t *q = t->io_queues;
+io_queue_t *thread_io_queue_get(LIBEVENT_THREAD *t, int type) {
+    io_queue_t *q = t->io_queues;
     while (q->type != IO_QUEUE_NONE) {
         if (q->type == type) {
             return q;
@@ -608,15 +588,14 @@ io_queue_cb_t *thread_io_queue_get(LIBEVENT_THREAD *t, int type) {
     return NULL;
 }
 
-io_queue_t *conn_io_queue_get(conn *c, int type) {
-    io_queue_t *q = c->io_queues;
-    while (q->type != IO_QUEUE_NONE) {
-        if (q->type == type) {
-            return q;
+void thread_io_queue_submit(LIBEVENT_THREAD *t) {
+    for (io_queue_t *q = t->io_queues; q->type != IO_QUEUE_NONE; q++) {
+        // submission callback must consume the queue
+        if (!STAILQ_EMPTY(&q->stack)) {
+            q->submit_cb(q);
+            assert(STAILQ_EMPTY(&q->stack));
         }
-        q++;
     }
-    return NULL;
 }
 
 // called to return a single IO object to the original worker thread.
@@ -736,9 +715,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->mset_res = false;
     c->close_after_write = false;
     c->last_cmd_time = current_time; /* initialize for idle kicker */
-    // wipe all queues.
-    memset(c->io_queues, 0, sizeof(c->io_queues));
-    c->io_queues_submitted = 0;
+    assert(c->resps_suspended == 0);
 
     c->item = 0;
     c->ssl = NULL;
@@ -840,7 +817,6 @@ void conn_release_items(conn *c) {
             }
             resp = resp_finish(c, resp);
         }
-        conn_io_queue_reset(c);
     }
 }
 
@@ -2155,16 +2131,6 @@ static void conn_to_str(const conn *c, char *addr, char *svr_addr) {
     }
 }
 
-static char *conn_queue_to_str(const conn *c, io_queue_t *q) {
-    if (q->type == IO_QUEUE_EXTSTORE) {
-        return "queue_extstore";
-    } else if (q->type == IO_QUEUE_PROXY) {
-        return "queue_proxy";
-    } else {
-        return "queue_unknown";
-    }
-}
-
 void process_stats_conns(ADD_STAT add_stats, void *c) {
     int i;
     char key_str[STAT_KEY_LEN];
@@ -2199,14 +2165,8 @@ void process_stats_conns(ADD_STAT add_stats, void *c) {
                 }
                 APPEND_NUM_STAT(i, "state", "%s",
                         state_text(sc->state));
-                if (sc->io_queues_submitted) {
-                    APPEND_NUM_STAT(i, "queues_waiting", "%d", sc->io_queues_submitted);
-                    for (io_queue_t *q = sc->io_queues; q->type != IO_QUEUE_NONE; q++) {
-                        if (q->count) {
-                            const char *qname = conn_queue_to_str(sc, q);
-                            APPEND_NUM_STAT(i, qname, "%d", q->count);
-                        }
-                    }
+                if (sc->resps_suspended) {
+                    APPEND_NUM_STAT(i, "resps_waiting", "%d", sc->resps_suspended);
                 }
                 APPEND_NUM_STAT(i, "secs_since_last_cmd", "%d",
                         current_time - sc->last_cmd_time);
@@ -3311,16 +3271,13 @@ static void drive_machine(conn *c) {
              * remove the connection from the worker thread and dispatch the
              * IO queue
              */
-            assert(c->io_queues_submitted == 0);
-
-            for (io_queue_t *q = c->io_queues; q->type != IO_QUEUE_NONE; q++) {
-                if (q->stack_ctx != NULL) {
-                    io_queue_cb_t *qcb = thread_io_queue_get(c->thread, q->type);
-                    qcb->submit_cb(q);
-                    c->io_queues_submitted++;
-                }
-            }
-            if (c->io_queues_submitted != 0) {
+            if (c->resps_suspended) {
+                // FIXME: carefully check or document somewhere that submit
+                // cannot resume a connection in-line with submission.
+                // NOTE: Considering moving this to outside of the while loop.
+                // anything that sets a resp to suspended could also set the
+                // state to conn_io_queue and remove this inline check.
+                thread_io_queue_submit(c->thread);
                 conn_set_state(c, conn_io_queue);
 
                 stop = true;

@@ -362,7 +362,6 @@ struct mcp_cron_s {
     bool repeat;
 };
 
-typedef STAILQ_HEAD(io_head_s, _io_pending_proxy_t) io_head_t;
 #define MAX_LABELLEN 512
 #define MAX_NAMELEN 255
 #define MAX_PORTLEN 6
@@ -407,8 +406,8 @@ struct mcp_backendconn_s {
 #ifdef PROXY_TLS
     void *ssl;
 #endif
-    io_head_t io_head; // stack of requests.
-    io_pending_proxy_t *io_next; // next request to write.
+    iop_head_t iop_write; // requests needing to be written
+    iop_head_t iop_read; // requests waiting for read response
     char *rbuf; // statically allocated read buffer.
     size_t rbufused; // currently active bytes in the buffer
     struct event main_event; // libevent: changes role, mostly for main read events
@@ -438,7 +437,7 @@ struct mcp_backend_s {
     bool stacked; // if backend already queued for syscalls.
     STAILQ_ENTRY(mcp_backend_s) beconn_next; // stack for connecting conns
     STAILQ_ENTRY(mcp_backend_s) be_next; // stack for backends
-    io_head_t io_head; // stack of inbound requests.
+    iop_head_t iop_head; // stack of inbound requests.
     char name[MAX_NAMELEN+1];
     char port[MAX_PORTLEN+1];
     char label[MAX_LABELLEN+1];
@@ -467,7 +466,7 @@ struct proxy_event_thread_s {
 #endif
     pthread_mutex_t mutex; // covers stack.
     pthread_cond_t cond; // condition to wait on while stack drains.
-    io_head_t io_head_in; // inbound requests to process.
+    iop_head_t iop_head_in; // inbound requests to process.
     be_head_t be_head; // stack of backends for processing.
     beconn_head_t beconn_head_in; // stack of backends for connection processing.
 #ifdef USE_EVENTFD
@@ -509,10 +508,10 @@ typedef struct {
 
 // re-cast an io_pending_t into this more descriptive structure.
 // the first few items _must_ match the original struct.
-#define IO_PENDING_TYPE_PROXY 0
-#define IO_PENDING_TYPE_EXTSTORE 1
 struct _io_pending_proxy_t {
-    int io_queue_type;
+    uint8_t io_queue_type;
+    uint8_t io_sub_type;
+    uint8_t payload; // payload offset
     LIBEVENT_THREAD *thread;
     conn *c;
     mc_resp *resp;
@@ -524,7 +523,6 @@ struct _io_pending_proxy_t {
     mcp_rcontext_t *rctx; // pointer to request context.
     int queue_handle; // queue slot to return this result to
     bool ascii_multiget; // passed on from mcp_r_t
-    uint8_t io_type; // extstore IO or backend IO
     union {
         // extstore IO.
         struct {
@@ -539,9 +537,6 @@ struct _io_pending_proxy_t {
         };
         // backend request IO
         struct {
-            // FIXME: use top level next chain
-            struct _io_pending_proxy_t *next; // stack for IO submission
-            STAILQ_ENTRY(_io_pending_proxy_t) io_next; // stack for backends
             mcp_backend_t *backend; // backend server to request from
             struct iovec iov[2]; // request string + tail buffer
             int iovcnt; // 1 or 2...

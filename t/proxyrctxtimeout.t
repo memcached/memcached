@@ -28,11 +28,12 @@ $t->set_c($ps);
 $t->accept_backends();
 
 subtest 'sleep' => sub {
-    plan skip_all => 'sleep does not work';
-    $t->c_send("mg sleep/foo t\r\n");
-    $t->be_recv_c(0, "near got request");
-    $t->be_send(0, "HD t94\r\n");
-    $t->c_recv_be();
+    for my $try ('before', 'after', 'both', 'twice', 'enqueue', 'subwait', 'subdoublewait') {
+        $t->c_send("mg sleep/$try t\r\n");
+        $t->be_recv_c(0, "near got request");
+        $t->be_send(0, "HD t94\r\n");
+        $t->c_recv_be($try);
+    }
     $t->clear();
 };
 
