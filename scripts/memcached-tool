@@ -16,7 +16,6 @@
 
 use strict;
 use IO::Socket::INET;
-use IO::Socket::SSL;
 use URI::Escape;
 
 my $addr = shift;
@@ -24,6 +23,15 @@ my $mode = shift || "display";
 my ($from, $to);
 my $limit;
 my $unescape = 0;
+
+eval {
+    if ($addr =~ /^tls:/) {
+        require IO::Socket::SSL;
+    }
+    1;
+} or do {
+    die "IO::Socket::SSL is not available: $@";
+};
 
 if ($mode eq "display") {
     undef $mode if @ARGV;
@@ -100,7 +108,7 @@ sub server_connect {
             $sock = IO::Socket::SSL->new(
                 PeerAddr => $addr,
                 Proto    => 'tcp',
-                SSL_verify_mode => IO::Socket::SSL::SSL_VERIFY_NONE,
+                SSL_verify_mode => IO::Socket::SSL->SSL_VERIFY_NONE,
             );
         } else {
             $sock = IO::Socket::INET->new(
