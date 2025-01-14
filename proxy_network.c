@@ -463,10 +463,13 @@ static void _drive_machine_next(struct mcp_backendconn_s *be, io_pending_proxy_t
     assert(be->pending_read > -1);
 
     mcp_resp_set_elapsed(p->client_resp);
-    // have to do the q->count-- and == 0 and redispatch_conn()
-    // stuff here. The moment we call return_io here we
+    // The moment we call return_io here we
     // don't own *p anymore.
-    return_io_pending((io_pending_t *)p);
+    if (!be->be_parent->use_io_thread) {
+        conn_io_queue_return((io_pending_t *)p);
+    } else {
+        return_io_pending((io_pending_t *)p);
+    }
     be->state = mcp_backend_read;
 }
 

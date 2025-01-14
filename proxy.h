@@ -544,7 +544,6 @@ struct _io_pending_proxy_t {
             mcp_resp_t *client_resp; // reference (currently pointing to a lua object)
             bool flushed; // whether we've fully written this request to a backend.
             bool background; // dummy IO for backgrounded awaits
-            bool qcount_incr; // HACK.
         };
     };
 };
@@ -745,7 +744,6 @@ struct mcp_rcontext_s {
     enum mcp_rqueue_e wait_mode;
     uint8_t lua_narg; // number of responses to push when yield resuming.
     uint8_t uobj_count; // number of extra tracked req/res objects.
-    bool first_queue; // HACK
     lua_State *Lc; // coroutine thread pointer.
     mcp_request_t *request; // ptr to the above reference.
     mcp_rcontext_t *parent; // parent rctx in the call graph

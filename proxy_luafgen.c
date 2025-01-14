@@ -332,7 +332,6 @@ static void _mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
     }
     rctx->wait_mode = QWAIT_IDLE;
     rctx->resp = NULL;
-    rctx->first_queue = false; // HACK
     if (rctx->request) {
         mcp_request_cleanup(fgen->thread, rctx->request);
     }

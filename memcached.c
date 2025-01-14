@@ -547,8 +547,9 @@ void conn_worker_readd(conn *c) {
             // Explicit fall-through.
         case conn_io_queue:
             conn_set_state(c, conn_io_resume);
-            // machine will know how to return based on secondary state.
-            drive_machine(c);
+            // schedule the event, which just runs drive_machine outside of
+            // any recursion here.
+            event_active(&c->event, 0, 0);
             break;
         case conn_write:
         case conn_mwrite:
@@ -3277,8 +3278,8 @@ static void drive_machine(conn *c) {
                 // NOTE: Considering moving this to outside of the while loop.
                 // anything that sets a resp to suspended could also set the
                 // state to conn_io_queue and remove this inline check.
-                thread_io_queue_submit(c->thread);
                 conn_set_state(c, conn_io_queue);
+                thread_io_queue_submit(c->thread);
 
                 stop = true;
                 break;

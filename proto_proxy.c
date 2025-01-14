@@ -482,9 +482,6 @@ void proxy_thread_init(void *ctx, LIBEVENT_THREAD *thr) {
     proxy_init_event_thread(t, ctx, thr->base);
 }
 
-// ctx_stack is a stack of io_pending_proxy_t's.
-// head of q->s_ctx is the "newest" request so we must push into the head
-// of the next queue, as requests are dequeued from the head
 void proxy_submit_cb(io_queue_t *q) {
     proxy_event_thread_t *e = ((proxy_ctx_t *)q->ctx)->proxy_io_thread;
     iop_head_t head;
@@ -492,17 +489,6 @@ void proxy_submit_cb(io_queue_t *q) {
     STAILQ_INIT(&head);
     STAILQ_INIT(&w_head);
 
-    // NOTE: responses get returned in the correct order no matter what, since
-    // mc_resp's are linked.
-    // we just need to ensure stuff is parsed off the backend in the correct
-    // order.
-    // So we can do with a single list here, but we need to repair the list as
-    // responses are parsed. (in the req_remaining-- section)
-    // TODO (v2):
-    // - except we can't do that because the deferred IO stack isn't
-    // compatible with queue.h.
-    // So for now we build the secondary list with an STAILQ, which
-    // can be transplanted/etc.
     while (!STAILQ_EMPTY(&q->stack)) {
         mcp_backend_t *be;
         io_pending_proxy_t *p = (io_pending_proxy_t *)STAILQ_FIRST(&q->stack);
@@ -511,11 +497,10 @@ void proxy_submit_cb(io_queue_t *q) {
 
         if (p->background) {
             P_DEBUG("%s: fast-returning background object: %p\n", __func__, (void *)p);
-            // intercept background requests
-            // this call cannot recurse if we're on the worker thread,
-            // since the worker thread has to finish executing this
-            // function in order to pick up the returned IO.
-            return_io_pending((io_pending_t *)p);
+            assert(p->backend == NULL);
+            // must not resume requests inline here but they can be scheduled
+            // to run drive_machine() later.
+            conn_io_queue_return((io_pending_t *)p);
             continue;
         }
         be = p->backend;
@@ -844,41 +829,6 @@ static void _proxy_run_tresp_to_resp(mc_resp *tresp, mc_resp *resp) {
     resp->skip = tresp->skip;
 }
 
-// HACK NOTES:
-// These are self-notes for dormando mostly.
-// The IO queue system does not work well with the proxy, as we need to:
-// - only increment q->count during the submit phase
-//   - .. because a resumed coroutine can queue more data.
-//   - and we will never hit q->count == 0
-//   - .. and then never resume the main connection. (conn_worker_readd)
-//   - which will never submit the new sub-requests
-// - need to only increment q->count once per stack of requests coming from a
-//   resp.
-//
-// For RQU backed requests (new API) there isn't an easy place to test for
-// "the first request", because:
-// - The connection queue is a stack of _all_ requests pending on this
-// connection, and many requests can arrive in one batch.
-//   - Thus we cannot simply check if there are items in the queue
-// - RQU's can be recursive, so we have to loop back to the parent to check to
-//   see if we're the first queue or not.
-//
-// This hack workaround exists so I can fix the IO queue subsystem as a change
-// independent of the RCTX change, as the IO queue touches everything and
-// scares the shit out of me. It's much easier to make changes to it in
-// isolation, when all existing systems are currently working and testable.
-//
-// Description of the hack:
-// - in mcp_queue_io: roll up rctx to parent, and if we are the first IO to queue
-// since the rcontext started, set p->qcounr_incr = true
-// Later in submit_cb:
-// - q->count++ if p->qcount_incr.
-//
-// Finally, in proxy_return_rqu_cb:
-// - If parent completed non-yielded work, q->count-- to allow conn
-// resumption.
-// - At bottom of rqu_cb(), flush any IO queues for the connection in case we
-// re-queued work.
 int proxy_run_rcontext(mcp_rcontext_t *rctx) {
     int nresults = 0;
     lua_State *Lc = rctx->Lc;
@@ -1336,18 +1286,6 @@ io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, m
 
         mcp_request_attach(rq, p);
     }
-
-    // HACK
-    // find the parent rctx
-    while (rctx->parent) {
-        rctx = rctx->parent;
-    }
-    // Hack to enforce the first iop increments client IO queue counter.
-    if (!rctx->first_queue) {
-        rctx->first_queue = true;
-        p->qcount_incr = true;
-    }
-    // END HACK
 
     // link into the batch chain.
     STAILQ_INSERT_TAIL(&q->stack, (io_pending_t *)p, iop_next);
