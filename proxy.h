@@ -227,6 +227,13 @@ struct proxy_tunables {
     bool down; // backend is forced into a down/bad state.
 };
 
+struct proxy_logging {
+    unsigned int deadline; // log if slower than N us (user specifies ms)
+    unsigned int rate; // sampling
+    bool all_errors; // always log on an error case
+    char *detail;
+};
+
 typedef STAILQ_HEAD(globalobj_head_s, mcp_globalobj_s) globalobj_head_t;
 typedef struct {
     lua_State *proxy_state; // main configuration vm
@@ -382,7 +389,9 @@ struct mcp_backend_label_s {
     char label[MAX_LABELLEN+1];
     size_t llen; // cache label length for small speedup in pool creation.
     int conncount; // number of sockets to make.
+    bool use_logging;
     struct proxy_tunables tunables;
+    struct proxy_logging logging;
 };
 
 // lua object wrapper meant to own a malloc'ed conn structure
@@ -435,13 +444,15 @@ struct mcp_backend_s {
     bool transferred; // if beconn has been shipped to owner thread.
     bool use_io_thread; // note if this backend is worker-local or not.
     bool stacked; // if backend already queued for syscalls.
+    bool use_logging; // if automatic logging is enabled.
     STAILQ_ENTRY(mcp_backend_s) beconn_next; // stack for connecting conns
     STAILQ_ENTRY(mcp_backend_s) be_next; // stack for backends
     iop_head_t iop_head; // stack of inbound requests.
+    struct proxy_logging logging;
+    struct proxy_tunables tunables; // this gets copied a few times for speed.
     char name[MAX_NAMELEN+1];
     char port[MAX_PORTLEN+1];
     char label[MAX_LABELLEN+1];
-    struct proxy_tunables tunables; // this gets copied a few times for speed.
     struct mcp_backendconn_s be[];
 };
 typedef STAILQ_HEAD(be_head_s, mcp_backend_s) be_head_t;
@@ -494,6 +505,7 @@ typedef struct {
     char *buf; // response line + potentially value.
     mc_resp *cresp; // client mc_resp object during extstore fetches.
     LIBEVENT_THREAD *thread; // cresp's owner thread needed for extstore cleanup.
+    mcp_backend_t *be; // backend that generated this response
     unsigned int blen; // total size of the value to read.
     struct timeval start; // time this object was created.
     long elapsed; // time elapsed once handled.
@@ -502,8 +514,6 @@ typedef struct {
     uint8_t cmd; // from parser (pr.command)
     uint8_t extra; // ascii multiget hack for memory accounting. extra blen.
     enum mcp_resp_mode mode; // reply mode (for noreply fixing)
-    char be_name[MAX_NAMELEN+1];
-    char be_port[MAX_PORTLEN+1];
 } mcp_resp_t;
 
 // re-cast an io_pending_t into this more descriptive structure.
@@ -600,7 +610,6 @@ void proxy_init_event_thread(proxy_event_thread_t *t, proxy_ctx_t *ctx, struct e
 void *proxy_event_thread(void *arg);
 void proxy_run_backend_queue(be_head_t *head);
 struct mcp_backendconn_s *proxy_choose_beconn(mcp_backend_t *be);
-mcp_resp_t *mcp_prep_resobj(lua_State *L, mcp_request_t *rq, mcp_backend_t *be, LIBEVENT_THREAD *t);
 mcp_resp_t *mcp_prep_bare_resobj(lua_State *L, LIBEVENT_THREAD *t);
 void mcp_resp_set_elapsed(mcp_resp_t *r);
 io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, mcp_backend_t *be, mcp_resp_t *r);
@@ -787,7 +796,7 @@ int mcplib_funcgen_gc(lua_State *L);
 void mcp_funcgen_reference(lua_State *L);
 void mcp_funcgen_dereference(lua_State *L, mcp_funcgen_t *fgen);
 void mcp_rcontext_push_rqu_res(lua_State *L, mcp_rcontext_t *rctx, int handle);
-
+void mcplib_rqu_log(mcp_request_t *rq, mcp_resp_t *rs, int flag, int cfd);
 
 int mcplib_factory_command_new(lua_State *L);
 

@@ -171,6 +171,13 @@ static void _proxy_event_handler_dequeue(proxy_event_thread_t *t) {
 }
 
 static void _cleanup_backend(mcp_backend_t *be) {
+    if (be->use_logging) {
+        if (be->logging.detail) {
+            free(be->logging.detail);
+            be->logging.detail = NULL;
+        }
+    }
+
     for (int x = 0; x < be->conncount; x++) {
         struct mcp_backendconn_s *bec = &be->be[x];
         // remove any pending events.

@@ -1082,6 +1082,10 @@ int mcp_process_rqueue_return(mcp_rcontext_t *rctx, int handle, mcp_resp_t *res)
         }
     }
 
+    if (res->be && res->be->use_logging) {
+        mcplib_rqu_log(rqu->rq, res, flag, rctx->conn_fd);
+    }
+
     if (rqu->cb_ref) {
         lua_settop(rctx->Lc, 0);
         lua_rawgeti(rctx->Lc, LUA_REGISTRYINDEX, rqu->cb_ref);
@@ -1115,6 +1119,7 @@ int mcp_process_rqueue_return(mcp_rcontext_t *rctx, int handle, mcp_resp_t *res)
                                  // we settop _before_ calling cb's and
                                  // _before_ setting up for a coro resume.
     }
+
     rqu->flags |= flag;
     return rqu->flags;
 }
@@ -1148,10 +1153,7 @@ void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
         if (rqu->obj_type == RQUEUE_TYPE_POOL) {
             mcp_request_t *rq = rqu->rq;
             mcp_backend_t *be = mcplib_pool_proxy_call_helper(rqu->obj, MCP_PARSER_KEY(rq->pr), rq->pr.klen);
-            // FIXME: queue requires conn because we're stacking objects
-            // into the connection for later submission, which means we
-            // absolutely cannot queue things once *c becomes invalid.
-            // need to assert/block this from happening.
+
             mcp_set_resobj(rqu->res_obj, rq, be, rctx->fgen->thread);
             io_pending_proxy_t *p = mcp_queue_rctx_io(rctx, rq, be, rqu->res_obj);
             p->return_cb = proxy_return_rqu_cb;

@@ -217,6 +217,16 @@ subtest 'watch deletions' => sub {
         "meta-delete command logged with correct size");
 };
 
+subtest 'log' => sub {
+    my $watcher = $p_srv->new_sock;
+    print $watcher "watch proxyreqs\n";
+    is(<$watcher>, "OK\r\n", "watcher enabled");
+
+    print $ps "mg log v\r\n";
+    is(scalar <$ps>, "EN\r\n", "miss received");
+    like(<$watcher>, qr/detail=testing/, "got log line");
+};
+
 done_testing();
 
 END {

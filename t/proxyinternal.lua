@@ -24,7 +24,13 @@ function mcp_config_routes(zones)
             if string.find(k, "^/sub/") then
                 return rctx:enqueue_and_wait(r, hsub)
             else
-                return rctx:enqueue_and_wait(r, h)
+                if k == "log" then
+                    local res = rctx:enqueue_and_wait(r, h)
+                    mcp.log_req(r, res, "testing")
+                    return res
+                else
+                    return rctx:enqueue_and_wait(r, h)
+                end
             end
         end
     end})

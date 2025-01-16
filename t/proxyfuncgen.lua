@@ -49,7 +49,21 @@ function mcp_config_pools()
     local b2z = mcp.pool({b2})
     local b3z = mcp.pool({b3})
     local b4z = mcp.pool({b4})
-    local p = {p = {b1z, b2z, b3z}, b = b4z}
+
+    local blog = srv({
+        label = "blog",
+        host = "127.0.0.1",
+        port = "12015",
+        log = {
+            rate = 5,
+            errors = true,
+            deadline = 250,
+            tag = "fastlog"
+        }
+    })
+    blogz = mcp.pool({blog})
+
+    local p = {p = {b1z, b2z, b3z}, b = b4z, pl = blogz}
 
     --return mcp.pool(b1z, { iothread = false })
     return p
@@ -617,6 +631,7 @@ end
 
 function mcp_config_routes(p)
     local b_pool = p.b
+    local pl = p.pl
     p = p.p
     local single = new_direct_factory({ p = p[1], name = "single" })
     -- use the typically unused backend.
@@ -629,6 +644,7 @@ function mcp_config_routes(p)
     local fastgoodint = new_basic_factory({ list = p, wait = 2, name = "fastgoodint" }, fastgoodint_factory_gen)
     local blocker = new_blocker_factory({ blocker = b_pool, list = p, name = "blocker" })
     local logall = new_basic_factory({ list = p, name = "logall" }, logall_factory_gen)
+    local fastlog = new_direct_factory({ p = pl, name = "fastlog" })
     local summary = new_basic_factory({ list = p, name = "summary" }, summary_factory_gen)
     local waitfor = new_basic_factory({ list = p, name = "waitfor" }, waitfor_factory_gen)
     local failover = new_basic_factory({ list = p, name = "failover" }, failover_factory_gen)
@@ -652,6 +668,7 @@ function mcp_config_routes(p)
         ["fastgoodint"] = fastgoodint,
         ["blocker"] = blocker,
         ["logall"] = logall,
+        ["fastlog"] = fastlog,
         ["summary"] = summary,
         ["waitfor"] = waitfor,
         ["failover"] = failover,

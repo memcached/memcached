@@ -129,6 +129,7 @@ struct logentry_conn_event {
 struct logentry_proxy_req {
     unsigned short type;
     unsigned short code;
+    uint8_t flag;
     int status;
     int conn_fd;
     uint32_t reqlen;

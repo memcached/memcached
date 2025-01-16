@@ -1196,8 +1196,6 @@ mcp_resp_t *mcp_prep_bare_resobj(lua_State *L, LIBEVENT_THREAD *t) {
 
 void mcp_set_resobj(mcp_resp_t *r, mcp_request_t *rq, mcp_backend_t *be, LIBEVENT_THREAD *t) {
     memset(r, 0, sizeof(mcp_resp_t));
-    r->buf = NULL;
-    r->blen = 0;
     r->thread = t;
     assert(r->thread != NULL);
     gettimeofday(&r->start, NULL);
@@ -1224,20 +1222,7 @@ void mcp_set_resobj(mcp_resp_t *r, mcp_request_t *rq, mcp_backend_t *be, LIBEVEN
     }
 
     r->cmd = rq->pr.command;
-
-    strncpy(r->be_name, be->name, MAX_NAMELEN+1);
-    strncpy(r->be_port, be->port, MAX_PORTLEN+1);
-
-}
-
-mcp_resp_t *mcp_prep_resobj(lua_State *L, mcp_request_t *rq, mcp_backend_t *be, LIBEVENT_THREAD *t) {
-    mcp_resp_t *r = lua_newuserdatauv(L, sizeof(mcp_resp_t), 0);
-    mcp_set_resobj(r, rq, be, t);
-
-    luaL_getmetatable(L, "mcp.response");
-    lua_setmetatable(L, -2);
-
-    return r;
+    r->be = be;
 }
 
 void mcp_resp_set_elapsed(mcp_resp_t *r) {

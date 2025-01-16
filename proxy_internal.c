@@ -1718,10 +1718,6 @@ static inline int _mcplib_internal_run(LIBEVENT_THREAD *t, mcp_request_t *rq, mc
         }
     }
 
-    // in case someone logs this response it should make sense.
-    memcpy(r->be_name, "internal", strlen("internal"));
-    memcpy(r->be_port, "0", 1);
-
     // TODO: r-> will need status/code/mode copied from resp.
     r->cresp = resp;
     r->thread = t;

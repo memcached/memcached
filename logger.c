@@ -6,7 +6,6 @@
 #include <string.h>
 #include <errno.h>
 #include <poll.h>
-#include <ctype.h>
 #include <stdarg.h>
 
 #if defined(__sun)
@@ -347,6 +346,7 @@ static void _logger_log_proxy_req(logentry *e, const entry_details *d, const voi
     unsigned short type = va_arg(ap, int);
     unsigned short code = va_arg(ap, int);
     int status = va_arg(ap, int);
+    int flag = va_arg(ap, int);
     int conn_fd = va_arg(ap, int);
     char *detail = va_arg(ap, char *);
     int dlen = va_arg(ap, int);
@@ -357,6 +357,7 @@ static void _logger_log_proxy_req(logentry *e, const entry_details *d, const voi
     le->type = type;
     le->code = code;
     le->status = status;
+    le->flag = flag;
     le->conn_fd = conn_fd;
     le->dlen = dlen;
     le->elapsed = elapsed;
@@ -391,14 +392,26 @@ static void _logger_log_proxy_req(logentry *e, const entry_details *d, const voi
     e->size = sizeof(struct logentry_proxy_req) + reqlen + dlen + le->be_namelen + le->be_portlen;
 }
 
+// FIXME: if I ever get better discipline around headers we can include the
+// proxy header. Since proxy.h includes memcached.h we need to redefine things
+// here.
+#define RQUEUE_R_GOOD (1<<3)
+#define RQUEUE_R_OK (1<<4)
+#define RQUEUE_R_ANY (1<<5)
 static int _logger_parse_prx_req(logentry *e, char *scratch) {
     int total;
     struct logentry_proxy_req *le = (void *)e->data;
+    const char *rqu_res = "any";
+    if (le->flag == RQUEUE_R_GOOD) {
+        rqu_res = "good";
+    } else if (le->flag == RQUEUE_R_OK) {
+        rqu_res = "ok";
+    }
 
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%lld.%d gid=%llu type=proxy_req elapsed=%lu type=%d code=%d status=%d cfd=%d be=%.*s:%.*s detail=%.*s req=%.*s\n",
+            "ts=%lld.%d gid=%llu type=proxy_req elapsed=%lu type=%d code=%d status=%d res=%s cfd=%d be=%.*s:%.*s detail=%.*s req=%.*s\n",
             (long long int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
-            le->elapsed, le->type, le->code, le->status, le->conn_fd,
+            le->elapsed, le->type, le->code, le->status, rqu_res, le->conn_fd,
             (int)le->be_namelen, le->data+le->reqlen+le->dlen,
             (int)le->be_portlen, le->data+le->reqlen+le->dlen+le->be_namelen, // fml.
             (int)le->dlen, le->data+le->reqlen, (int)le->reqlen, le->data

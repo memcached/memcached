@@ -21,7 +21,7 @@ if (!supports_proxy()) {
 
 # Set up the listeners _before_ starting the proxy.
 # the fourth listener is only occasionally used.
-my $t = Memcached::ProxyTest->new(servers => [12011, 12012, 12013, 12014]);
+my $t = Memcached::ProxyTest->new(servers => [12011, 12012, 12013, 12014, 12015]);
 
 my $p_srv = new_memcached('-o proxy_config=./t/proxyfuncgen.lua -t 1');
 my $ps = $p_srv->sock;
@@ -31,6 +31,7 @@ $t->set_c($ps);
 $t->accept_backends();
 {
     # Comment out unused sections when debugging.
+    test_logging();
     test_pipeline();
     test_split();
     test_basic();
@@ -46,6 +47,29 @@ $t->accept_backends();
 }
 
 done_testing();
+
+sub test_logging {
+    subtest 'log error' => sub {
+        my $w = $p_srv->new_sock;
+        print $w "watch proxyreqs\n";
+        is(<$w>, "OK\r\n", 'watcher enabled');
+
+        $t->c_send("mg fastlog/a t\r\n");
+        $t->be_recv_c([4]);
+        $t->be_send([4], "SERVER_ERROR busted\r\n");
+        $t->c_recv_be();
+
+        my $l2 = scalar <$w>;
+        like($l2, qr/detail=fastlog/, 'got logreq line');
+        like($l2, qr/cfd=/, 'client file descriptor present');
+        unlike($l2, qr/cfd=0/, 'client file descriptor is nonzero');
+
+        $t->clear();
+    };
+
+    # test sampling when not error
+    # test always log when slow/fast
+}
 
 # This kind of testing is difficult to do from integration level test suites
 # like this, but do what we can.
