@@ -313,21 +313,19 @@ static int _mcplib_funcgen_gencall(lua_State *L) {
 static void _mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
     mcp_funcgen_t *fgen = rctx->fgen;
     assert(rctx->pending_reqs == 0);
-    int res = lua_resetthread(rctx->Lc);
+    int res = lua_status(rctx->Lc);
     if (res != LUA_OK) {
-        // TODO: I was under the impression it was possible to reuse a
-        // coroutine from an error state, but it seems like this only works if
-        // the routine landed in LUA_YIELD or LUA_OK
-        // Leaving a note here to triple check this or if my memory was wrong.
-        // Instead for now we throw away the coroutine if it was involved in
-        // an error. Realistically this shouldn't be normal so it might not
-        // matter anyway.
+        // Can't reuse the thread if we ended in an error.
+        // Reset and close out the old thread.
+        lua_resetthread(rctx->Lc);
         lua_State *L = fgen->thread->L;
         luaL_unref(L, LUA_REGISTRYINDEX, rctx->coroutine_ref);
+        // Make a new thread.
         rctx->Lc = lua_newthread(L);
         assert(rctx->Lc);
         rctx->coroutine_ref = luaL_ref(L, LUA_REGISTRYINDEX);
     } else {
+        // Thread is okay, clear stack and continue.
         lua_settop(rctx->Lc, 0);
     }
     rctx->wait_mode = QWAIT_IDLE;
