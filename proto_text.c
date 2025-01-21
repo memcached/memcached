@@ -714,7 +714,7 @@ stop:
     } else {
         // Tag the end token onto the most recent response object.
         resp_add_iov(resp, "END\r\n", 5);
-        conn_set_state(c, conn_mwrite);
+        conn_set_state(c, conn_new_cmd);
     }
 }
 
