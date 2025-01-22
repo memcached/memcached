@@ -3273,13 +3273,15 @@ static void drive_machine(conn *c) {
              * IO queue
              */
             if (c->resps_suspended) {
+                LIBEVENT_THREAD *t = c->thread;
                 // FIXME: carefully check or document somewhere that submit
                 // cannot resume a connection in-line with submission.
-                // NOTE: Considering moving this to outside of the while loop.
-                // anything that sets a resp to suspended could also set the
-                // state to conn_io_queue and remove this inline check.
                 conn_set_state(c, conn_io_queue);
-                thread_io_queue_submit(c->thread);
+                if (t->conns_tosubmit++ > 20) {
+                    // Run occasional batches, else submit outside event loop.
+                    t->conns_tosubmit = 0;
+                    thread_io_queue_submit(c->thread);
+                }
 
                 stop = true;
                 break;
