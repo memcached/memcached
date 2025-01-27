@@ -590,6 +590,7 @@ io_queue_t *thread_io_queue_get(LIBEVENT_THREAD *t, int type) {
 }
 
 void thread_io_queue_submit(LIBEVENT_THREAD *t) {
+    t->conns_tosubmit = 0;
     for (io_queue_t *q = t->io_queues; q->type != IO_QUEUE_NONE; q++) {
         // submission callback must consume the queue
         if (!STAILQ_EMPTY(&q->stack)) {
@@ -3279,7 +3280,6 @@ static void drive_machine(conn *c) {
                 conn_set_state(c, conn_io_queue);
                 if (t->conns_tosubmit++ > 20) {
                     // Run occasional batches, else submit outside event loop.
-                    t->conns_tosubmit = 0;
                     thread_io_queue_submit(c->thread);
                 }
 
