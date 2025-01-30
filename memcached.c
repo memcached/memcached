@@ -4138,6 +4138,7 @@ static void usage(void) {
 #ifdef PROXY
     printf("   - proxy_config:        path to lua library file. separate with ':' for multiple files\n"
            "                          use proxy_config=routelib to use built-in library\n"
+           "                          see https://memcached.org/proxy for information\n"
             );
     printf("   - proxy_arg:           argument string (file path) to pass to proxy config\n"
             );
