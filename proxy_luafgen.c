@@ -1447,6 +1447,103 @@ int mcplib_rcontext_result(lua_State *L) {
     return 2;
 }
 
+// TODO: best_result AND worst_result are EXPERIMENTAL.
+// Do not rely on their behavior yet!
+//
+// arg must be an array table.
+// returns res, GOOD|OK|ANY
+// tries to find a result in that order.
+int mcplib_rcontext_best_result(lua_State *L) {
+    mcp_rcontext_t *rctx = lua_touserdata(L, 1);
+
+    if (lua_istable(L, 2)) {
+        int final_handle = -1;
+        int final_flag = -1;
+        unsigned int len = lua_rawlen(L, 2);
+        for (int x = 0; x < len; x++) {
+            lua_rawgeti(L, 2, x+1);
+            int handle = lua_tointeger(L, 3);
+            lua_pop(L, 1);
+
+            if (handle < 0 || handle >= rctx->fgen->max_queues) {
+                proxy_lua_error(L, "invalid queue handle passed to best_result");
+            }
+
+            struct mcp_rqueue_s *rqu = &rctx->qslots[handle];
+            if (rqu->flags & RQUEUE_R_GOOD) {
+                final_handle = handle;
+                break;
+            } else if (rqu->flags & RQUEUE_R_OK) {
+                final_handle = handle;
+                final_flag = RQUEUE_R_OK;
+            } else if (final_flag != RQUEUE_R_OK) {
+                // only use an error if we don't already have an OK
+                final_handle = handle;
+            }
+        }
+
+        if (final_handle != -1) {
+            struct mcp_rqueue_s *rqu = &rctx->qslots[final_handle];
+            lua_rawgeti(L, LUA_REGISTRYINDEX, rqu->res_ref);
+            lua_pushinteger(L, rqu->flags & (RQUEUE_R_ANY|RQUEUE_R_OK|RQUEUE_R_GOOD));
+        } else {
+            lua_pushnil(L);
+            lua_pushnil(L);
+        }
+    } else {
+        proxy_lua_error(L, "must pass a table to :best_result");
+    }
+    return 2;
+}
+
+// arg must be an array table.
+// returns res, ANY|OK|GOOD
+// tries to find a result in that order.
+// TODO: test with incomplete requests? not sure what the data looks like.
+int mcplib_rcontext_worst_result(lua_State *L) {
+    mcp_rcontext_t *rctx = lua_touserdata(L, 1);
+
+    if (lua_istable(L, 2)) {
+        int final_handle = -1;
+        unsigned int len = lua_rawlen(L, 2);
+        for (int x = 0; x < len; x++) {
+            lua_rawgeti(L, 2, x+1);
+            int handle = lua_tointeger(L, 3);
+            lua_pop(L, 1);
+
+            if (handle < 0 || handle >= rctx->fgen->max_queues) {
+                proxy_lua_error(L, "invalid queue handle passed to worst_result");
+            }
+
+            struct mcp_rqueue_s *rqu = &rctx->qslots[handle];
+            if (rqu->flags & RQUEUE_R_ANY) {
+                // can't be worse than an ANY.
+                // TODO: is it possible to differentiate further?
+                final_handle = handle;
+                break;
+            } else if (rqu->flags & RQUEUE_R_OK) {
+                final_handle = handle;
+            } else if (final_handle == -1) {
+                // only allow a GOOD if it's the only thing we've seen.
+                assert(rqu->flags & RQUEUE_R_GOOD);
+                final_handle = handle;
+            }
+        }
+
+        if (final_handle != -1) {
+            struct mcp_rqueue_s *rqu = &rctx->qslots[final_handle];
+            lua_rawgeti(L, LUA_REGISTRYINDEX, rqu->res_ref);
+            lua_pushinteger(L, rqu->flags & (RQUEUE_R_ANY|RQUEUE_R_OK|RQUEUE_R_GOOD));
+        } else {
+            lua_pushnil(L);
+            lua_pushnil(L);
+        }
+    } else {
+        proxy_lua_error(L, "must pass a table to :worst_result");
+    }
+    return 2;
+}
+
 int mcplib_rcontext_cfd(lua_State *L) {
     mcp_rcontext_t *rctx = lua_touserdata(L, 1);
     lua_pushinteger(L, rctx->conn_fd);

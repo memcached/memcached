@@ -334,6 +334,14 @@ static int _mcplib_backend_log(lua_State *L, mcp_backend_label_t *be) {
     }
     lua_pop(L, 1);
 
+    // If user didn't set deadline, or errors, or rate, we would log nothing:
+    // instead default to a rate of 1.
+    if (be->logging.deadline == 0 &&
+        !be->logging.all_errors &&
+        be->logging.rate == 0) {
+        be->logging.rate = 1;
+    }
+
     return 0;
 }
 
@@ -1525,7 +1533,9 @@ void mcplib_rqu_log(mcp_request_t *rq, mcp_resp_t *rs, int flag, int cfd) {
 
     bool do_log = false;
     struct proxy_logging *pl = &rs->be->logging;
-    if (pl->all_errors && rstatus != MCMC_OK) {
+    if (pl->rate == 1) {
+        do_log = true;
+    } else if (pl->all_errors && rstatus != MCMC_OK) {
         do_log = true;
     } else if (pl->deadline > 0 && elapsed > pl->deadline) {
         do_log = true;
@@ -1788,6 +1798,8 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"res_ok", mcplib_rcontext_res_ok},
         {"res_any", mcplib_rcontext_res_any},
         {"result", mcplib_rcontext_result},
+        {"best_result", mcplib_rcontext_best_result},
+        {"worst_result", mcplib_rcontext_worst_result},
         {"cfd", mcplib_rcontext_cfd},
         {"tls_peer_cn", mcplib_rcontext_tls_peer_cn},
         {"request_new", mcplib_rcontext_request_new},

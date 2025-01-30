@@ -26,6 +26,7 @@ enum mcp_mut_steptype {
     mcp_mut_step_cmdcopy,
     mcp_mut_step_keycopy,
     mcp_mut_step_keyset,
+    mcp_mut_step_resnull,
     mcp_mut_step_rescodeset,
     mcp_mut_step_rescodecopy,
     mcp_mut_step_reserr,
@@ -413,6 +414,82 @@ mut_step_r(keyset) {
 
     memcpy(run->d_pos, str, c->len);
     run->d_pos += c->len;
+}
+
+mut_step_c(resnull) {
+    return 0;
+}
+
+mut_step_i(resnull) {
+    struct mcp_mut_step *s = &mut->steps[sc];
+    if (lua_getfield(L, tidx, "idx") != LUA_TNIL) {
+        s->idx = lua_tointeger(L, -1);
+    }
+    lua_pop(L, 1);
+
+    return 0;
+}
+
+mut_step_n(resnull) {
+    lua_State *L = run->L;
+    unsigned int idx = s->idx;
+    mcp_request_t *srq = NULL;
+    if (lua_type(L, idx) != LUA_TUSERDATA) {
+        return -1;
+    }
+    // validate the ud is a request object.
+    lua_getmetatable(L, idx);
+    lua_getiuservalue(L, 1, MUT_REQ);
+    if (!lua_rawequal(L, -1, -2)) {
+        lua_pop(L, 2);
+        return -1;
+    } else {
+        srq = lua_touserdata(L, idx);
+        lua_pop(L, 2);
+    }
+
+    switch (srq->pr.command) {
+        case CMD_MG:
+            p->src = "EN";
+            break;
+        case CMD_MS:
+            p->src = "NS";
+            break;
+        case CMD_MD:
+            p->src = "NF";
+            break;
+        case CMD_MA:
+            p->src = "NF";
+            break;
+        case CMD_GET:
+        case CMD_GAT:
+        case CMD_GETS:
+        case CMD_GATS:
+            p->src = "END";
+            break;
+        case CMD_SET:
+        case CMD_CAS:
+        case CMD_ADD:
+        case CMD_REPLACE:
+        case CMD_APPEND:
+        case CMD_PREPEND:
+            p->src = "NOT_STORED";
+            break;
+        case CMD_INCR:
+        case CMD_DECR:
+        case CMD_TOUCH:
+        case CMD_DELETE:
+            p->src = "NOT_FOUND";
+            break;
+    }
+    p->slen = strlen(p->src);
+
+    return p->slen;
+}
+
+mut_step_r(resnull) {
+    memcpy(run->d_pos, p->src, p->slen);
+    run->d_pos += p->slen;
 }
 
 // TODO: pre-validate that it's an accepted code?
@@ -845,6 +922,7 @@ static const struct mcp_mut_entry mcp_mut_entries[] = {
     [mcp_mut_step_cmdcopy] = {"cmdcopy", mcp_mutator_cmdcopy_c, mcp_mutator_cmdcopy_i, mcp_mutator_cmdcopy_n, mcp_mutator_cmdcopy_r, MUT_REQ, 0},
     [mcp_mut_step_keycopy] = {"keycopy", mcp_mutator_keycopy_c, mcp_mutator_keycopy_i, mcp_mutator_keycopy_n, mcp_mutator_keycopy_r, MUT_REQ, 0},
     [mcp_mut_step_keyset] = {"keyset", mcp_mutator_keyset_c, mcp_mutator_keyset_i, mcp_mutator_keyset_n, mcp_mutator_keyset_r, MUT_REQ, 0},
+    [mcp_mut_step_resnull] = {"resnull", mcp_mutator_resnull_c, mcp_mutator_resnull_i, mcp_mutator_resnull_n, mcp_mutator_resnull_r, MUT_RES, 0},
     [mcp_mut_step_rescodeset] = {"rescodeset", mcp_mutator_rescodeset_c, mcp_mutator_rescodeset_i, mcp_mutator_rescodeset_n, mcp_mutator_rescodeset_r, MUT_RES, 0},
     [mcp_mut_step_rescodecopy] = {"rescodecopy", mcp_mutator_rescodecopy_c, mcp_mutator_rescodecopy_i, mcp_mutator_rescodecopy_n, mcp_mutator_rescodecopy_r, MUT_RES, 0},
     [mcp_mut_step_reserr] = {"reserr", mcp_mutator_reserr_c, mcp_mutator_reserr_i, mcp_mutator_reserr_n, mcp_mutator_reserr_r, MUT_RES, 0},

@@ -779,6 +779,8 @@ int mcplib_rcontext_res_good(lua_State *L);
 int mcplib_rcontext_res_any(lua_State *L);
 int mcplib_rcontext_res_ok(lua_State *L);
 int mcplib_rcontext_result(lua_State *L);
+int mcplib_rcontext_best_result(lua_State *L);
+int mcplib_rcontext_worst_result(lua_State *L);
 int mcplib_rcontext_cfd(lua_State *L);
 int mcplib_rcontext_tls_peer_cn(lua_State *L);
 int mcplib_rcontext_request_new(lua_State *L);
