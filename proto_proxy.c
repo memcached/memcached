@@ -852,6 +852,12 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
                     mc_resp *tresp = r->cresp;
 
                     _proxy_run_tresp_to_resp(tresp, resp);
+                    // hand off ownership of the result buffer if we were an
+                    // extstore fetch.
+                    if (!resp->item) {
+                        resp->write_and_free = r->buf;
+                        r->buf = NULL;
+                    }
                     // we let the mcp_resp gc handler free up tresp and any
                     // associated io_pending's of its own later.
                 } else if (r->buf) {
