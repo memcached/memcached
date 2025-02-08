@@ -6163,6 +6163,7 @@ int main (int argc, char **argv) {
             } else {
                 vperror("failed to listen on one of interface(s) %s", settings.inter);
             }
+            free(temp_portnumber_filename);
             exit(EX_OSERR);
         }
 
