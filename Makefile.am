@@ -58,6 +58,7 @@ endif
 
 if ENABLE_PROXY
 memcached_SOURCES += proto_proxy.c proto_proxy.h vendor/mcmc/mcmc.h \
+					 vendor/mcmc/mcmc.c \
 					 proxy_xxhash.c proxy.h \
 					 proxy_ustats.c \
 					 proxy_ratelim.c \
@@ -115,8 +116,8 @@ CLEANFILES += memcached_dtrace.o memcached_debug_dtrace.o
 endif
 
 if ENABLE_PROXY
-memcached_LDADD += vendor/lua/src/liblua.a vendor/mcmc/mcmc.o
-memcached_debug_LDADD += vendor/lua/src/liblua.a vendor/mcmc/mcmc.o
+memcached_LDADD += vendor/lua/src/liblua.a
+memcached_debug_LDADD += vendor/lua/src/liblua.a
 memcached_LDFLAGS += -rdynamic
 memcached_debug_LDFLAGS += -rdynamic
 endif
