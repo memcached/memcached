@@ -1270,7 +1270,7 @@ static void process_bin_flush(conn *c, char *extbuf) {
         new_oldest = current_time - 1;
     }
     settings.oldest_live = new_oldest;
-    item_flush_expired();
+    item_flush_expired(c);
 
     pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.flush_cmds++;
