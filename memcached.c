@@ -715,8 +715,6 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->rbuf_malloced = false;
     c->item_malloced = false;
     c->sasl_started = false;
-    c->set_stale = false;
-    c->mset_res = false;
     c->close_after_write = false;
     c->last_cmd_time = current_time; /* initialize for idle kicker */
     assert(c->resps_suspended == 0);
@@ -726,8 +724,6 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 #ifdef TLS
     c->ssl_wbuf = NULL;
 #endif
-
-    c->noreply = false;
 
     if (ssl) {
         // musn't get here without ssl enabled.
@@ -1234,7 +1230,7 @@ void out_string(conn *c, const char *str) {
     // tosend and reset if nonzero?
     resp_reset(resp);
 
-    if (c->noreply) {
+    if (resp->noreply) {
         // TODO: just invalidate the response since nothing's been attempted
         // to send yet?
         resp->skip = true;
@@ -1267,7 +1263,7 @@ void out_string(conn *c, const char *str) {
 // For metaget-style ASCII commands. Ignores noreply, ensuring clients see
 // protocol level errors.
 void out_errstring(conn *c, const char *str) {
-    c->noreply = false;
+    c->resp->noreply = false;
     out_string(c, str);
 }
 
@@ -3094,7 +3090,6 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_parse_cmd:
-            c->noreply = false;
             if (c->try_read_command(c) == 0) {
                 /* we need more data! */
                 if (c->resp_head) {
@@ -3209,11 +3204,6 @@ static void drive_machine(conn *c) {
                 out_of_memory(c, "SERVER_ERROR Out of memory during read");
                 c->sbytes = c->rlbytes;
                 conn_set_state(c, conn_swallow);
-                // Ensure this flag gets cleared. It gets killed on conn_new()
-                // so any conn_closing is fine, calling complete_nread is
-                // fine. This swallow semms to be the only other case.
-                c->set_stale = false;
-                c->mset_res = false;
                 break;
             }
             /* otherwise we have a real error, on which we close the connection */

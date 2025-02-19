@@ -30,7 +30,11 @@ memcached_SOURCES = memcached.c memcached.h \
                     authfile.c authfile.h \
                     restart.c restart.h \
                     proto_text.c proto_text.h \
-                    proto_bin.c proto_bin.h
+                    proto_bin.c proto_bin.h \
+                    proto_parser.c proto_parser.h \
+                    proto_parser_type.h \
+                    vendor/mcmc/mcmc.h \
+                    vendor/mcmc/mcmc.c
 
 if BUILD_SOLARIS_PRIVS
 memcached_SOURCES += solaris_priv.c
@@ -57,8 +61,7 @@ memcached_SOURCES += sasl_defs.c
 endif
 
 if ENABLE_PROXY
-memcached_SOURCES += proto_proxy.c proto_proxy.h vendor/mcmc/mcmc.h \
-					 vendor/mcmc/mcmc.c \
+memcached_SOURCES += proto_proxy.c proto_proxy.h \
 					 proxy_xxhash.c proxy.h \
 					 proxy_ustats.c \
 					 proxy_ratelim.c \

@@ -21,6 +21,7 @@ function mcp_config_routes(zones)
     fg:ready({ n = "internal", f = function(rctx)
         return function(r)
             local k = r:key()
+            local cmd = r:command()
             if string.find(k, "^/sub/") then
                 return rctx:enqueue_and_wait(r, hsub)
             else
@@ -28,6 +29,18 @@ function mcp_config_routes(zones)
                     local res = rctx:enqueue_and_wait(r, h)
                     mcp.log_req(r, res, "testing")
                     return res
+                elseif cmd == mcp.CMD_MG and k == "response/hit" then
+                    local res = rctx:enqueue_and_wait(r, h)
+                    return string.format("SERVER_ERROR res:hit = %q\r\n", res:hit())
+                elseif cmd == mcp.CMD_MG and k == "response/code" then
+                    local res = rctx:enqueue_and_wait(r, h)
+                    return string.format("SERVER_ERROR res:code = %q\r\n", res:code())
+                elseif cmd == mcp.CMD_MG and k == "response/line" then
+                    local res = rctx:enqueue_and_wait(r, h)
+                    return string.format("SERVER_ERROR res:line = %q\r\n", res:line())
+                elseif cmd == mcp.CMD_MG and k == "response/vlen" then
+                    local res = rctx:enqueue_and_wait(r, h)
+                    return string.format("SERVER_ERROR res:vlen = %q\r\n", res:vlen())
                 else
                     return rctx:enqueue_and_wait(r, h)
                 end

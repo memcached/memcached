@@ -11,6 +11,6 @@ enum authfile_ret {
 
 // FIXME: mc_authfile or something?
 enum authfile_ret authfile_load(const char *file);
-int authfile_check(const char *user, const char *pass);
+int authfile_check(const char *user, unsigned int ulen, const char *pass, unsigned int plen);
 
 #endif /* AUTHFILE_H */

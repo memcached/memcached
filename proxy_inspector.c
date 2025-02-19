@@ -203,7 +203,7 @@ static int mcp_inspector_sepkey_r(lua_State *L, struct mcp_inspector *ins, struc
     mcp_request_t *rq = arg;
     struct mcp_ins_sepkey *c = &s->c.sepkey;
 
-    const char *key = MCP_PARSER_KEY(rq->pr);
+    const char *key = MCP_PARSER_KEY(&rq->pr);
     const char *end = key + rq->pr.klen;
     char sep = c->sep;
     int pos = c->pos;
@@ -267,7 +267,7 @@ static int mcp_inspector_keybegin_r(lua_State *L, struct mcp_inspector *ins, str
     mcp_request_t *rq = arg;
     struct mcp_ins_string *c = &s->c.string;
 
-    const char *key = MCP_PARSER_KEY(rq->pr);
+    const char *key = MCP_PARSER_KEY(&rq->pr);
     int klen = rq->pr.klen;
     const char *str = ins->arena + c->str;
 
@@ -284,7 +284,7 @@ static int mcp_inspector_keyis_r(lua_State *L, struct mcp_inspector *ins, struct
     mcp_request_t *rq = arg;
     struct mcp_ins_string *c = &s->c.string;
 
-    const char *key = MCP_PARSER_KEY(rq->pr);
+    const char *key = MCP_PARSER_KEY(&rq->pr);
     int klen = rq->pr.klen;
     const char *str = ins->arena + c->str;
 
@@ -302,7 +302,7 @@ static int mcp_inspector_hasflag_r(lua_State *L, struct mcp_inspector *ins, stru
     if (ins->type == INS_REQ) {
         mcp_request_t *rq = arg;
         // requests should always be tokenized, so we can just check the bit.
-        if (rq->pr.t.meta.flags & c->bit) {
+        if (mcmc_token_has_flag_bit(&rq->pr.tok, c->bit) == MCMC_OK) {
             lua_pushboolean(L, 1);
         } else {
             lua_pushboolean(L, 0);
@@ -332,11 +332,10 @@ static int mcp_inspector_flagtoken_r(lua_State *L, struct mcp_inspector *ins, st
     if (ins->type == INS_REQ) {
         mcp_request_t *rq = arg;
 
-        if (rq->pr.t.meta.flags & c->bit) {
+        if (mcmc_token_has_flag_bit(&rq->pr.tok, c->bit) == MCMC_OK) {
             lua_pushboolean(L, 1); // flag exists
-            const char *tok = NULL;
-            size_t tlen = 0;
-            mcp_request_find_flag_token(rq, c->f, &tok, &tlen);
+            int tlen = 0;
+            const char *tok = mcmc_token_get_flag(rq->pr.request, &rq->pr.tok, c->f, &tlen);
             lua_pushlstring(L, tok, tlen); // flag's token
             return 2;
         }
@@ -366,12 +365,14 @@ static int mcp_inspector_flagint_r(lua_State *L, struct mcp_inspector *ins, stru
     if (ins->type == INS_REQ) {
         mcp_request_t *rq = arg;
 
-        if (rq->pr.t.meta.flags & c->bit) {
+        if (mcmc_token_has_flag_bit(&rq->pr.tok, c->bit) == MCMC_OK) {
             lua_pushboolean(L, 1); // flag exists
             int64_t tok = 0;
-            if (mcp_request_find_flag_tokenint64(rq, c->f, &tok) == 0) {
+            int status = mcmc_token_get_flag_64(rq->pr.request, &rq->pr.tok, c->f, &tok);
+            if (status == MCMC_OK) {
                 lua_pushinteger(L, tok);
             } else {
+                // Potential error messages?
                 lua_pushnil(L);
             }
             return 2;
@@ -431,18 +432,17 @@ static int mcp_inspector_flagstr_i(lua_State *L, int tidx, int sc, struct mcp_in
     return len;
 }
 
-// FIXME: size_t vs int consistency for tlen would shorten the code.
 static int mcp_inspector_flagis_r(lua_State *L, struct mcp_inspector *ins, struct mcp_ins_step *s, void *arg) {
     struct mcp_ins_flagstr *c = &s->c.flagstr;
     const char *str = ins->arena + c->str;
     if (ins->type == INS_REQ) {
         mcp_request_t *rq = arg;
 
-        if (rq->pr.t.meta.flags & c->bit) {
+        if (mcmc_token_has_flag_bit(&rq->pr.tok, c->bit) == MCMC_OK) {
             lua_pushboolean(L, 1); // flag exists
-            const char *tok = NULL;
-            size_t tlen = 0;
-            mcp_request_find_flag_token(rq, c->f, &tok, &tlen);
+            int tlen = -1;
+            const char *tok = mcmc_token_get_flag(rq->pr.request, &rq->pr.tok, c->f, &tlen);
+
             if (tlen == c->len && strncmp(tok, str, c->len) == 0) {
                 lua_pushboolean(L, 1);
             } else {

@@ -100,7 +100,7 @@ function mcp_config_routes(p)
                 local str = {"."}
                 while true do
                     local res, err = pcall(function()
-                        local nreq = mcp.request("mg P" .. table.concat(str))
+                        local nreq = mcp.request("mg P" .. table.concat(str) .. "\r\n")
                         table.insert(str, ".")
                     end)
                     -- ensure that we do eventually error

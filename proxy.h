@@ -26,8 +26,10 @@
 #define PRING_QUEUE_CQ_ENTRIES 16384
 #endif
 
+#include "vendor/mcmc/mcmc.h"
 #include "proto_proxy.h"
 #include "proto_text.h"
+#include "proto_parser.h"
 #include "queue.h"
 #define XXH_INLINE_ALL // modifier for xxh3's include below
 #include "xxhash.h"
@@ -67,9 +69,6 @@
         pthread_mutex_unlock(&ctx->stats_lock); \
 }
 
-// FIXME (v2): do include dir properly.
-#include "vendor/mcmc/mcmc.h"
-
 enum mcp_memprofile_types {
     mcp_memp_free = 0,
     mcp_memp_string,
@@ -96,7 +95,7 @@ struct mcp_memprofile {
 #define MCP_REQUEST_MAXLEN KEY_MAX_LENGTH * 2
 
 #define ENDSTR "END\r\n"
-#define ENDLEN sizeof(ENDSTR)-1
+#define ENDLEN (sizeof(ENDSTR)-1)
 
 #define MCP_BACKEND_UPVALUE 1
 
@@ -109,61 +108,7 @@ struct mcp_memprofile {
 #define SHAREDVM_FGENSLOT_IDX 2
 #define SHAREDVM_BACKEND_IDX 3
 
-// all possible commands.
-#define CMD_FIELDS \
-    X(CMD_MG) \
-    X(CMD_MS) \
-    X(CMD_MD) \
-    X(CMD_MN) \
-    X(CMD_MA) \
-    X(CMD_ME) \
-    X(CMD_GET) \
-    X(CMD_GAT) \
-    X(CMD_SET) \
-    X(CMD_ADD) \
-    X(CMD_CAS) \
-    X(CMD_GETS) \
-    X(CMD_GATS) \
-    X(CMD_INCR) \
-    X(CMD_DECR) \
-    X(CMD_TOUCH) \
-    X(CMD_APPEND) \
-    X(CMD_DELETE) \
-    X(CMD_REPLACE) \
-    X(CMD_PREPEND) \
-    X(CMD_END_STORAGE) \
-    X(CMD_QUIT) \
-    X(CMD_STATS) \
-    X(CMD_SLABS) \
-    X(CMD_WATCH) \
-    X(CMD_LRU) \
-    X(CMD_VERSION) \
-    X(CMD_SHUTDOWN) \
-    X(CMD_EXTSTORE) \
-    X(CMD_FLUSH_ALL) \
-    X(CMD_VERBOSITY) \
-    X(CMD_LRU_CRAWLER) \
-    X(CMD_REFRESH_CERTS) \
-    X(CMD_CACHE_MEMLIMIT)
-
-#define X(name) name,
-enum proxy_defines {
-    P_OK = 0,
-    CMD_FIELDS
-    CMD_SIZE, // used to define array size for command hooks.
-    CMD_ANY, // override _all_ commands
-    CMD_ANY_STORAGE, // override commands specific to key storage.
-    CMD_FINAL, // end cap for convenience.
-};
-#undef X
-
-// certain classes of ascii commands have similar parsing (ie;
-// get/gets/gat/gats). Use types so we don't have to test a ton of them.
-enum proxy_cmd_types {
-    CMD_TYPE_GENERIC = 0,
-    CMD_TYPE_GET, // get/gets/gat/gats
-    CMD_TYPE_META, // m*'s.
-};
+#define P_OK 0
 
 typedef struct _io_pending_proxy_t io_pending_proxy_t;
 typedef struct proxy_event_thread_s proxy_event_thread_t;
@@ -321,44 +266,14 @@ typedef struct mcp_backend_wrap_s mcp_backend_wrap_t;
 typedef struct mcp_backend_label_s mcp_backend_label_t;
 typedef struct mcp_backend_s mcp_backend_t;
 typedef struct mcp_request_s mcp_request_t;
-typedef struct mcp_parser_s mcp_parser_t;
 typedef struct mcp_rcontext_s mcp_rcontext_t;
 typedef struct mcp_funcgen_s mcp_funcgen_t;
 
 #define PARSER_MAX_TOKENS 24
 
-struct mcp_parser_meta_s {
-    uint64_t flags;
-};
-
-// Note that we must use offsets into request for tokens,
-// as *request can change between parsing and later accessors.
-struct mcp_parser_s {
-    const char *request;
-    void *vbuf; // temporary buffer for holding value lengths.
-    uint8_t command;
-    uint8_t cmd_type; // command class.
-    uint8_t ntokens;
-    uint8_t keytoken; // because GAT. sigh. also cmds without a key.
-    uint32_t parsed; // how far into the request we parsed already
-    uint32_t reqlen; // full length of request buffer.
-    uint32_t endlen; // index to the start of \r\n or \n
-    int vlen;
-    uint32_t klen; // length of key.
-    uint16_t tokens[PARSER_MAX_TOKENS]; // offsets for start of each token
-    bool has_space; // a space was found after the last byte parsed.
-    bool noreply; // if quiet/noreply mode is set.
-    union {
-        struct mcp_parser_meta_s meta;
-    } t;
-};
-
-#define MCP_PARSER_KEY(pr) (&pr.request[pr.tokens[pr.keytoken]])
-
 #define MAX_REQ_TOKENS 2
 struct mcp_request_s {
     mcp_parser_t pr; // non-lua-specific parser handling.
-    bool ascii_multiget; // ascii multiget mode. (hide errors/END)
     char request[];
 };
 
@@ -492,12 +407,6 @@ struct proxy_event_thread_s {
     proxy_ctx_t *ctx; // main context.
 };
 
-enum mcp_resp_mode {
-    RESP_MODE_NORMAL = 0,
-    RESP_MODE_NOREPLY,
-    RESP_MODE_METAQUIET
-};
-
 #define RESP_CMD_MAX 8
 typedef struct {
     mcmc_resp_t resp;
@@ -513,7 +422,6 @@ typedef struct {
     int bread; // amount of bytes read into value so far.
     uint8_t cmd; // from parser (pr.command)
     uint8_t extra; // ascii multiget hack for memory accounting. extra blen.
-    enum mcp_resp_mode mode; // reply mode (for noreply fixing)
 } mcp_resp_t;
 
 // re-cast an io_pending_t into this more descriptive structure.
@@ -533,7 +441,6 @@ struct _io_pending_proxy_t {
     mcp_rcontext_t *rctx; // pointer to request context.
     mcp_resp_t *client_resp; // reference (currently pointing to a lua object)
     int queue_handle; // queue slot to return this result to
-    bool ascii_multiget; // passed on from mcp_r_t
     union {
         // extstore IO.
         struct {
@@ -624,7 +531,6 @@ void *mcp_rcontext_internal(mcp_rcontext_t *rctx, mcp_request_t *rq, mcp_resp_t 
 int mcplib_add_stat(lua_State *L);
 int mcplib_stat(lua_State *L);
 size_t _process_request_next_key(mcp_parser_t *pr);
-int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen);
 mcp_request_t *mcp_new_request(lua_State *L, mcp_parser_t *pr, const char *command, size_t cmdlen);
 void mcp_set_request(mcp_parser_t *pr, mcp_request_t *r, const char *command, size_t cmdlen);
 
@@ -755,6 +661,7 @@ struct mcp_rcontext_s {
     enum mcp_rqueue_e wait_mode;
     uint8_t lua_narg; // number of responses to push when yield resuming.
     uint8_t uobj_count; // number of extra tracked req/res objects.
+    bool ascii_multiget; // ascii multiget mode. (hide errors/END)
     lua_State *Lc; // coroutine thread pointer.
     mcp_request_t *request; // ptr to the above reference.
     mcp_rcontext_t *parent; // parent rctx in the call graph
@@ -856,9 +763,6 @@ mcp_backend_t *mcplib_pool_proxy_call_helper(mcp_pool_proxy_t *pp, const char *k
 void mcp_request_attach(mcp_request_t *rq, io_pending_proxy_t *p);
 int mcp_request_render(mcp_request_t *rq, int idx, char flag, const char *tok, size_t len);
 int mcp_request_append(mcp_request_t *rq, const char flag, const char *tok, size_t len);
-int mcp_request_find_flag_index(mcp_request_t *rq, const char flag);
-int mcp_request_find_flag_token(mcp_request_t *rq, const char flag, const char **token, size_t *len);
-int mcp_request_find_flag_tokenint64(mcp_request_t *rq, const char flag, int64_t *token);
 void proxy_lua_error(lua_State *L, const char *s);
 #define proxy_lua_ferror(L, fmt, ...) \
     do { \

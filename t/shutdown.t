@@ -12,7 +12,7 @@ use MemcachedTest;
     my $server = new_memcached();
     my $sock = $server->sock;
     print $sock "shutdown\r\n";
-    is(scalar <$sock>, "ERROR: shutdown not enabled\r\n",
+    is(scalar <$sock>, "SERVER_ERROR: shutdown not enabled\r\n",
         "error when shutdown is not enabled");
 }
 

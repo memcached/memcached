@@ -112,9 +112,7 @@ enum authfile_ret authfile_load(const char *file) {
 }
 
 // if only loading the file could be this short...
-int authfile_check(const char *user, const char *pass) {
-    size_t ulen = strlen(user);
-    size_t plen = strlen(pass);
+int authfile_check(const char *user, unsigned int ulen, const char *pass, unsigned int plen) {
 
     for (int x = 0; x < entry_cnt; x++) {
         auth_t *e = &main_auth_entries[x];

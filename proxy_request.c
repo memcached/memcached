@@ -1,455 +1,7 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 
 #include "proxy.h"
-
-#define PARSER_MAXLEN USHRT_MAX-1
-
-// Find the starting offsets of each token; ignoring length.
-// This creates a fast small (<= cacheline) index into the request,
-// where we later scan or directly feed data into API's.
-static int _process_tokenize(mcp_parser_t *pr, const size_t max) {
-    const char *s = pr->request;
-    int len = pr->endlen;
-
-    // since multigets can be huge, we can't purely judge reqlen against this
-    // limit, but we also can't index past it since the tokens are shorts.
-    if (len > PARSER_MAXLEN) {
-        len = PARSER_MAXLEN;
-    }
-    const char *end = s + len;
-    int curtoken = 0;
-
-    int state = 0;
-    while (s != end) {
-        switch (state) {
-            case 0:
-                // scanning for first non-space to find a token.
-                if (*s != ' ') {
-                    pr->tokens[curtoken] = s - pr->request;
-                    if (++curtoken == max) {
-                        s++;
-                        state = 2;
-                        break;
-                    }
-                    state = 1;
-                }
-                s++;
-                break;
-            case 1:
-                // advance over a token
-                if (*s != ' ') {
-                    s++;
-                } else {
-                    state = 0;
-                }
-                break;
-            case 2:
-                // hit max tokens before end of the line.
-                // keep advancing so we can place endcap token.
-                if (*s == ' ') {
-                    goto endloop;
-                }
-                s++;
-                break;
-        }
-    }
-endloop:
-
-    // endcap token so we can quickly find the length of any token by looking
-    // at the next one.
-    pr->tokens[curtoken] = s - pr->request;
-    pr->ntokens = curtoken;
-    P_DEBUG("%s: cur_tokens: %d\n", __func__, curtoken);
-
-    return 0;
-}
-
-static int _process_token_len(mcp_parser_t *pr, size_t token) {
-    const char *s = pr->request + pr->tokens[token];
-    const char *e = pr->request + pr->tokens[token+1];
-    // start of next token is after any space delimiters, so back those out.
-    while (*(e-1) == ' ') {
-        e--;
-    }
-    return e - s;
-}
-
-static int _process_request_key(mcp_parser_t *pr) {
-    pr->klen = _process_token_len(pr, pr->keytoken);
-    // advance the parser in case of multikey.
-    pr->parsed = pr->tokens[pr->keytoken] + pr->klen + 1;
-
-    if (pr->request[pr->parsed-1] == ' ') {
-        P_DEBUG("%s: request_key found extra space\n", __func__);
-        pr->has_space = true;
-    } else {
-        pr->has_space = false;
-    }
-    return 0;
-}
-
-// Just for ascii multiget: search for next "key" beyond where we stopped
-// tokenizing before.
-// Returns the offset for the next key.
-size_t _process_request_next_key(mcp_parser_t *pr) {
-    const char *cur = pr->request + pr->parsed;
-    int remain = pr->endlen - pr->parsed;
-
-    // chew off any leading whitespace.
-    while (remain) {
-        if (*cur == ' ') {
-            remain--;
-            cur++;
-            pr->parsed++;
-        } else {
-            break;
-        }
-    }
-
-    const char *s = memchr(cur, ' ', remain);
-    if (s != NULL) {
-        pr->klen = s - cur;
-        pr->parsed += s - cur;
-    } else {
-        pr->klen = remain;
-        pr->parsed += remain;
-    }
-
-    return cur - pr->request;
-}
-
-// for fast testing of existence of meta flags.
-// meta has all flags as final tokens
-static int _process_request_metaflags(mcp_parser_t *pr, int token) {
-    if (pr->ntokens <= token) {
-        pr->t.meta.flags = 0; // no flags found.
-        return 0;
-    }
-    const char *cur = pr->request + pr->tokens[token];
-    const char *end = pr->request + pr->endlen;
-
-    // We blindly convert flags into bits, since the range of possible
-    // flags is deliberately < 64.
-    int state = 0;
-    while (cur != end) {
-        switch (state) {
-            case 0:
-                if (*cur == ' ') {
-                    cur++;
-                } else {
-                    if (*cur < 65 || *cur > 122) {
-                        return -1;
-                    }
-                    P_DEBUG("%s: setting meta flag: %d\n", __func__, *cur - 65);
-                    pr->t.meta.flags |= (uint64_t)1 << (*cur - 65);
-                    state = 1;
-                }
-                break;
-            case 1:
-                if (*cur != ' ') {
-                    cur++;
-                } else {
-                    state = 0;
-                }
-                break;
-        }
-    }
-
-    // not too great hack for noreply detection: this can be flattened out
-    // once a few other contexts are fixed and we detect the noreply from the
-    // coroutine start instead.
-    if (pr->t.meta.flags & ((uint64_t)1 << 48)) {
-        pr->noreply = true;
-    }
-
-    return 0;
-}
-
-// All meta commands are of form: "cm key f l a g S100"
-static int _process_request_meta(mcp_parser_t *pr) {
-    _process_tokenize(pr, PARSER_MAX_TOKENS);
-    if (pr->ntokens < 2) {
-        P_DEBUG("%s: not enough tokens for meta command: %d\n", __func__, pr->ntokens);
-        return -1;
-    }
-    pr->keytoken = 1;
-    _process_request_key(pr);
-
-    // pass the first flag token.
-    return _process_request_metaflags(pr, 2);
-}
-
-// ms <key> <datalen> <flags>*\r\n
-static int _process_request_mset(mcp_parser_t *pr) {
-    _process_tokenize(pr, PARSER_MAX_TOKENS);
-    if (pr->ntokens < 3) {
-        P_DEBUG("%s: not enough tokens for meta set command: %d\n", __func__, pr->ntokens);
-        return -1;
-    }
-    pr->keytoken = 1;
-    _process_request_key(pr);
-
-    const char *cur = pr->request + pr->tokens[2];
-
-    errno = 0;
-    char *n = NULL;
-    int vlen = strtol(cur, &n, 10);
-    if ((errno == ERANGE) || (cur == n)) {
-        return -1;
-    }
-
-    if (vlen < 0 || vlen > (INT_MAX - 2)) {
-       return -1;
-    }
-    vlen += 2;
-
-    pr->vlen = vlen;
-
-    // pass the first flag token
-    return _process_request_metaflags(pr, 3);
-}
-
-// gat[s] <exptime> <key>*\r\n
-static int _process_request_gat(mcp_parser_t *pr) {
-    _process_tokenize(pr, 3);
-    if (pr->ntokens < 3) {
-        P_DEBUG("%s: not enough tokens for GAT: %d\n", __func__, pr->ntokens);
-        return -1;
-    }
-
-    pr->keytoken = 2;
-    _process_request_key(pr);
-    return 0;
-}
-
-#define NOREPLYSTR "noreply"
-#define NOREPLYLEN sizeof(NOREPLYSTR)-1
-// given a tokenized parser for a normal ASCII command, checks for noreply
-// mode.
-static int _process_request_noreply(mcp_parser_t *pr) {
-    if (pr->tokens[pr->ntokens] - pr->tokens[pr->ntokens-1] >= NOREPLYLEN
-            && strncmp(NOREPLYSTR, pr->request + pr->tokens[pr->ntokens-1], NOREPLYLEN) == 0) {
-        pr->noreply = true;
-    }
-    return 0;
-}
-
-// we need t find the bytes supplied immediately so we can read the request
-// from the client properly.
-// set <key> <flags> <exptime> <bytes> [noreply]\r\n
-static int _process_request_storage(mcp_parser_t *pr, size_t max) {
-    _process_tokenize(pr, max);
-    if (pr->ntokens < 5) {
-        P_DEBUG("%s: not enough tokens to storage command: %d\n", __func__, pr->ntokens);
-        return -1;
-    }
-    pr->keytoken = 1;
-    _process_request_key(pr);
-
-    errno = 0;
-    char *n = NULL;
-    const char *cur = pr->request + pr->tokens[4];
-
-    int vlen = strtol(cur, &n, 10);
-    if ((errno == ERANGE) || (cur == n)) {
-        return -1;
-    }
-
-    if (vlen < 0 || vlen > (INT_MAX - 2)) {
-       return -1;
-    }
-    vlen += 2;
-
-    pr->vlen = vlen;
-
-    return _process_request_noreply(pr);
-}
-
-// common request with key: <cmd> <key> <args>
-static int _process_request_simple(mcp_parser_t *pr, const int min, const int max) {
-    _process_tokenize(pr, max);
-    if (pr->ntokens < min) {
-        P_DEBUG("%s: not enough tokens for simple request: %d\n", __func__, pr->ntokens);
-        return -1;
-    }
-    pr->keytoken = 1; // second token is usually the key... stupid GAT.
-
-    _process_request_key(pr);
-    return _process_request_noreply(pr);
-}
-
-// TODO: return code ENUM with error types.
-// FIXME: the mcp_parser_t bits have ended up being more fragile than I hoped.
-// careful zero'ing is required. revisit?
-// I think this mostly refers to recursive work (maybe just multiget?)
-// Is a parser object run throgh process_request() twice, ever?
-int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
-    // we want to "parse in place" as much as possible, which allows us to
-    // forward an unmodified request without having to rebuild it.
-
-    const char *cm = command;
-    size_t cl = 0;
-    // min command length is 2, plus the "\r\n"
-    if (cmdlen < 4) {
-        return -1;
-    }
-
-    // Commands can end with bare '\n's. Depressingly I intended to be strict
-    // with a \r\n requirement but never did this and need backcompat.
-    // In this case we _know_ \n is at cmdlen because we can't enter this
-    // function otherwise.
-    if (cm[cmdlen-2] == '\r') {
-        pr->endlen = cmdlen - 2;
-    } else {
-        pr->endlen = cmdlen - 1;
-    }
-
-    const char *s = memchr(command, ' ', pr->endlen);
-    if (s != NULL) {
-        cl = s - command;
-    } else {
-        cl = pr->endlen;
-    }
-    pr->keytoken = 0;
-    pr->has_space = false;
-    pr->parsed = cl;
-    pr->request = command;
-    pr->reqlen = cmdlen;
-    int token_max = PARSER_MAX_TOKENS;
-
-    int cmd = -1;
-    int type = CMD_TYPE_GENERIC;
-    int ret = 0;
-
-    switch (cl) {
-        case 0:
-        case 1:
-            // falls through with cmd as -1. should error.
-            break;
-        case 2:
-            if (cm[0] == 'm') {
-                type = CMD_TYPE_META;
-                switch (cm[1]) {
-                    case 'g':
-                        cmd = CMD_MG;
-                        ret = _process_request_meta(pr);
-                        break;
-                    case 's':
-                        cmd = CMD_MS;
-                        ret = _process_request_mset(pr);
-                        break;
-                    case 'd':
-                        cmd = CMD_MD;
-                        ret = _process_request_meta(pr);
-                        break;
-                    case 'n':
-                        // TODO: do we route/handle NOP's at all?
-                        // they should simply reflect to the client.
-                        cmd = CMD_MN;
-                        break;
-                    case 'a':
-                        cmd = CMD_MA;
-                        ret = _process_request_meta(pr);
-                        break;
-                    case 'e':
-                        cmd = CMD_ME;
-                        // TODO: not much special processing here; binary keys
-                        ret = _process_request_meta(pr);
-                        break;
-                }
-            }
-            break;
-        case 3:
-            if (cm[0] == 'g') {
-                if (cm[1] == 'e' && cm[2] == 't') {
-                    cmd = CMD_GET;
-                    type = CMD_TYPE_GET;
-                    token_max = 2; // don't chew through multigets.
-                    ret = _process_request_simple(pr, 2, 2);
-                }
-                if (cm[1] == 'a' && cm[2] == 't') {
-                    type = CMD_TYPE_GET;
-                    cmd = CMD_GAT;
-                    token_max = 2; // don't chew through multigets.
-                    ret = _process_request_gat(pr);
-                }
-            } else if (cm[0] == 's' && cm[1] == 'e' && cm[2] == 't') {
-                cmd = CMD_SET;
-                ret = _process_request_storage(pr, token_max);
-            } else if (cm[0] == 'a' && cm[1] == 'd' && cm[2] == 'd') {
-                cmd = CMD_ADD;
-                ret = _process_request_storage(pr, token_max);
-            } else if (cm[0] == 'c' && cm[1] == 'a' && cm[2] == 's') {
-                cmd = CMD_CAS;
-                ret = _process_request_storage(pr, token_max);
-            }
-            break;
-        case 4:
-            if (strncmp(cm, "gets", 4) == 0) {
-                cmd = CMD_GETS;
-                type = CMD_TYPE_GET;
-                token_max = 2; // don't chew through multigets.
-                ret = _process_request_simple(pr, 2, 2);
-            } else if (strncmp(cm, "incr", 4) == 0) {
-                cmd = CMD_INCR;
-                ret = _process_request_simple(pr, 3, 4);
-            } else if (strncmp(cm, "decr", 4) == 0) {
-                cmd = CMD_DECR;
-                ret = _process_request_simple(pr, 3, 4);
-            } else if (strncmp(cm, "gats", 4) == 0) {
-                cmd = CMD_GATS;
-                type = CMD_TYPE_GET;
-                ret = _process_request_gat(pr);
-            } else if (strncmp(cm, "quit", 4) == 0) {
-                cmd = CMD_QUIT;
-            }
-            break;
-        case 5:
-            if (strncmp(cm, "touch", 5) == 0) {
-                cmd = CMD_TOUCH;
-                ret = _process_request_simple(pr, 3, 4);
-            } else if (strncmp(cm, "stats", 5) == 0) {
-                cmd = CMD_STATS;
-                // Don't process a key; fetch via arguments.
-                _process_tokenize(pr, token_max);
-            } else if (strncmp(cm, "watch", 5) == 0) {
-                cmd = CMD_WATCH;
-                _process_tokenize(pr, token_max);
-            }
-            break;
-        case 6:
-            if (strncmp(cm, "delete", 6) == 0) {
-                cmd = CMD_DELETE;
-                ret = _process_request_simple(pr, 2, 4);
-            } else if (strncmp(cm, "append", 6) == 0) {
-                cmd = CMD_APPEND;
-                ret = _process_request_storage(pr, token_max);
-            }
-            break;
-        case 7:
-            if (strncmp(cm, "replace", 7) == 0) {
-                cmd = CMD_REPLACE;
-                ret = _process_request_storage(pr, token_max);
-            } else if (strncmp(cm, "prepend", 7) == 0) {
-                cmd = CMD_PREPEND;
-                ret = _process_request_storage(pr, token_max);
-            } else if (strncmp(cm, "version", 7) == 0) {
-                cmd = CMD_VERSION;
-                _process_tokenize(pr, token_max);
-            }
-            break;
-    }
-
-    // TODO: log more specific error code.
-    if (cmd == -1 || ret != 0) {
-        return -1;
-    }
-
-    pr->command = cmd;
-    pr->cmd_type = type;
-
-    return 0;
-}
+#include "proto_parser.h"
 
 // FIXME (v2): any reason to pass in command/cmdlen separately?
 mcp_request_t *mcp_new_request(lua_State *L, mcp_parser_t *pr, const char *command, size_t cmdlen) {
@@ -496,12 +48,13 @@ int mcp_request_render(mcp_request_t *rq, int idx, const char flag, const char *
         return -1;
     }
     // Cannot add/append tokens yet.
-    if (idx >= pr->ntokens) {
+    if (idx >= pr->tok.ntokens) {
         return -1;
     }
 
-    memcpy(p, pr->request, pr->tokens[idx]);
-    p += pr->tokens[idx];
+    // FIXME: should use an accessor macro, at least.
+    memcpy(p, pr->request, pr->tok.tokens[idx]);
+    p += pr->tok.tokens[idx];
 
     if (flag) {
         *p = flag;
@@ -513,14 +66,14 @@ int mcp_request_render(mcp_request_t *rq, int idx, const char flag, const char *
     }
 
     // Add a space and copy more tokens if there were more.
-    if (idx+1 < pr->ntokens) {
+    if (idx+1 < pr->tok.ntokens) {
         if (flag || len != 0) {
             // Only pre-space if not deleting the token.
             *p = ' ';
             p++;
         }
-        memcpy(p, &pr->request[pr->tokens[idx+1]], pr->tokens[pr->ntokens] - pr->tokens[idx+1]);
-        p += pr->tokens[pr->ntokens] - pr->tokens[idx+1];
+        memcpy(p, &pr->request[pr->tok.tokens[idx+1]], pr->tok.tokens[pr->tok.ntokens] - pr->tok.tokens[idx+1]);
+        p += pr->tok.tokens[pr->tok.ntokens] - pr->tok.tokens[idx+1];
     } else {
         // If we removed something from the end we might've left some spaces.
         while (*(p-1) == ' ') {
@@ -542,6 +95,7 @@ int mcp_request_render(mcp_request_t *rq, int idx, const char flag, const char *
     memset(pr, 0, sizeof(mcp_parser_t)); // TODO: required?
     int ret = process_request(pr, rq->request, p - temp);
     if (ret != 0) {
+        // FIXME: does this leak the vbuf?
         return ret;
     }
     pr->vbuf = vbuf;
@@ -645,6 +199,11 @@ int mcplib_request(lua_State *L) {
         return 0;
     }
 
+    if (memcmp(cmd+len-2, "\r\n", 2) != 0) {
+        proxy_lua_error(L, "request must end with \r\n");
+        return 0;
+    }
+
     // FIXME (v2): if we inline the userdata we can avoid memcpy'ing the parser
     // structure from the stack? but causes some code duplication.
     if (process_request(&pr, cmd, len) != 0) {
@@ -680,7 +239,7 @@ int mcplib_request(lua_State *L) {
 
 int mcplib_request_key(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, -1, "mcp.request");
-    lua_pushlstring(L, MCP_PARSER_KEY(rq->pr), rq->pr.klen);
+    lua_pushlstring(L, MCP_PARSER_KEY(&rq->pr), rq->pr.klen);
     return 1;
 }
 
@@ -692,7 +251,7 @@ int mcplib_request_key(lua_State *L) {
 int mcplib_request_ltrimkey(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, -2, "mcp.request");
     int totrim = luaL_checkinteger(L, -1);
-    char *key = (char *) MCP_PARSER_KEY(rq->pr);
+    char *key = (char *) MCP_PARSER_KEY(&rq->pr);
 
     if (totrim > rq->pr.klen) {
         proxy_lua_error(L, "ltrimkey cannot zero out key");
@@ -700,7 +259,7 @@ int mcplib_request_ltrimkey(lua_State *L) {
     } else {
         memset(key, ' ', totrim);
         rq->pr.klen -= totrim;
-        rq->pr.tokens[rq->pr.keytoken] += totrim;
+        rq->pr.tok.tokens[rq->pr.keytoken] += totrim;
     }
     return 1;
 }
@@ -708,7 +267,7 @@ int mcplib_request_ltrimkey(lua_State *L) {
 int mcplib_request_rtrimkey(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, -2, "mcp.request");
     int totrim = luaL_checkinteger(L, -1);
-    char *key = (char *) MCP_PARSER_KEY(rq->pr);
+    char *key = (char *) MCP_PARSER_KEY(&rq->pr);
 
     if (totrim > rq->pr.klen) {
         proxy_lua_error(L, "rtrimkey cannot zero out key");
@@ -733,13 +292,12 @@ int mcplib_request_token(lua_State *L) {
 
     int token = luaL_checkinteger(L, 2);
 
-    if (token < 1 || token > rq->pr.ntokens) {
+    if (token < 1 || token > rq->pr.tok.ntokens) {
         // maybe an error?
         lua_pushnil(L);
         return 1;
     }
 
-    size_t vlen = 0;
     if (argc > 2) {
         // overwriting a token.
         size_t newlen = 0;
@@ -751,8 +309,9 @@ int mcplib_request_token(lua_State *L) {
         return 0;
     } else {
         // fetching a token.
-        const char *start = rq->pr.request + rq->pr.tokens[token-1];
-        vlen = _process_token_len(&rq->pr, token-1);
+        mcp_parser_t *pr = &rq->pr;
+        int vlen = 0;
+        const char *start = mcmc_token_get(pr->request, &pr->tok, pr->keytoken, &vlen);
 
         P_DEBUG("%s: pushing token of len: %lu\n", __func__, vlen);
         lua_pushlstring(L, start, vlen);
@@ -774,35 +333,24 @@ int mcplib_request_token_int(lua_State *L) {
 
     int x = luaL_checkinteger(L, 2);
 
-    if (x < 1 || x > rq->pr.ntokens) {
+    if (x < 1 || x > rq->pr.tok.ntokens) {
         // maybe an error?
         lua_pushnil(L);
         return 1;
     }
 
-    size_t vlen = 0;
-    // fetching a token.
-    const char *s = rq->pr.request + rq->pr.tokens[x-1];
-    vlen = _process_token_len(&rq->pr, x-1);
-    // do a funny dance to safely strtol the token.
-    // TODO: use tokenizer based tokto when merged.
-    char temp[22];
-    int tocopy = vlen > 22 ? 21 : vlen;
-    memcpy(temp, s, tocopy);
-    temp[vlen] = '\0';
     int64_t token = 0;
-    if (safe_strtoll(temp, &token)) {
-        lua_pushinteger(L, token);
-    } else {
+    if (mcmc_token_get_64(rq->pr.request, &rq->pr.tok, x-1, &token) != MCMC_OK) {
         lua_pushnil(L);
+    } else {
+        lua_pushinteger(L, token);
     }
-
     return 1;
 }
 
 int mcplib_request_ntokens(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
-    lua_pushinteger(L, rq->pr.ntokens);
+    lua_pushinteger(L, rq->pr.tok.ntokens);
     return 1;
 }
 
@@ -820,12 +368,12 @@ int mcplib_request_has_flag(lua_State *L) {
         proxy_lua_error(L, "has_flag(): meta flag must be a single character");
         return 0;
     }
-    if (flagstr[0] < 65 || flagstr[0] > 122) {
+
+    int status = mcmc_token_has_flag(rq->pr.request, &rq->pr.tok, flagstr[0]);
+    if (status == MCMC_ERR) {
         proxy_lua_error(L, "has_flag(): invalid flag, must be A-Z,a-z");
         return 0;
-    }
-    uint64_t flagbit = (uint64_t)1 << (flagstr[0] - 65);
-    if (rq->pr.t.meta.flags & flagbit) {
+    } else if (status == MCMC_OK) {
         lua_pushboolean(L, 1);
     } else {
         lua_pushboolean(L, 0);
@@ -845,25 +393,28 @@ int mcplib_request_flag_token(lua_State *L) {
         proxy_lua_error(L, "has_flag(): meta flag must be a single character");
         return 0;
     }
-    if (flagstr[0] < 65 || flagstr[0] > 122) {
-        proxy_lua_error(L, "has_flag(): invalid flag, must be A-Z,a-z");
-        return 0;
-    }
     if (lua_isstring(L, 3)) {
         // overwriting a flag/token with the third argument.
         replace = true;
     }
-    uint64_t flagbit = (uint64_t)1 << (flagstr[0] - 65);
 
+    int status = mcmc_token_has_flag(rq->pr.request, &rq->pr.tok, flagstr[0]);
     int ret = 1;
-    if (rq->pr.t.meta.flags & flagbit) {
+    if (status == MCMC_ERR) {
+        proxy_lua_error(L, "has_flag(): invalid flag, must be A-Z,a-z");
+        return 0;
+    } else if (status == MCMC_OK) {
         // The flag definitely exists, but sadly we need to scan for the
         // actual flag to see if it has a token.
         lua_pushboolean(L, 1);
-        for (int x = rq->pr.keytoken+1; x < rq->pr.ntokens; x++) {
-            const char *s = rq->pr.request + rq->pr.tokens[x];
+        int vlen = 0;
+        // TODO: too much logic here since we also need to find the token
+        // offset for the replace mode...
+        // I think all this stuff can safely be long-term deprecated since we
+        // have the mutator now so maybe I'll leave it.
+        for (int x = rq->pr.keytoken+1; x < rq->pr.tok.ntokens; x++) {
+            const char *s = mcmc_token_get(rq->pr.request, &rq->pr.tok, x, &vlen);
             if (s[0] == flagstr[0]) {
-                size_t vlen = _process_token_len(&rq->pr, x);
                 if (vlen > 1) {
                     // strip the flag off the token and return.
                     lua_pushlstring(L, s+1, vlen-1);
@@ -882,6 +433,7 @@ int mcplib_request_flag_token(lua_State *L) {
                 break;
             }
         }
+
     } else {
         lua_pushboolean(L, 0);
     }
@@ -900,43 +452,21 @@ int mcplib_request_flag_token_int(lua_State *L) {
         proxy_lua_error(L, "has_flag(): meta flag must be a single character");
         return 0;
     }
-    if (flagstr[0] < 65 || flagstr[0] > 122) {
-        proxy_lua_error(L, "has_flag(): invalid flag, must be A-Z,a-z");
-        return 0;
-    }
 
-    uint64_t flagbit = (uint64_t)1 << (flagstr[0] - 65);
-
+    int64_t val = 0;
+    int status = mcmc_token_get_flag_64(rq->pr.request, &rq->pr.tok, flagstr[0], &val);
     int ret = 1;
-    if (rq->pr.t.meta.flags & flagbit) {
-        lua_pushboolean(L, 1);
-        for (int x = rq->pr.keytoken+1; x < rq->pr.ntokens; x++) {
-            const char *s = rq->pr.request + rq->pr.tokens[x];
-            if (s[0] == flagstr[0]) {
-                size_t vlen = _process_token_len(&rq->pr, x);
-                if (vlen > 1) {
-                    // do a funny dance to safely strtol the token.
-                    // TODO: use tokenizer based tokto when merged.
-                    char temp[22];
-                    int tocopy = vlen > 22 ? 21 : vlen-1;
-                    memcpy(temp, s+1, tocopy);
-                    temp[vlen-1] = '\0';
-                    int64_t token = 0;
-                    if (safe_strtoll(temp, &token)) {
-                        lua_pushinteger(L, token);
-                    } else {
-                        lua_pushnil(L);
-                    }
-                    ret = 2;
-                }
-
-                break;
-            }
-        }
-    } else {
+    if (status == MCMC_NOK) {
+        // explicitly token not found.
         lua_pushboolean(L, 0);
+    } else {
+        // token found, but conversion may have failed.
+        lua_pushboolean(L, 1);
+        if (status == MCMC_OK) {
+            lua_pushinteger(L, val);
+            ret = 2;
+        }
     }
-
     return ret;
 }
 
@@ -992,8 +522,7 @@ int mcplib_request_flag_add(lua_State *L) {
     char flag = _mcp_request_get_arg_flag(L, 2);
     char tostring[30];
 
-    uint64_t flagbit = (uint64_t)1 << (flag - 65);
-    if (rq->pr.t.meta.flags & flagbit) {
+    if (mcmc_token_has_flag(rq->pr.request, &rq->pr.tok, flag) == MCMC_OK) {
         // fail, flag already exists.
         lua_pushboolean(L, 0);
         return 1;
@@ -1018,7 +547,7 @@ int mcplib_request_flag_set(lua_State *L) {
     char flag = _mcp_request_get_arg_flag(L, 2);
     char tostring[30];
 
-    int x = mcp_request_find_flag_index(rq, flag);
+    int x = mcmc_token_get_flag_idx(rq->pr.request, &rq->pr.tok, flag);
     size_t tlen = 0;
     const char *token = _mcp_request_check_flag_token(L, 3, tostring, &tlen);
 
@@ -1050,7 +579,7 @@ int mcplib_request_flag_replace(lua_State *L) {
     char newflag = _mcp_request_get_arg_flag(L, 3);
     char tostring[30];
 
-    int x = mcp_request_find_flag_index(rq, flag);
+    int x = mcmc_token_get_flag_idx(rq->pr.request, &rq->pr.tok, flag);
     size_t tlen = 0;
     const char *token = _mcp_request_check_flag_token(L, 4, tostring, &tlen);
 
@@ -1076,7 +605,7 @@ int mcplib_request_flag_del(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
     char flag = _mcp_request_get_arg_flag(L, 2);
 
-    int x = mcp_request_find_flag_index(rq, flag);
+    int x = mcmc_token_get_flag_idx(rq->pr.request, &rq->pr.tok, flag);
 
     if (x > 0) {
         if (mcp_request_render(rq, x, 0, NULL, 0) != 0) {
@@ -1097,73 +626,55 @@ int mcplib_request_flag_del(lua_State *L) {
 // checks if req has `k` or `O`. If so, checks response for `K` or `O`
 // returns true, nil if matches
 // returns false, res token if not match.
-//
+static inline int _mcplib_request_match_check(lua_State *L, const char *rq, int rql, const char *rs, int rsl) {
+    return (rql == rsl && memcmp(rq, rs, rsl) == 0);
+}
+
+// TODO: re-evaluate tests.
 int mcplib_request_match_res(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
     mcp_resp_t *rs = luaL_checkudata(L, 2, "mcp.response");
 
-    const char *opaque_token = NULL;
-    size_t opaque_len = 0;
+    // FIXME: we reparse the buffer because it may have changed if the old API
+    // was in use? Can we skip this step now or in the future?
     mcmc_resp_t reresp;
 
     // requests all have keys. check for an opaque.
-    mcp_request_find_flag_token(rq, 'O', &opaque_token, &opaque_len);
+    int opaque_len = 0;
+    const char *opaque_token = mcmc_token_get_flag(rq->pr.request, &rq->pr.tok, 'O', &opaque_len);
     mcmc_parse_buf(rs->buf, rs->blen, &reresp);
-
-    // scan the response line for tokens, since we don't have a reciprocal API
-    // yet. When we do this code will be replaced with a function call like
-    // the above.
-    const char *p = reresp.rline;
-    const char *e = p + reresp.rlen;
-    if (!p) {
-        // happens if the result line is blank (ie; 'HD\r\n')
-        lua_pushboolean(L, 0);
-        lua_pushnil(L);
-        return 2;
-    }
+    mcmc_tokenize_res(rs->buf, reresp.reslen, &rs->tok);
 
     int matched = 0;
-    while (p != e) {
-        if (*p == ' ') {
-            p++;
-        } else if (*p == 'k' || *p == 'O') {
-            const char *rq_token = NULL;
-            int rq_len = 0;
-            if (*p == 'k') {
-                rq_token = MCP_PARSER_KEY(rq->pr);
-                rq_len = rq->pr.klen;
-            } else if (*p == 'O') {
-                rq_token = opaque_token;
-                rq_len = opaque_len;
-            }
-            if (rq_token == NULL) {
+    int rs_len = 0;
+
+    if (mcmc_token_has_flag(rs->buf, &rs->tok, 'k') == MCMC_OK) {
+        const char *rs_token = mcmc_token_get_flag(rs->buf, &rs->tok, 'k', &rs_len);
+        matched = _mcplib_request_match_check(L, MCP_PARSER_KEY(&rq->pr), rq->pr.klen,
+                rs_token, rs_len);
+        if (!matched) {
+            lua_pushboolean(L, 0);
+            // TODO: format string to include the keys? or at least partial?
+            lua_pushstring(L, "key in response does not match request key");
+            return 2;
+        }
+    }
+    if (opaque_token) {
+        if (mcmc_token_has_flag(rs->buf, &rs->tok, 'O') == MCMC_OK) {
+            const char *rs_token = mcmc_token_get_flag(rs->buf, &rs->tok, 'O', &rs_len);
+            matched = _mcplib_request_match_check(L, opaque_token, opaque_len,
+                    rs_token, rs_len);
+            if (!matched) {
                 lua_pushboolean(L, 0);
-                lua_pushnil(L);
+                lua_pushstring(L, "request opaque does not match response opaque");
                 return 2;
-            }
-
-            p++; // skip flag and start comparing token
-            const char *rs_token = p;
-
-            // find end of token
-            while (p != e && !isspace(*p)) {
-                p++;
-            }
-
-            int rs_len = p - rs_token;
-            if (rq_len != rs_len || memcmp(rq_token, rs_token, rs_len) != 0) {
-                // FAIL, keys aren't the same length or don't match.
-                lua_pushboolean(L, 0);
-                lua_pushlstring(L, rs_token, rs_len);
-                return 2;
-            } else {
-                matched = 1;
             }
         } else {
-            // skip token
-            while (p != e && *p != ' ') {
-                p++;
-            }
+            lua_pushboolean(L, 0);
+            // would be nice to include the opaque.
+            // TODO: format string response here.
+            lua_pushstring(L, "opaque in request but not in response");
+            return 2;
         }
     }
 
@@ -1194,67 +705,3 @@ int mcplib_request_gc(lua_State *L) {
 
     return 0;
 }
-
-static int _mcp_request_find_flag(mcp_request_t *rq, const char flag) {
-    uint64_t flagbit = (uint64_t)1 << (flag - 65);
-    if (rq->pr.t.meta.flags & flagbit) {
-        for (int x = rq->pr.keytoken+1; x < rq->pr.ntokens; x++) {
-            const char *s = rq->pr.request + rq->pr.tokens[x];
-            if (s[0] == flag) {
-                return x;
-            }
-        }
-    }
-    return -1;
-}
-
-int mcp_request_find_flag_index(mcp_request_t *rq, const char flag) {
-    int x = _mcp_request_find_flag(rq, flag);
-    return x;
-}
-
-int mcp_request_find_flag_token(mcp_request_t *rq, const char flag, const char **token, size_t *len) {
-    int x = _mcp_request_find_flag(rq, flag);
-    if (x > 0) {
-        size_t tlen = _process_token_len(&rq->pr, x);
-        if (tlen > 1) {
-            *token = rq->pr.request + rq->pr.tokens[x] +1;
-        } else {
-            *token = NULL;
-        }
-        *len = tlen-1;
-    }
-    return x;
-}
-
-// FIXME: temporary copypasta accessor until request objects can be moved to
-// mcmc tokenizer.
-int mcp_request_find_flag_tokenint64(mcp_request_t *rq, const char flag, int64_t *token) {
-    for (int x = rq->pr.keytoken+1; x < rq->pr.ntokens; x++) {
-        const char *s = rq->pr.request + rq->pr.tokens[x];
-        if (s[0] == flag) {
-            size_t vlen = _process_token_len(&rq->pr, x);
-            if (vlen > 1) {
-                // do a funny dance to safely strtol the token.
-                char temp[22];
-                int tocopy = vlen > 22 ? 21 : vlen-1;
-                memcpy(temp, s+1, tocopy);
-                temp[vlen-1] = '\0';
-                if (safe_strtoll(temp, token)) {
-                    return 0;
-                } else {
-                    return -1;
-                }
-            }
-
-            break;
-        }
-    }
-
-    return -1;
-}
-
-// TODO (v2): check what lua does when it calls a function with a string argument
-// stored from a table/similar (ie; the prefix check code).
-// If it's not copying anything, we can add request-side functions to do most
-// forms of matching and avoid copying the key to lua space.

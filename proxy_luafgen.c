@@ -330,6 +330,7 @@ static void _mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
     }
     rctx->wait_mode = QWAIT_IDLE;
     rctx->resp = NULL;
+    rctx->ascii_multiget = false;
     if (rctx->request) {
         mcp_request_cleanup(fgen->thread, rctx->request);
     }
@@ -1189,7 +1190,7 @@ void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
         rqu->state = RQUEUE_ACTIVE;
         if (rqu->obj_type == RQUEUE_TYPE_POOL) {
             mcp_request_t *rq = rqu->rq;
-            mcp_backend_t *be = mcplib_pool_proxy_call_helper(rqu->obj, MCP_PARSER_KEY(rq->pr), rq->pr.klen);
+            mcp_backend_t *be = mcplib_pool_proxy_call_helper(rqu->obj, MCP_PARSER_KEY(&rq->pr), rq->pr.klen);
 
             mcp_set_resobj(rqu->res_obj, rq, be, rctx->fgen->thread);
             io_pending_proxy_t *p = mcp_queue_rctx_io(rctx, rq, be, rqu->res_obj);
@@ -1223,7 +1224,6 @@ void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
 
                 io->rctx = rctx;
                 io->c = rctx->c;
-                io->ascii_multiget = rq->ascii_multiget;
                 // mark the buffer into the mcp_resp for freeing later.
                 rqu->res_obj->buf = io->eio.buf;
                 rctx->pending_reqs++;
@@ -1751,7 +1751,7 @@ static mcp_funcgen_t *mcp_funcgen_route(lua_State *L, mcp_funcgen_t *fgen, mcp_p
     if (pr->klen == 0) {
         return NULL;
     }
-    const char *key = &pr->request[pr->tokens[pr->keytoken]];
+    const char *key = &pr->request[pr->tok.tokens[pr->keytoken]];
     const char *lookup = NULL;
     size_t lookuplen = 0;
     switch(fr->type) {

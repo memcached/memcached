@@ -23,20 +23,6 @@ if (!supports_extstore()) {
 
 my $ext_path = "/tmp/proxyinternal.$$";
 
-# Set up some server sockets.
-sub mock_server {
-    my $port = shift;
-    my $srv = IO::Socket->new(
-        Domain => AF_INET,
-        Type => SOCK_STREAM,
-        Proto => 'tcp',
-        LocalHost => '127.0.0.1',
-        LocalPort => $port,
-        ReusePort => 1,
-        Listen => 5) || die "IO::Socket: $@";
-    return $srv;
-}
-
 # Put a version command down the pipe to ensure the socket is clear.
 # client version commands skip the proxy code
 sub check_version {
@@ -45,27 +31,94 @@ sub check_version {
     like(<$ps>, qr/VERSION /, "version received");
 }
 
+my $t = Memcached::ProxyTest->new(servers => []);
+
 my $p_srv = new_memcached("-R 500 -o proxy_config=./t/proxyinternal.lua,ext_item_size=500,ext_item_age=1,ext_path=$ext_path:64m,ext_max_sleep=100000 -t 1");
 my $ps = $p_srv->sock;
 $ps->autoflush(1);
 
+$t->set_c($ps);
+
 {
+    test_res();
     test_basics();
     test_fetch_extstore();
     test_pipe_extstore();
     test_etc();
 }
 
-sub test_basics {
-    {
-        print $ps "ms /b/a 2\r\nhi\r\n";
-        is(scalar <$ps>, "HD\r\n", "bare ms command works");
+# ensure the result objects still function for internal RES.
+# NOTE: could cuddle the mode with P or L flags but I wanted to seed the item
+# for each individual test.
+sub test_res {
+    subtest 'response/hit' => sub {
+        $t->c_send("mg response/hit v t\r\n");
+        $t->c_recv("SERVER_ERROR res:hit = false\r\n");
 
-        print $ps "ms /b/a 2 T100\r\nhi\r\n";
-        is(scalar <$ps>, "HD\r\n", "set ms with a TTL");
-        print $ps "mg /b/a t\r\n";
+        $t->c_send("ms response/hit 2\r\nhi\r\n");
+        $t->c_recv("HD\r\n", "seeding hit response");
+
+        $t->c_send("mg response/hit v t\r\n");
+        $t->c_recv("SERVER_ERROR res:hit = true\r\n");
+
+        $t->clear();
+    };
+
+    # NOTE: if this test fails it may be because MCMC_CODE numbers changed
+    subtest 'response/code' => sub {
+        $t->c_send("mg response/code v t\r\n");
+        $t->c_recv("SERVER_ERROR res:code = 17\r\n");
+
+        $t->c_send("ms response/code 2\r\nhi\r\n");
+        $t->c_recv("HD\r\n", "seeding response");
+
+        $t->c_send("mg response/code v t\r\n");
+        $t->c_recv("SERVER_ERROR res:code = 15\r\n");
+
+        $t->clear();
+    };
+
+    subtest 'response/line' => sub {
+        $t->c_send("mg response/line v t\r\n");
+        $t->c_recv("SERVER_ERROR res:line = nil\r\n");
+
+        $t->c_send("ms response/line 2\r\nhi\r\n");
+        $t->c_recv("HD\r\n", "seeding response");
+
+        $t->c_send("mg response/line v t s h\r\n");
+        $t->c_recv("SERVER_ERROR res:line = \"t-1 s2 h0\"\r\n");
+
+        $t->clear();
+    };
+
+    subtest 'response/line' => sub {
+        $t->c_send("mg response/vlen v t\r\n");
+        $t->c_recv("SERVER_ERROR res:vlen = 0\r\n");
+
+        $t->c_send("ms response/vlen 5\r\nhello\r\n");
+        $t->c_recv("HD\r\n", "seeding response");
+
+        $t->c_send("mg response/vlen v t\r\n");
+        $t->c_recv("SERVER_ERROR res:vlen = 5\r\n");
+
+        $t->clear();
+    };
+
+}
+
+sub test_basics {
+    subtest 'ms/mg' => sub {
+        $t->c_send("ms /b/a 2\r\nhi\r\n");
+        $t->c_recv("HD\r\n", "bare ms command works");
+
+        $t->c_send("ms /b/a 2 T100\r\nhi\r\n");
+        $t->c_recv("HD\r\n", "ms with a TTL");
+
+        $t->c_send("mg /b/a t\r\n");
         isnt(scalar <$ps>, "HD t-1\r\n");
-    }
+
+        $t->clear();
+    };
 
     note "ascii multiget";
     {
@@ -93,17 +146,30 @@ sub test_basics {
         check_version($ps);
     }
 
-    note "ascii basic";
-    {
+    subtest 'ascii get basics' => sub {
         # Ensure all of that END removal we do in multiget doesn't apply to
         # non-multiget get mode.
-        print $ps "get /b/miss\r\n";
-        is(scalar <$ps>, "END\r\n", "basic miss");
-        print $ps "get /sub/miss\r\n";
-        is(scalar <$ps>, "END\r\n", "basic subrctx miss");
+        $t->c_send("get /b/miss\r\n");
+        $t->c_recv("END\r\n", "basic miss");
+        $t->c_send("get /sub/miss\r\n");
+        $t->c_recv("END\r\n", "basic subrctx miss");
 
-        check_version($ps);
-    }
+        $t->c_send("set /b/ttl 0 0 2\r\ntt\r\n");
+        $t->c_recv("STORED\r\n");
+
+        $t->c_send("mg /b/ttl t\r\n");
+        $t->c_recv("HD t-1\r\n");
+
+        $t->c_send("gat 100 /b/ttl\r\n");
+        $t->c_recv("VALUE /b/ttl 0 2\r\n");
+        $t->c_recv("tt\r\n");
+        $t->c_recv("END\r\n");
+
+        $t->c_send("mg /b/ttl t\r\n");
+        isnt(scalar <$ps>, "HD t-1\r\n");
+
+        $t->clear();
+    };
 
     #diag "object too large"
     {
@@ -162,6 +228,44 @@ sub test_basics {
         print $ps "delete /b/chunked\r\n";
         is(scalar <$ps>, "DELETED\r\n");
         check_version($ps);
+    };
+
+    subtest 'meta quiet mode' => sub {
+        $t->c_send("mg response/quiet v t q\r\nmn\r\n");
+        $t->c_recv("MN\r\n", "got MN instead of HD");
+
+        $t->c_send("mg response/quiet v t q O1\r\n");
+        $t->c_send("mg response/quiet v t O2\r\n");
+        $t->c_send("mg response/quiet v t q O3\r\n");
+        $t->c_send("mn\r\n");
+
+        $t->c_recv("EN O2\r\n", "Got miss response from sandwiched non-quiet mg");
+        $t->c_recv("MN\r\n", "saw MN response");
+
+        $t->c_send("ms response/quiet 2 q\r\nhi\r\n");
+        $t->c_send("mn\r\n");
+        $t->c_recv("MN\r\n", "saw MN instead of HD from ms");
+
+        $t->c_send("mg response/quiet v t q O4\r\n");
+        $t->c_recv("VA 2 t-1 O4\r\n", "got result back from quiet mg");
+        $t->c_recv("hi\r\n", "got value back from quiet mg");
+
+        $t->c_send("mg response/quiet t q O4\r\n");
+        $t->c_recv("HD t-1 O4\r\n", "got non-value response from quiet get");
+
+        $t->c_send("ma response/counter N0 J1 q\r\n");
+        $t->c_send("mn\r\n");
+        $t->c_recv("MN\r\n", "got MN instead of ma response");
+
+        $t->clear();
+    };
+
+    subtest 'noreply mode' => sub {
+        $t->c_send("set response/quiet1 0 0 2 noreply\r\nhi\r\n");
+        $t->c_send("set response/quiet2 0 0 2 noreply\r\nhi\r\n");
+        $t->c_send("set response/quiet3 0 0 2 noreply\r\nhi\r\n");
+
+        $t->clear();
     };
 }
 
