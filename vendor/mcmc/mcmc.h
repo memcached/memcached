@@ -138,6 +138,7 @@ void mcmc_get_error(void *c, char *code, size_t clen, char *msg, size_t mlen);
 // For full usage this should probably also be supplied with a "mcmc_res_t" so
 // it can figure out what to call.
 int mcmc_tokenize_res(const char *l, size_t len, mcmc_tokenizer_t *t);
+int mcmc_tokenize(const char *l, size_t len, mcmc_tokenizer_t *t, int meta_offset);
 #define mcmc_token_count(t) (t->ntokens)
 const char *mcmc_token_get(const char *l, mcmc_tokenizer_t *t, int idx, int *len);
 int mcmc_token_get_u32(const char *l, mcmc_tokenizer_t *t, int idx, uint32_t *val);

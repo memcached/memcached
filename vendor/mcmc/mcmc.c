@@ -45,7 +45,7 @@ typedef struct mcmc_ctx {
 
 // INTERNAL FUNCTIONS
 
-#define TOKENIZER_MAXLEN USHRT_MAX
+#define TOKENIZER_MAXLEN USHRT_MAX-1
 
 // Find the starting offsets of each token; ignoring length.
 // This creates a fast small (<= cacheline) index into the request,
@@ -606,8 +606,6 @@ MCMC_STATIC int mcmc_tokto64(const char *t, size_t len, int64_t *out) {
 
 // Context-less bare API.
 
-//MCMC_STATIC int _mcmc_tokenize_meta(mcmc_tokenizer_t *t, const char *line, size_t len, const int mstart, const int max) {
-
 // TODO: ideally this does a macro test of t->ntokens before calling a
 // function. are compilers smart enough that I don't have to do this tho?
 int mcmc_tokenize_res(const char *l, size_t len, mcmc_tokenizer_t *t) {
@@ -615,6 +613,10 @@ int mcmc_tokenize_res(const char *l, size_t len, mcmc_tokenizer_t *t) {
         return _mcmc_tokenize_meta(t, l, len, 1, MCMC_PARSER_MAX_TOKENS-1);
     }
     return 0;
+}
+
+int mcmc_tokenize(const char *l, size_t len, mcmc_tokenizer_t *t, int meta_offset) {
+    return _mcmc_tokenize_meta(t, l, len, meta_offset, MCMC_PARSER_MAX_TOKENS-1);
 }
 
 const char *mcmc_token_get(const char *l, mcmc_tokenizer_t *t, int idx, int *len) {
@@ -727,7 +729,7 @@ int mcmc_token_get_flag_idx(const char *l, mcmc_tokenizer_t *t, char flag) {
         }
     }
 
-    return -1;
+    return MCMC_NOK;
 }
 
 // Directly parse a buffer with read data of size len.
