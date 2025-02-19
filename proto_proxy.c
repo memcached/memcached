@@ -1027,21 +1027,30 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     // might be better to split this function; the below bits turn into a
     // function call, then we don't re-process the above bits in the same way?
     // The way this is detected/passed on is very fragile.
-    if (!multiget && pr.cmd_type == CMD_TYPE_GET && pr.has_space) {
-        uint32_t keyoff = pr.tokens[pr.keytoken];
-        while (pr.klen != 0) {
+    if (!multiget && pr.cmd_type == CMD_TYPE_GET && pr.tok.ntokens > pr.keytoken+1) {
+        uint32_t keyoff = pr.tok.tokens[pr.keytoken];
+        const char *curkey = pr.request + keyoff;
+        int klen = pr.klen;
+        int cmd_prefix_len = pr.tok.tokens[pr.keytoken];
+
+        // TODO: TEST THIS CASE
+        // check once if our prefix is too long.
+        if (cmd_prefix_len > MAX_CMD_PREFIX) {
+            if (!resp_start(c)) {
+                conn_set_state(c, conn_closing);
+                return;
+            }
+            proxy_out_errstring(c->resp, PROXY_CLIENT_ERROR, "malformed request");
+            return;
+        }
+
+        while (klen != 0) {
             char temp[KEY_MAX_LENGTH + MAX_CMD_PREFIX + 30];
             char *cur = temp;
             // Core daemon can abort the entire command if one key is bad, but
             // we cannot from the proxy. Instead we have to inject errors into
             // the stream. This should, thankfully, be rare at least.
-            if (pr.tokens[pr.keytoken] > MAX_CMD_PREFIX) {
-                if (!resp_start(c)) {
-                    conn_set_state(c, conn_closing);
-                    return;
-                }
-                proxy_out_errstring(c->resp, PROXY_CLIENT_ERROR, "malformed request");
-            } else if (pr.klen > KEY_MAX_LENGTH) {
+            if (klen > KEY_MAX_LENGTH) {
                 if (!resp_start(c)) {
                     conn_set_state(c, conn_closing);
                     return;
@@ -1049,12 +1058,12 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
                 proxy_out_errstring(c->resp, PROXY_CLIENT_ERROR, "key too long");
             } else {
                 // copy original request up until the original key token.
-                memcpy(cur, pr.request, pr.tokens[pr.keytoken]);
-                cur += pr.tokens[pr.keytoken];
+                memcpy(cur, pr.request, cmd_prefix_len);
+                cur += cmd_prefix_len;
 
                 // now copy in our "current" key.
-                memcpy(cur, &pr.request[keyoff], pr.klen);
-                cur += pr.klen;
+                memcpy(cur, curkey, klen);
+                cur += klen;
 
                 memcpy(cur, "\r\n", 2);
                 cur += 2;
@@ -1064,8 +1073,31 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
                 proxy_process_command(c, temp, cur - temp, PROCESS_MULTIGET);
             }
 
-            // now advance to the next key.
-            keyoff = _process_request_next_key(&pr);
+            // FIXME: test multigets with excess space at the end.
+            // Find the next key manually. This keeps the special cased code
+            // here instead of adding extra junk to the parser structure.
+            curkey += klen;
+            int remain = pr.endlen - (curkey - pr.request);
+            while (remain) {
+                if (*curkey == ' ') {
+                    remain--;
+                    curkey++;
+                } else {
+                    break;
+                }
+            }
+
+            if (remain) {
+                const char *s = memchr(curkey, ' ', remain);
+                if (s != NULL) {
+                    klen = s - curkey;
+                } else {
+                    klen = remain;
+                }
+            } else {
+                // no more keys
+                break;
+            }
         }
 
         if (!resp_start(c)) {
@@ -1211,20 +1243,25 @@ void mcp_set_resobj(mcp_resp_t *r, mcp_request_t *rq, mcp_backend_t *be, LIBEVEN
     // the coroutine but the structure doesn't allow that yet.
     // Should also be able to settle this exact mode from the parser so we
     // don't have to re-branch here.
-    if (rq->pr.noreply) {
-        if (rq->pr.cmd_type == CMD_TYPE_META) {
+    if (rq->pr.cmd_type == CMD_TYPE_META) {
+        if (mcmc_token_has_flag_bit(&rq->pr.tok, (uint64_t)1<<48) == MCMC_OK) {
             r->mode = RESP_MODE_METAQUIET;
-            for (int x = 2; x < rq->pr.ntokens; x++) {
-                if (rq->request[rq->pr.tokens[x]] == 'q') {
-                    rq->request[rq->pr.tokens[x]] = ' ';
+            // FIXME: should this use the new interface? re-evaluate?
+            for (int x = 2; x < rq->pr.tok.ntokens; x++) {
+                if (rq->request[rq->pr.tok.tokens[x]] == 'q') {
+                    rq->request[rq->pr.tok.tokens[x]] = ' ';
                 }
             }
         } else {
-            r->mode = RESP_MODE_NOREPLY;
-            rq->request[rq->pr.reqlen - 3] = 'Y';
+            r->mode = RESP_MODE_NORMAL;
         }
     } else {
-        r->mode = RESP_MODE_NORMAL;
+        if (rq->pr.noreply) {
+            r->mode = RESP_MODE_NOREPLY;
+            rq->request[rq->pr.reqlen - 3] = 'Y';
+        } else {
+            r->mode = RESP_MODE_NORMAL;
+        }
     }
 
     r->cmd = rq->pr.command;

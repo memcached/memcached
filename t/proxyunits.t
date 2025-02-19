@@ -154,9 +154,8 @@ sub proxy_test {
 
     my $space = ' ' x 200;
     print $ps "get$space key key\r\n";
-    is(scalar <$ps>, "CLIENT_ERROR malformed request\r\n");
-    is(scalar <$ps>, "CLIENT_ERROR malformed request\r\n");
-    is(scalar <$ps>, "END\r\n"); # god damn multiget syntax.
+    is(scalar <$ps>, "CLIENT_ERROR malformed request\r\n", "request prefix is too long");
+    check_version($ps);
 }
 
 {
