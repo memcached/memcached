@@ -1152,7 +1152,7 @@ void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
         rqu->state = RQUEUE_ACTIVE;
         if (rqu->obj_type == RQUEUE_TYPE_POOL) {
             mcp_request_t *rq = rqu->rq;
-            mcp_backend_t *be = mcplib_pool_proxy_call_helper(rqu->obj, MCP_PARSER_KEY(rq->pr), rq->pr.klen);
+            mcp_backend_t *be = mcplib_pool_proxy_call_helper(rqu->obj, MCP_PARSER_KEY(&rq->pr), rq->pr.klen);
 
             mcp_set_resobj(rqu->res_obj, rq, be, rctx->fgen->thread);
             io_pending_proxy_t *p = mcp_queue_rctx_io(rctx, rq, be, rqu->res_obj);
@@ -1718,7 +1718,7 @@ static mcp_funcgen_t *mcp_funcgen_route(lua_State *L, mcp_funcgen_t *fgen, mcp_p
     if (pr->klen == 0) {
         return NULL;
     }
-    const char *key = &pr->request[pr->tokens[pr->keytoken]];
+    const char *key = &pr->request[pr->tok.tokens[pr->keytoken]];
     const char *lookup = NULL;
     size_t lookuplen = 0;
     switch(fr->type) {

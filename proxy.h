@@ -336,24 +336,18 @@ struct mcp_parser_meta_s {
 struct mcp_parser_s {
     const char *request;
     void *vbuf; // temporary buffer for holding value lengths.
+    mcmc_tokenizer_t tok; // tokenizer structure
     uint8_t command;
     uint8_t cmd_type; // command class.
-    uint8_t ntokens;
     uint8_t keytoken; // because GAT. sigh. also cmds without a key.
-    uint32_t parsed; // how far into the request we parsed already
     uint32_t reqlen; // full length of request buffer.
     uint32_t endlen; // index to the start of \r\n or \n
     int vlen;
     uint32_t klen; // length of key.
-    uint16_t tokens[PARSER_MAX_TOKENS]; // offsets for start of each token
-    bool has_space; // a space was found after the last byte parsed.
     bool noreply; // if quiet/noreply mode is set.
-    union {
-        struct mcp_parser_meta_s meta;
-    } t;
 };
 
-#define MCP_PARSER_KEY(pr) (&pr.request[pr.tokens[pr.keytoken]])
+#define MCP_PARSER_KEY(pr) (&(pr)->request[(pr)->tok.tokens[(pr)->keytoken]])
 
 #define MAX_REQ_TOKENS 2
 struct mcp_request_s {
@@ -856,9 +850,6 @@ mcp_backend_t *mcplib_pool_proxy_call_helper(mcp_pool_proxy_t *pp, const char *k
 void mcp_request_attach(mcp_request_t *rq, io_pending_proxy_t *p);
 int mcp_request_render(mcp_request_t *rq, int idx, char flag, const char *tok, size_t len);
 int mcp_request_append(mcp_request_t *rq, const char flag, const char *tok, size_t len);
-int mcp_request_find_flag_index(mcp_request_t *rq, const char flag);
-int mcp_request_find_flag_token(mcp_request_t *rq, const char flag, const char **token, size_t *len);
-int mcp_request_find_flag_tokenint64(mcp_request_t *rq, const char flag, int64_t *token);
 void proxy_lua_error(lua_State *L, const char *s);
 #define proxy_lua_ferror(L, fmt, ...) \
     do { \
