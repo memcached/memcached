@@ -756,6 +756,11 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         out_string(c, "RESET");
         return;
     } else if (strcmp(subcommand, "detail") == 0) {
+        if (!settings.dump_enabled) {
+            out_string(c, "CLIENT_ERROR stats detail not allowed");
+            return;
+        }
+
         /* NOTE: how to tackle detail with binary? */
         if (ntokens < 4)
             process_stats_detail(c, "");  /* outputs the error message */

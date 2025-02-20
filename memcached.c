@@ -4035,7 +4035,7 @@ static void usage(void) {
     printf("-S, --enable-sasl         turn on Sasl authentication\n");
 #endif
     printf("-F, --disable-flush-all   disable flush_all command\n");
-    printf("-X, --disable-dumping     disable stats cachedump and lru_crawler metadump\n");
+    printf("-X, --disable-dumping     disable stats cachedump, stats detail, and lru_crawler metadump\n");
     printf("-W  --disable-watch       disable watch commands (live logging)\n");
     printf("-Y, --auth-file=<file>    (EXPERIMENTAL) enable ASCII protocol authentication. format:\n"
            "                          user:pass\\nuser2:pass2\\n\n");
