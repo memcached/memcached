@@ -96,7 +96,7 @@ struct mcp_memprofile {
 #define MCP_REQUEST_MAXLEN KEY_MAX_LENGTH * 2
 
 #define ENDSTR "END\r\n"
-#define ENDLEN sizeof(ENDSTR)-1
+#define ENDLEN (sizeof(ENDSTR)-1)
 
 #define MCP_BACKEND_UPVALUE 1
 
@@ -352,7 +352,6 @@ struct mcp_parser_s {
 #define MAX_REQ_TOKENS 2
 struct mcp_request_s {
     mcp_parser_t pr; // non-lua-specific parser handling.
-    bool ascii_multiget; // ascii multiget mode. (hide errors/END)
     char request[];
 };
 
@@ -527,7 +526,6 @@ struct _io_pending_proxy_t {
     mcp_rcontext_t *rctx; // pointer to request context.
     mcp_resp_t *client_resp; // reference (currently pointing to a lua object)
     int queue_handle; // queue slot to return this result to
-    bool ascii_multiget; // passed on from mcp_r_t
     union {
         // extstore IO.
         struct {
@@ -749,6 +747,7 @@ struct mcp_rcontext_s {
     enum mcp_rqueue_e wait_mode;
     uint8_t lua_narg; // number of responses to push when yield resuming.
     uint8_t uobj_count; // number of extra tracked req/res objects.
+    bool ascii_multiget; // ascii multiget mode. (hide errors/END)
     lua_State *Lc; // coroutine thread pointer.
     mcp_request_t *request; // ptr to the above reference.
     mcp_rcontext_t *parent; // parent rctx in the call graph

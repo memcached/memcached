@@ -106,15 +106,9 @@ static void _storage_get_item_cb(void *e, obj_io *eio, int ret) {
     if (miss && !resp->skip) {
         resp->iovcnt = 1;
         if (io->gettype == PROXY_STORAGE_GET) {
-            if (io->ascii_multiget) {
-                resp->iov[0].iov_len = 0;
-                resp->iov[0].iov_base = "";
-                resp->tosend = 0;
-            } else {
-                resp->iov[0].iov_len = 5;
-                resp->iov[0].iov_base = "END\r\n";
-                resp->tosend = 5;
-            }
+            resp->iov[0].iov_len = 5;
+            resp->iov[0].iov_base = "END\r\n";
+            resp->tosend = 5;
         } else if (io->gettype == PROXY_STORAGE_MG) {
             resp->iov[0].iov_len = 4;
             resp->iov[0].iov_base = "EN\r\n";
@@ -1707,15 +1701,6 @@ static inline int _mcplib_internal_run(LIBEVENT_THREAD *t, mcp_request_t *rq, mc
     // Either way this is a lot less code.
     mcmc_parse_buf(resp->iov[0].iov_base, resp->iov[0].iov_len, &r->resp);
 
-    if (rq->ascii_multiget) {
-        if (r->resp.type == MCMC_RESP_GET) {
-            // Blank out the END. Bad hack.
-            resp->iovcnt--;
-        } else if (r->resp.type == MCMC_RESP_END) {
-            resp->skip = true;
-        }
-    }
-
     // TODO: r-> will need status/code/mode copied from resp.
     r->cresp = resp;
     r->thread = t;
@@ -1788,7 +1773,6 @@ int mcplib_internal_run(mcp_rcontext_t *rctx) {
 
         io->rctx = rctx;
         io->c = rctx->c;
-        io->ascii_multiget = rq->ascii_multiget;
         // mark the buffer into the mcp_resp for freeing later.
         r->buf = io->eio.buf;
         return 1;
