@@ -135,17 +135,18 @@ int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
     // with a \r\n requirement but never did this and need backcompat.
     // In this case we _know_ \n is at cmdlen because we can't enter this
     // function otherwise.
+    size_t endlen = 0;
     if (cm[cmdlen-2] == '\r') {
-        pr->endlen = cmdlen - 2;
+        endlen = cmdlen - 2;
     } else {
-        pr->endlen = cmdlen - 1;
+        endlen = cmdlen - 1;
     }
 
-    const char *s = memchr(command, ' ', pr->endlen);
+    const char *s = memchr(command, ' ', endlen);
     if (s != NULL) {
         cl = s - command;
     } else {
-        cl = pr->endlen;
+        cl = endlen;
     }
     pr->keytoken = 0;
     pr->request = command;

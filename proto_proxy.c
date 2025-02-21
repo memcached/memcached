@@ -1047,6 +1047,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
         const char *curkey = pr.request + keyoff;
         int klen = pr.klen;
         int cmd_prefix_len = pr.tok.tokens[pr.keytoken];
+        size_t endlen = 0;
 
         // TODO: TEST THIS CASE
         // check once if our prefix is too long.
@@ -1057,6 +1058,12 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
             }
             proxy_out_errstring(c->resp, PROXY_CLIENT_ERROR, "malformed request");
             return;
+        }
+
+        if (pr.request[pr.reqlen-2] == '\r') {
+            endlen = pr.reqlen - 2;
+        } else {
+            endlen = pr.reqlen - 1;
         }
 
         while (klen != 0) {
@@ -1092,7 +1099,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
             // Find the next key manually. This keeps the special cased code
             // here instead of adding extra junk to the parser structure.
             curkey += klen;
-            int remain = pr.endlen - (curkey - pr.request);
+            int remain = endlen - (curkey - pr.request);
             while (remain) {
                 if (*curkey == ' ') {
                     remain--;
