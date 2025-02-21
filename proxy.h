@@ -341,7 +341,6 @@ struct mcp_parser_s {
     uint8_t cmd_type; // command class.
     uint8_t keytoken; // because GAT. sigh. also cmds without a key.
     uint32_t reqlen; // full length of request buffer.
-    uint32_t endlen; // index to the start of \r\n or \n
     int vlen;
     uint32_t klen; // length of key.
     bool noreply; // if quiet/noreply mode is set.
