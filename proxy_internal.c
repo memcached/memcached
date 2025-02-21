@@ -106,15 +106,9 @@ static void _storage_get_item_cb(void *e, obj_io *eio, int ret) {
     if (miss && !resp->skip) {
         resp->iovcnt = 1;
         if (io->gettype == PROXY_STORAGE_GET) {
-            if (io->ascii_multiget) {
-                resp->iov[0].iov_len = 0;
-                resp->iov[0].iov_base = "";
-                resp->tosend = 0;
-            } else {
-                resp->iov[0].iov_len = 5;
-                resp->iov[0].iov_base = "END\r\n";
-                resp->tosend = 5;
-            }
+            resp->iov[0].iov_len = 5;
+            resp->iov[0].iov_base = "END\r\n";
+            resp->tosend = 5;
         } else if (io->gettype == PROXY_STORAGE_MG) {
             resp->iov[0].iov_len = 4;
             resp->iov[0].iov_base = "EN\r\n";
@@ -227,7 +221,7 @@ static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas,
 }
 
 static void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, bool return_cas, bool should_touch) {
-    const char *key = &pr->request[pr->tokens[pr->keytoken]];
+    const char *key = MCP_PARSER_KEY(pr);
     int nkey = pr->klen;
     rel_time_t exptime = 0;
     bool overflow = false; // unused.
@@ -308,7 +302,7 @@ static void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp,
 }
 
 static void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, int comm, bool handle_cas) {
-    const char *key = &pr->request[pr->tokens[pr->keytoken]];
+    const char *key = MCP_PARSER_KEY(pr);
     size_t nkey = pr->klen;
     client_flags_t flags;
     int32_t exptime_int = 0;
@@ -323,12 +317,10 @@ static void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
         return;
     }
 
-    // TODO (v2): these safe_str* functions operate on C _strings_, but these
-    // tokens simply end with a space or carriage return/newline, so we either
-    // need custom functions or validate harder that these calls won't bite us
-    // later.
-    if (! (safe_strtoflags(&pr->request[pr->tokens[2]], &flags)
-           && safe_strtol(&pr->request[pr->tokens[3]], &exptime_int))) {
+    // TODO: convert to mcmc_token_etc which do not use strtol underneath.
+    // safe_strtoflags is an alias based on large client flags :(
+    if (! (safe_strtoflags(&pr->request[pr->tok.tokens[2]], &flags)
+           && safe_strtol(&pr->request[pr->tok.tokens[3]], &exptime_int))) {
         pout_string(resp, "CLIENT_ERROR bad command line format");
         return;
     }
@@ -337,7 +329,7 @@ static void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
 
     // does cas value exist?
     if (handle_cas) {
-        if (!safe_strtoull(&pr->request[pr->tokens[5]], &req_cas_id)) {
+        if (!safe_strtoull(&pr->request[pr->tok.tokens[5]], &req_cas_id)) {
             pout_string(resp, "CLIENT_ERROR bad command line format");
             return;
         }
@@ -421,7 +413,7 @@ static void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
 static void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, const bool incr) {
     char temp[INCR_MAX_STORAGE_LEN];
     uint64_t delta;
-    const char *key = &pr->request[pr->tokens[pr->keytoken]];
+    const char *key = MCP_PARSER_KEY(pr);
     size_t nkey = pr->klen;
 
     assert(t != NULL);
@@ -431,7 +423,7 @@ static void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp
         return;
     }
 
-    if (!safe_strtoull(&pr->request[pr->tokens[2]], &delta)) {
+    if (!safe_strtoull(&pr->request[pr->tok.tokens[2]], &delta)) {
         pout_string(resp, "CLIENT_ERROR invalid numeric delta argument");
         return;
     }
@@ -463,7 +455,7 @@ static void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp
 }
 
 static void process_delete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
-    const char *key = &pr->request[pr->tokens[pr->keytoken]];
+    const char *key = MCP_PARSER_KEY(pr);
     size_t nkey = pr->klen;
     item *it;
     uint32_t hv;
@@ -504,7 +496,7 @@ static void process_delete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
 }
 
 static void process_touch_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
-    const char *key = &pr->request[pr->tokens[pr->keytoken]];
+    const char *key = MCP_PARSER_KEY(pr);
     size_t nkey = pr->klen;
     int32_t exptime_int = 0;
     rel_time_t exptime = 0;
@@ -517,7 +509,7 @@ static void process_touch_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *res
         return;
     }
 
-    if (!safe_strtol(&pr->request[pr->tokens[2]], &exptime_int)) {
+    if (!safe_strtol(&pr->request[pr->tok.tokens[2]], &exptime_int)) {
         pout_string(resp, "CLIENT_ERROR invalid exptime argument");
         return;
     }
@@ -546,8 +538,8 @@ static void process_touch_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *res
 
 // FIXME: macro or public interface, this is copypasted.
 static int _process_token_len(mcp_parser_t *pr, size_t token) {
-  const char *s = pr->request + pr->tokens[token];
-  const char *e = pr->request + pr->tokens[token+1];
+  const char *s = pr->request + pr->tok.tokens[token];
+  const char *e = pr->request + pr->tok.tokens[token+1];
   // start of next token is after any space delimiters, so back those out.
   while (*(e-1) == ' ') {
       e--;
@@ -609,8 +601,8 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
     int32_t tmp_int;
     uint8_t seen[127] = {0};
     // Start just past the key token. Look at first character of each token.
-    for (i = start; i < pr->ntokens; i++) {
-        uint8_t o = (uint8_t)pr->request[pr->tokens[i]];
+    for (i = start; i < pr->tok.ntokens; i++) {
+        uint8_t o = (uint8_t)pr->request[pr->tok.tokens[i]];
         // zero out repeat flags so we don't over-parse for return data.
         if (o >= 127 || seen[o] != 0) {
             *errstr = "CLIENT_ERROR duplicate flag";
@@ -639,7 +631,7 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
             case 'N':
                 of->locked = 1;
                 of->vivify = 1;
-                if (!safe_strtol(&pr->request[pr->tokens[i]+1], &tmp_int)) {
+                if (!safe_strtol(&pr->request[pr->tok.tokens[i]+1], &tmp_int)) {
                     *errstr = "CLIENT_ERROR bad token in command line format";
                     of->has_error = 1;
                 } else {
@@ -648,7 +640,7 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
                 break;
             case 'T':
                 of->locked = 1;
-                if (!safe_strtol(&pr->request[pr->tokens[i]+1], &tmp_int)) {
+                if (!safe_strtol(&pr->request[pr->tok.tokens[i]+1], &tmp_int)) {
                     *errstr = "CLIENT_ERROR bad token in command line format";
                     of->has_error = 1;
                 } else {
@@ -658,7 +650,7 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
                 break;
             case 'R':
                 of->locked = 1;
-                if (!safe_strtol(&pr->request[pr->tokens[i]+1], &tmp_int)) {
+                if (!safe_strtol(&pr->request[pr->tok.tokens[i]+1], &tmp_int)) {
                     *errstr = "CLIENT_ERROR bad token in command line format";
                     of->has_error = 1;
                 } else {
@@ -696,12 +688,12 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
                 break;
             // mset-related.
             case 'F':
-                if (!safe_strtoflags(&pr->request[pr->tokens[i]+1], &of->client_flags)) {
+                if (!safe_strtoflags(&pr->request[pr->tok.tokens[i]+1], &of->client_flags)) {
                     of->has_error = true;
                 }
                 break;
             case 'C': // mset, mdelete, marithmetic
-                if (!safe_strtoull(&pr->request[pr->tokens[i]+1], &of->req_cas_id)) {
+                if (!safe_strtoull(&pr->request[pr->tok.tokens[i]+1], &of->req_cas_id)) {
                     *errstr = "CLIENT_ERROR bad token in command line format";
                     of->has_error = true;
                 } else {
@@ -709,7 +701,7 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
                 }
                 break;
             case 'E': // ms, md, ma
-                if (!safe_strtoull(&pr->request[pr->tokens[i]+1], &of->cas_id_in)) {
+                if (!safe_strtoull(&pr->request[pr->tok.tokens[i]+1], &of->cas_id_in)) {
                     *errstr = "CLIENT_ERROR bad token in command line format";
                     of->has_error = true;
                 } else {
@@ -719,16 +711,16 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
             case 'M': // mset and marithmetic mode switch
                 // FIXME: this used to error if the token isn't a single byte.
                 // It probably should still?
-                of->mode = pr->request[pr->tokens[i]+1];
+                of->mode = pr->request[pr->tok.tokens[i]+1];
                 break;
             case 'J': // marithmetic initial value
-                if (!safe_strtoull(&pr->request[pr->tokens[i]+1], &of->initial)) {
+                if (!safe_strtoull(&pr->request[pr->tok.tokens[i]+1], &of->initial)) {
                     *errstr = "CLIENT_ERROR invalid numeric initial value";
                     of->has_error = 1;
                 }
                 break;
             case 'D': // marithmetic delta value
-                if (!safe_strtoull(&pr->request[pr->tokens[i]+1], &of->delta)) {
+                if (!safe_strtoull(&pr->request[pr->tok.tokens[i]+1], &of->delta)) {
                     *errstr = "CLIENT_ERROR invalid numeric delta value";
                     of->has_error = 1;
                 }
@@ -746,7 +738,7 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
 }
 
 static void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
-    const char *key = &pr->request[pr->tokens[pr->keytoken]];
+    const char *key = MCP_PARSER_KEY(pr);
     size_t nkey = pr->klen;
     item *it;
     unsigned int i = 0;
@@ -769,7 +761,7 @@ static void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
         return;
     }
 
-    if (pr->ntokens > MFLAG_MAX_OPT_LENGTH) {
+    if (pr->tok.ntokens > MFLAG_MAX_OPT_LENGTH) {
         // TODO: ensure the command tokenizer gives us at least this many
         pout_errstring(resp, "CLIENT_ERROR options flags are too long");
         return;
@@ -827,8 +819,8 @@ static void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
             p += 2;
         }
 
-        for (i = pr->keytoken+1; i < pr->ntokens; i++) {
-            switch (pr->request[pr->tokens[i]]) {
+        for (i = pr->keytoken+1; i < pr->tok.ntokens; i++) {
+            switch (pr->request[pr->tok.tokens[i]]) {
                 case 'T':
                     ttl_set = true;
                     it->exptime = of.exptime;
@@ -898,7 +890,7 @@ static void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
                         goto error;
                     }
                     META_SPACE(p);
-                    memcpy(p, &pr->request[pr->tokens[i]], tlen);
+                    memcpy(p, &pr->request[pr->tok.tokens[i]], tlen);
                     p += tlen;
                     break;
                 case 'k':
@@ -1019,8 +1011,8 @@ static void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
             resp->skip = true;
         memcpy(p, "EN", 2);
         p += 2;
-        for (i = pr->keytoken+1; i < pr->ntokens; i++) {
-            switch (pr->request[pr->tokens[i]]) {
+        for (i = pr->keytoken+1; i < pr->tok.ntokens; i++) {
+            switch (pr->request[pr->tok.tokens[i]]) {
                 // TODO: macro perhaps?
                 case 'O':
                     tlen = _process_token_len(pr, i);
@@ -1029,7 +1021,7 @@ static void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
                         goto error;
                     }
                     META_SPACE(p);
-                    memcpy(p, &pr->request[pr->tokens[i]], tlen);
+                    memcpy(p, &pr->request[pr->tok.tokens[i]], tlen);
                     p += tlen;
                     break;
                 case 'k':
@@ -1054,7 +1046,7 @@ error:
 }
 
 static void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
-    const char *key = &pr->request[pr->tokens[pr->keytoken]];
+    const char *key = MCP_PARSER_KEY(pr);
     size_t nkey = pr->klen;
 
     item *it;
@@ -1070,12 +1062,12 @@ static void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
 
     //WANT_TOKENS_MIN(ntokens, 3);
 
-    if (nkey > KEY_MAX_LENGTH || pr->ntokens < 3) {
+    if (nkey > KEY_MAX_LENGTH || pr->tok.ntokens < 3) {
         pout_string(resp, "CLIENT_ERROR bad command line format");
         return;
     }
 
-    if (pr->ntokens > MFLAG_MAX_OPT_LENGTH) {
+    if (pr->tok.ntokens > MFLAG_MAX_OPT_LENGTH) {
         // TODO: ensure the command tokenizer gives us at least this many
         pout_errstring(resp, "CLIENT_ERROR options flags are too long");
         return;
@@ -1213,8 +1205,8 @@ static void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
     }
     p += 2;
 
-    for (i = pr->keytoken+1; i < pr->ntokens; i++) {
-        switch (pr->request[pr->tokens[i]]) {
+    for (i = pr->keytoken+1; i < pr->tok.ntokens; i++) {
+        switch (pr->request[pr->tok.tokens[i]]) {
             case 'O':
                 tlen = _process_token_len(pr, i);
                 if (tlen > MFLAG_MAX_OPAQUE_LENGTH) {
@@ -1222,7 +1214,7 @@ static void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
                     goto error;
                 }
                 META_SPACE(p);
-                memcpy(p, &pr->request[pr->tokens[i]], tlen);
+                memcpy(p, &pr->request[pr->tok.tokens[i]], tlen);
                 p += tlen;
                 break;
             case 'k':
@@ -1264,7 +1256,7 @@ error:
 }
 
 static void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
-    const char *key = &pr->request[pr->tokens[pr->keytoken]];
+    const char *key = MCP_PARSER_KEY(pr);
     size_t nkey = pr->klen;
     item *it = NULL;
     int i;
@@ -1283,7 +1275,7 @@ static void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *r
         return;
     }
 
-    if (pr->ntokens > MFLAG_MAX_OPT_LENGTH) {
+    if (pr->tok.ntokens > MFLAG_MAX_OPT_LENGTH) {
         // TODO: ensure the command tokenizer gives us at least this many
         pout_errstring(resp, "CLIENT_ERROR options flags are too long");
         return;
@@ -1297,8 +1289,8 @@ static void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *r
         return;
     }
 
-    for (i = pr->keytoken+1; i < pr->ntokens; i++) {
-        switch (pr->request[pr->tokens[i]]) {
+    for (i = pr->keytoken+1; i < pr->tok.ntokens; i++) {
+        switch (pr->request[pr->tok.tokens[i]]) {
             // TODO: macro perhaps?
             case 'O':
                 tlen = _process_token_len(pr, i);
@@ -1307,7 +1299,7 @@ static void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *r
                     goto error;
                 }
                 META_SPACE(p);
-                memcpy(p, &pr->request[pr->tokens[i]], tlen);
+                memcpy(p, &pr->request[pr->tok.tokens[i]], tlen);
                 p += tlen;
                 break;
             case 'k':
@@ -1409,7 +1401,7 @@ error:
 }
 
 static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
-    const char *key = &pr->request[pr->tokens[pr->keytoken]];
+    const char *key = MCP_PARSER_KEY(pr);
     size_t nkey = pr->klen;
     int i;
     struct _meta_flags of = {0}; // option bitflags.
@@ -1434,7 +1426,7 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
         return;
     }
 
-    if (pr->ntokens > MFLAG_MAX_OPT_LENGTH) {
+    if (pr->tok.ntokens > MFLAG_MAX_OPT_LENGTH) {
         // TODO: ensure the command tokenizer gives us at least this many
         pout_errstring(resp, "CLIENT_ERROR options flags are too long");
         return;
@@ -1550,8 +1542,8 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
             p += 2;
         }
 
-        for (i = pr->keytoken+1; i < pr->ntokens; i++) {
-            switch (pr->request[pr->tokens[i]]) {
+        for (i = pr->keytoken+1; i < pr->tok.ntokens; i++) {
+            switch (pr->request[pr->tok.tokens[i]]) {
                 case 'c':
                     META_CHAR(p, 'c');
                     p = itoa_u64(cas, p);
@@ -1581,7 +1573,7 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
                         goto error;
                     }
                     META_SPACE(p);
-                    memcpy(p, &pr->request[pr->tokens[i]], tlen);
+                    memcpy(p, &pr->request[pr->tok.tokens[i]], tlen);
                     p += tlen;
                     break;
                 case 'k':
@@ -1601,8 +1593,8 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
         do_item_remove(it);
     } else {
         // No item to handle. still need to return opaque/key tokens
-        for (i = pr->keytoken+1; i < pr->ntokens; i++) {
-            switch (pr->request[pr->tokens[i]]) {
+        for (i = pr->keytoken+1; i < pr->tok.ntokens; i++) {
+            switch (pr->request[pr->tok.tokens[i]]) {
                 case 'O':
                     tlen = _process_token_len(pr, i);
                     if (tlen > MFLAG_MAX_OPAQUE_LENGTH) {
@@ -1610,7 +1602,7 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
                         goto error;
                     }
                     META_SPACE(p);
-                    memcpy(p, &pr->request[pr->tokens[i]], tlen);
+                    memcpy(p, &pr->request[pr->tok.tokens[i]], tlen);
                     p += tlen;
                     break;
                 case 'k':
@@ -1709,15 +1701,6 @@ static inline int _mcplib_internal_run(LIBEVENT_THREAD *t, mcp_request_t *rq, mc
     // Either way this is a lot less code.
     mcmc_parse_buf(resp->iov[0].iov_base, resp->iov[0].iov_len, &r->resp);
 
-    if (rq->ascii_multiget) {
-        if (r->resp.type == MCMC_RESP_GET) {
-            // Blank out the END. Bad hack.
-            resp->iovcnt--;
-        } else if (r->resp.type == MCMC_RESP_END) {
-            resp->skip = true;
-        }
-    }
-
     // TODO: r-> will need status/code/mode copied from resp.
     r->cresp = resp;
     r->thread = t;
@@ -1790,7 +1773,6 @@ int mcplib_internal_run(mcp_rcontext_t *rctx) {
 
         io->rctx = rctx;
         io->c = rctx->c;
-        io->ascii_multiget = rq->ascii_multiget;
         // mark the buffer into the mcp_resp for freeing later.
         r->buf = io->eio.buf;
         return 1;

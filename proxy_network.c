@@ -536,16 +536,6 @@ static int proxy_backend_drive_machine(struct mcp_backendconn_s *be) {
                     // this is a MISS from a GET request
                     // or final handler from a STAT request.
                     assert(r->resp.vlen == 0);
-                    if (p->ascii_multiget) {
-                        // Ascii multiget hack mode; consume END's
-                        be->rbufused -= r->resp.reslen;
-                        if (be->rbufused > 0) {
-                            memmove(be->rbuf, be->rbuf+r->resp.reslen, be->rbufused);
-                        }
-
-                        be->state = mcp_backend_next;
-                        continue;
-                    }
                     break;
                 case MCMC_RESP_META:
                     // we can handle meta responses easily since they're self
@@ -644,14 +634,8 @@ static int proxy_backend_drive_machine(struct mcp_backendconn_s *be) {
                 } else {
                     // response is good.
                     // FIXME (v2): copy what the server actually sent?
-                    if (!p->ascii_multiget) {
-                        // sigh... if part of a multiget we need to eat the END
-                        // markers down here.
-                        memcpy(r->buf+r->blen, ENDSTR, ENDLEN);
-                        r->blen += 5;
-                    } else {
-                        r->extra = 5;
-                    }
+                    memcpy(r->buf+r->blen, ENDSTR, ENDLEN);
+                    r->blen += 5;
 
                     // advance buffer
                     be->rbufused -= ENDLEN;
