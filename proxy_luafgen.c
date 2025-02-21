@@ -330,6 +330,7 @@ static void _mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
     }
     rctx->wait_mode = QWAIT_IDLE;
     rctx->resp = NULL;
+    rctx->ascii_multiget = false;
     if (rctx->request) {
         mcp_request_cleanup(fgen->thread, rctx->request);
     }
@@ -1212,7 +1213,6 @@ void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
 
                 io->rctx = rctx;
                 io->c = rctx->c;
-                io->ascii_multiget = rq->ascii_multiget;
                 // mark the buffer into the mcp_resp for freeing later.
                 rqu->res_obj->buf = io->eio.buf;
                 rctx->pending_reqs++;

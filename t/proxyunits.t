@@ -611,7 +611,7 @@ check_sanity($ps);
     is(scalar <$be>, "get /b/c\r\n", "multiget breakdown c");
 
     print $be "END\r\nEND\r\nEND\r\n";
-    is(scalar <$ps>, "END\r\n", "final END from multiget");
+    is(scalar <$ps>, "END\r\n", "final END from full miss multiget");
 
     # If bugged, the backend will have closed.
     print $ps "get /b/a\r\n";

@@ -883,6 +883,21 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
                 proxy_out_errstring(resp, PROXY_SERVER_ERROR, "bad response");
             }
 
+            if (rctx->ascii_multiget && !resp->skip) {
+                struct iovec *iov = &resp->iov[resp->iovcnt-1];
+                // look for END at end of final iov and blank it.
+                // Bad hack, but centralized here now.
+                if (iov->iov_len >= ENDLEN &&
+                        memcmp(((char *)iov->iov_base)+(iov->iov_len-ENDLEN), ENDSTR, ENDLEN) == 0) {
+                    iov->iov_len -= ENDLEN;
+                    resp->tosend -= ENDLEN;
+                    if (resp->tosend == 0) {
+                        // some platforms don't like 0 byte iov's.
+                        // may be misremembering, double check? mac os?
+                        resp->skip = true;
+                    }
+                }
+            }
             conn_resp_unsuspend(rctx->c, resp);
             rctx->c = NULL; // *conn cannot be used past this point!
             rctx->pending_reqs--;
@@ -1165,7 +1180,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     }
 
     mcp_set_request(&pr, rctx->request, command, cmdlen);
-    rctx->request->ascii_multiget = multiget;
+    rctx->ascii_multiget = multiget;
     rctx->c = c;
     rctx->conn_fd = c->sfd;
     rctx->pending_reqs++; // seed counter with the "main" request
@@ -1308,7 +1323,6 @@ io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, m
     p->rctx = rctx;
 
     if (rq) {
-        p->ascii_multiget = rq->ascii_multiget;
         // The direct backend object. Lc is holding the reference in the stack
         p->backend = be;
 
