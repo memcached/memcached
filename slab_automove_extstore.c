@@ -122,7 +122,6 @@ static void memcheck(slab_automove *a) {
     a->global_pool_watermark = total_pages * a->free_ratio;
     if (a->global_pool_watermark < 2)
         a->global_pool_watermark = 2;
-    settings.ext_global_pool_min = a->global_pool_watermark;
 }
 
 static struct window_data *get_window_data(slab_automove *a, int class) {
@@ -242,6 +241,7 @@ void slab_automove_extstore_run(void *arg, int *src, int *dst) {
     if (a->window_cur < a->window_size)
         return;
 
+    settings.ext_global_pool_min = a->global_pool_watermark;
     if (!too_free && global_low && oldest != -1) {
         *src = oldest;
         *dst = 0;
