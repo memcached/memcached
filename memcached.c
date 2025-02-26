@@ -5192,18 +5192,18 @@ int main (int argc, char **argv) {
             case HASHPOWER_INIT:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing numeric argument for hashpower\n");
-                    return 1;
+                    goto error;
                 }
                 settings.hashpower_init = atoi(subopts_value);
                 if (settings.hashpower_init < 12) {
                     fprintf(stderr, "Initial hashtable multiplier of %d is too low\n",
                         settings.hashpower_init);
-                    return 1;
+                    goto error;
                 } else if (settings.hashpower_init > 32) {
                     fprintf(stderr, "Initial hashtable multiplier of %d is too high\n"
                         "Choose a value based on \"STAT hash_power_level\" from a running instance\n",
                         settings.hashpower_init);
-                    return 1;
+                    goto error;
                 }
                 break;
             case NO_HASHEXPAND:
@@ -5220,46 +5220,46 @@ int main (int argc, char **argv) {
                 settings.slab_automove = atoi(subopts_value);
                 if (settings.slab_automove < 0 || settings.slab_automove > 2) {
                     fprintf(stderr, "slab_automove must be between 0 and 2\n");
-                    return 1;
+                    goto error;
                 }
                 break;
             case SLAB_AUTOMOVE_RATIO:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing slab_automove_ratio argument\n");
-                    return 1;
+                    goto error;
                 }
                 settings.slab_automove_ratio = atof(subopts_value);
                 if (settings.slab_automove_ratio <= 0 || settings.slab_automove_ratio > 1) {
                     fprintf(stderr, "slab_automove_ratio must be > 0 and < 1\n");
-                    return 1;
+                    goto error;
                 }
                 break;
             case SLAB_AUTOMOVE_WINDOW:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing slab_automove_window argument\n");
-                    return 1;
+                    goto error;
                 }
                 settings.slab_automove_window = atoi(subopts_value);
                 if (settings.slab_automove_window < 3) {
                     fprintf(stderr, "slab_automove_window must be > 2\n");
-                    return 1;
+                    goto error;
                 }
                 break;
             case TAIL_REPAIR_TIME:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing numeric argument for tail_repair_time\n");
-                    return 1;
+                    goto error;
                 }
                 settings.tail_repair_time = atoi(subopts_value);
                 if (settings.tail_repair_time < 10) {
                     fprintf(stderr, "Cannot set tail_repair_time to less than 10 seconds\n");
-                    return 1;
+                    goto error;
                 }
                 break;
             case HASH_ALGORITHM:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing hash_algorithm argument\n");
-                    return 1;
+                    goto error;
                 };
                 if (strcmp(subopts_value, "jenkins") == 0) {
                     hash_type = JENKINS_HASH;
@@ -5269,7 +5269,7 @@ int main (int argc, char **argv) {
                     hash_type = XXH3_HASH;
                 } else {
                     fprintf(stderr, "Unknown hash_algorithm option (jenkins, murmur3, xxh3)\n");
-                    return 1;
+                    goto error;
                 }
                 break;
             case LRU_CRAWLER:
@@ -5278,22 +5278,22 @@ int main (int argc, char **argv) {
             case LRU_CRAWLER_SLEEP:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing lru_crawler_sleep value\n");
-                    return 1;
+                    goto error;
                 }
                 settings.lru_crawler_sleep = atoi(subopts_value);
                 if (settings.lru_crawler_sleep > 1000000 || settings.lru_crawler_sleep < 0) {
                     fprintf(stderr, "LRU crawler sleep must be between 0 and 1 second\n");
-                    return 1;
+                    goto error;
                 }
                 break;
             case LRU_CRAWLER_TOCRAWL:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing lru_crawler_tocrawl value\n");
-                    return 1;
+                    goto error;
                 }
                 if (!safe_strtoul(subopts_value, &tocrawl)) {
                     fprintf(stderr, "lru_crawler_tocrawl takes a numeric 32bit value\n");
-                    return 1;
+                    goto error;
                 }
                 settings.lru_crawler_tocrawl = tocrawl;
                 break;
@@ -5304,51 +5304,51 @@ int main (int argc, char **argv) {
             case HOT_LRU_PCT:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing hot_lru_pct argument\n");
-                    return 1;
+                    goto error;
                 }
                 settings.hot_lru_pct = atoi(subopts_value);
                 if (settings.hot_lru_pct < 1 || settings.hot_lru_pct >= 80) {
                     fprintf(stderr, "hot_lru_pct must be > 1 and < 80\n");
-                    return 1;
+                    goto error;
                 }
                 break;
             case WARM_LRU_PCT:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing warm_lru_pct argument\n");
-                    return 1;
+                    goto error;
                 }
                 settings.warm_lru_pct = atoi(subopts_value);
                 if (settings.warm_lru_pct < 1 || settings.warm_lru_pct >= 80) {
                     fprintf(stderr, "warm_lru_pct must be > 1 and < 80\n");
-                    return 1;
+                    goto error;
                 }
                 break;
             case HOT_MAX_FACTOR:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing hot_max_factor argument\n");
-                    return 1;
+                    goto error;
                 }
                 settings.hot_max_factor = atof(subopts_value);
                 if (settings.hot_max_factor <= 0) {
                     fprintf(stderr, "hot_max_factor must be > 0\n");
-                    return 1;
+                    goto error;
                 }
                 break;
             case WARM_MAX_FACTOR:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing warm_max_factor argument\n");
-                    return 1;
+                    goto error;
                 }
                 settings.warm_max_factor = atof(subopts_value);
                 if (settings.warm_max_factor <= 0) {
                     fprintf(stderr, "warm_max_factor must be > 0\n");
-                    return 1;
+                    goto error;
                 }
                 break;
             case TEMPORARY_TTL:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing temporary_ttl argument\n");
-                    return 1;
+                    goto error;
                 }
                 settings.temp_lru = true;
                 settings.temporary_ttl = atoi(subopts_value);
@@ -5356,29 +5356,29 @@ int main (int argc, char **argv) {
             case IDLE_TIMEOUT:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing numeric argument for idle_timeout\n");
-                    return 1;
+                    goto error;
                 }
                 settings.idle_timeout = atoi(subopts_value);
                 break;
             case WATCHER_LOGBUF_SIZE:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing watcher_logbuf_size argument\n");
-                    return 1;
+                    goto error;
                 }
                 if (!safe_strtoul(subopts_value, &settings.logger_watcher_buf_size)) {
                     fprintf(stderr, "could not parse argument to watcher_logbuf_size\n");
-                    return 1;
+                    goto error;
                 }
                 settings.logger_watcher_buf_size *= 1024; /* kilobytes */
                 break;
             case WORKER_LOGBUF_SIZE:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing worker_logbuf_size argument\n");
-                    return 1;
+                    goto error;
                 }
                 if (!safe_strtoul(subopts_value, &settings.logger_buf_size)) {
                     fprintf(stderr, "could not parse argument to worker_logbuf_size\n");
-                    return 1;
+                    goto error;
                 }
                 settings.logger_buf_size *= 1024; /* kilobytes */
             case SLAB_SIZES:
@@ -5387,19 +5387,19 @@ int main (int argc, char **argv) {
             case SLAB_CHUNK_MAX:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing slab_chunk_max argument\n");
-                    return 1;
+                    goto error;
                 }
                 if (!safe_strtol(subopts_value, &settings.slab_chunk_size_max)) {
                     fprintf(stderr, "could not parse argument to slab_chunk_max\n");
-                    return 1;
+                    goto error;
                 }
                 if (settings.slab_chunk_size_max <= 0) {
                     fprintf(stderr, "slab_chunk_max must be >= 0\n");
-                    return 1;
+                    goto error;
                 }
                 if (settings.slab_chunk_size_max > (1 << 10)) {
                     fprintf(stderr, "slab_chunk_max must be specified in kilobytes.\n");
-                    return 1;
+                    goto error;
                 }
                 settings.slab_chunk_size_max *= (1 << 10);
                 slab_chunk_size_changed = true;
@@ -5435,14 +5435,14 @@ int main (int argc, char **argv) {
             case SSL_CERT:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing ssl_chain_cert argument\n");
-                    return 1;
+                    goto error;
                 }
                 settings.ssl_chain_cert = strdup(subopts_value);
                 break;
             case SSL_KEY:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing ssl_key argument\n");
-                    return 1;
+                    goto error;
                 }
                 settings.ssl_key = strdup(subopts_value);
                 break;
@@ -5450,51 +5450,51 @@ int main (int argc, char **argv) {
             {
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing ssl_verify_mode argument\n");
-                    return 1;
+                    goto error;
                 }
                 int verify  = 0;
                 if (!safe_strtol(subopts_value, &verify)) {
                     fprintf(stderr, "could not parse argument to ssl_verify_mode\n");
-                    return 1;
+                    goto error;
                 }
                 if (!ssl_set_verify_mode(verify)) {
                     fprintf(stderr, "Invalid ssl_verify_mode. Use help to see valid options.\n");
-                    return 1;
+                    goto error;
                 }
                 break;
             }
             case SSL_KEYFORM:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing ssl_keyformat argument\n");
-                    return 1;
+                    goto error;
                 }
                 if (!safe_strtol(subopts_value, &settings.ssl_keyformat)) {
                     fprintf(stderr, "could not parse argument to ssl_keyformat\n");
-                    return 1;
+                    goto error;
                 }
                 break;
             case SSL_CIPHERS:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing ssl_ciphers argument\n");
-                    return 1;
+                    goto error;
                 }
                 settings.ssl_ciphers = strdup(subopts_value);
                 break;
             case SSL_CA_CERT:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing ssl_ca_cert argument\n");
-                    return 1;
+                    goto error;
                 }
                 settings.ssl_ca_cert = strdup(subopts_value);
                 break;
             case SSL_WBUF_SIZE:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing ssl_wbuf_size argument\n");
-                    return 1;
+                    goto error;
                 }
                 if (!safe_strtoul(subopts_value, &settings.ssl_wbuf_size)) {
                     fprintf(stderr, "could not parse argument to ssl_wbuf_size\n");
-                    return 1;
+                    goto error;
                 }
                 settings.ssl_wbuf_size *= 1024; /* kilobytes */
                 break;
@@ -5508,15 +5508,15 @@ int main (int argc, char **argv) {
                 int min_version;
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing ssl_min_version argument\n");
-                    return 1;
+                    goto error;
                 }
                 if (!safe_strtol(subopts_value, &min_version)) {
                     fprintf(stderr, "could not parse argument to ssl_min_version\n");
-                    return 1;
+                    goto error;
                 }
                 if (!ssl_set_min_version(min_version)) {
                     fprintf(stderr, "Invalid ssl_min_version. Use help to see valid options.\n");
-                    return 1;
+                    goto error;
                 }
                 break;
             }
@@ -5549,11 +5549,11 @@ int main (int argc, char **argv) {
             case READ_BUF_MEM_LIMIT:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing read_buf_mem_limit argument\n");
-                    return 1;
+                    goto error;
                 }
                 if (!safe_strtoul(subopts_value, &settings.read_buf_mem_limit)) {
                     fprintf(stderr, "could not parse argument to read_buf_mem_limit\n");
-                    return 1;
+                    goto error;
                 }
                 settings.read_buf_mem_limit *= 1024 * 1024; /* megabytes */
                 break;
@@ -5561,11 +5561,11 @@ int main (int argc, char **argv) {
             case PROXY_CONFIG:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing proxy_config file argument\n");
-                    return 1;
+                    goto error;
                 }
                 if (protocol_specified) {
                     fprintf(stderr, "Cannot specify a protocol with proxy mode enabled\n");
-                    return 1;
+                    goto error;
                 }
                 settings.proxy_startfile = strdup(subopts_value);
                 settings.proxy_enabled = true;
@@ -5596,11 +5596,11 @@ int main (int argc, char **argv) {
 #ifdef EXTSTORE
                 // TODO: differentiating response code.
                 if (storage_read_config(storage_cf, &subopts_temp)) {
-                    return 1;
+                    goto error;
                 }
 #else
                 printf("Illegal suboption \"%s\"\n", subopts_temp);
-                return 1;
+                goto error;
 #endif
             } // switch
             if (subopts_temp_o) {
@@ -6209,4 +6209,9 @@ int main (int argc, char **argv) {
     free(meta);
 
     return retval;
+
+error:
+    if (subopts_orig)
+        free(subopts_orig);
+    return 1;
 }
