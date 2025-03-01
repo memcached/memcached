@@ -2141,7 +2141,7 @@ static void process_touch_command(conn *c, token_t *tokens, const size_t ntokens
     }
 }
 
-static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const bool incr) {
+static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const int incr) {
     char temp[INCR_MAX_STORAGE_LEN];
     uint64_t delta;
     char *key;
@@ -2990,6 +2990,14 @@ void process_command_ascii(conn *c, char *command) {
 
             WANT_TOKENS_OR(ntokens, 3, 4);
             process_memlimit_command(c, tokens, ntokens);
+        } else {
+            out_string(c, "ERROR");
+        }
+    } else if (first == 'm') {
+        if (strcmp(tokens[COMMAND_TOKEN].value, "mult") == 0) {
+
+            WANT_TOKENS_OR(ntokens, 4, 5);
+            process_arithmetic_command(c, tokens, ntokens, 2);
         } else {
             out_string(c, "ERROR");
         }
