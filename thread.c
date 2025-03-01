@@ -943,7 +943,7 @@ void item_unlink(item *item) {
  * Does arithmetic on a numeric item value.
  */
 enum delta_result_type add_delta(LIBEVENT_THREAD *t, const char *key,
-                                 const size_t nkey, bool incr,
+                                 const size_t nkey, int incr,
                                  const int64_t delta, char *buf,
                                  uint64_t *cas) {
     enum delta_result_type ret;
