@@ -930,7 +930,7 @@ extern void *ext_storage;
 void verify_default(const char* param, bool condition);
 void do_accept_new_conns(const bool do_accept);
 enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key,
-                                    const size_t nkey, const bool incr,
+                                    const size_t nkey, const int incr,
                                     const int64_t delta, char *buf,
                                     uint64_t *cas, const uint32_t hv,
                                     item **it_ret);
