@@ -2225,7 +2225,7 @@ item* limited_get_locked(const char *key, size_t nkey, LIBEVENT_THREAD *t, bool 
  * returns a response string to send back to the client.
  */
 enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const size_t nkey,
-                                    const bool incr, const int64_t delta,
+                                    const int incr, const int64_t delta,
                                     char *buf, uint64_t *cas,
                                     const uint32_t hv,
                                     item **it_ret) {
@@ -2262,16 +2262,21 @@ enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const s
         return NON_NUMERIC;
     }
 
-    if (incr) {
+    if (incr == 1) {
         value += delta;
         //MEMCACHED_COMMAND_INCR(c->sfd, ITEM_key(it), it->nkey, value);
-    } else {
+    } else if (incr == 0) {
         if(delta > value) {
             value = 0;
         } else {
             value -= delta;
         }
         //MEMCACHED_COMMAND_DECR(c->sfd, ITEM_key(it), it->nkey, value);
+    } else if (incr == 2) {
+        if (delta < 0) {
+            value = 0;
+        }
+        value *= delta;
     }
 
     pthread_mutex_lock(&t->stats.mutex);
