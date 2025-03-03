@@ -625,6 +625,9 @@ static void *storage_write_thread(void *arg) {
         int target_pages = 0;
         if (global_pages < settings.ext_global_pool_min) {
             target_pages = settings.ext_global_pool_min - global_pages;
+        } else if (global_pages == settings.ext_global_pool_min) {
+            // start flushing a little early to lessen pressure on page mover
+            target_pages = 1;
         }
         counter++;
         if (to_sleep > settings.ext_max_sleep)
@@ -650,9 +653,28 @@ static void *storage_write_thread(void *arg) {
                 // no slab class here, skip.
                 continue;
             }
-            unsigned int target = chunks_perpage * target_pages;
             // Loose estimate for cutting the calls to compacter
             unsigned int chunk_size = settings.slab_page_size / chunks_perpage;
+            // NOTE: stupid heuristic: we need to avoid over-flushing small
+            // slab classes because the relative size of the headers is close
+            // enough to cause runaway problems.
+            unsigned int max_pages = 0;
+            unsigned int target = 0;
+            if (chunk_size < 500) {
+                max_pages = 3;
+            } else if (chunk_size < 1000) {
+                max_pages = 4;
+            } else if (chunk_size < 2000) {
+                max_pages = 5;
+            } else {
+                max_pages = target_pages;
+            }
+
+            if (target_pages > max_pages) {
+                target = chunks_perpage * max_pages;
+            } else {
+                target = chunks_perpage * target_pages;
+            }
 
             // storage_write() will fail and cut loop after filling write buffer.
             while (1) {

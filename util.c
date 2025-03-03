@@ -5,8 +5,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <sys/time.h>
 
-#include "memcached.h"
+#include "util.h"
 
 static char *uriencode_map[256];
 static char uriencode_str[768];
@@ -262,4 +263,16 @@ uint64_t htonll(uint64_t val) {
    return mc_swap64(val);
 }
 #endif
+
+// adds ts2 to ts1
+#define NSEC_PER_SEC 1000000000
+void mc_timespec_add(struct timespec *ts1,
+        struct timespec *ts2) {
+    ts1->tv_sec += ts2->tv_sec;
+    ts1->tv_nsec += ts2->tv_nsec;
+    if (ts1->tv_nsec >= NSEC_PER_SEC) {
+        ts1->tv_sec++;
+        ts1->tv_nsec -= NSEC_PER_SEC;
+    }
+}
 

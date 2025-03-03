@@ -603,6 +603,7 @@ static void *slab_rebalance_thread(void *arg) {
     struct slab_rebalance *r = &t->rebal;
     int backoff_timer = 1;
     int backoff_max = 1000;
+    int algo_backoff = 0;
     // create logger in thread for setspecific
     t->l = logger_create();
     /* Go into cond_wait with the mutex held */
@@ -642,11 +643,21 @@ static void *slab_rebalance_thread(void *arg) {
             struct timespec now;
             clock_gettime(CLOCK_REALTIME, &now);
             if (slab_rebalance_check_automove(t, &now) == 0) {
+                struct timespec next = { .tv_sec = 0, .tv_nsec = 100000000 };
+                if (algo_backoff++ > 10) {
+                    // start sleeping once per second since we've gone at
+                    // least a second without doing anything.
+                    now.tv_sec++;
+                } else {
+                    // else do a shorter sleep to be more responsive.
+                    mc_timespec_add(&now, &next);
+                }
                 // standard delay
-                now.tv_sec++;
                 // wait for signal to start another move.
                 pthread_cond_timedwait(&t->cond, &t->lock, &now);
-            } // else don't wait, run again immediately.
+            } else { // else don't wait, run again immediately.
+                algo_backoff = 0;
+            }
         }
     }
 

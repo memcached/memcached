@@ -215,11 +215,11 @@ void slab_automove_extstore_run(void *arg, int *src, int *dst) {
         // large slabs should push to extstore if we try to evict from them.
         // so we can be aggressive there if the global pool is low.
         if (!small_slab) {
-            // grab age as average of window total
-            uint64_t age = w_sum.age / a->window_size;
-            // if oldest and have enough pages, is oldest
-            if (age > oldest_age
-                    && a->sam_after[n].total_pages > MIN_PAGES_FOR_SOURCE) {
+            // the first class with enough pages, else the one with the oldest
+            // tail age.
+            uint64_t age = a->iam_after[n].age;
+            if (a->sam_after[n].total_pages > MIN_PAGES_FOR_SOURCE
+                && (age > oldest_age || oldest == -1) ) {
                 oldest = n;
                 oldest_age = age;
             }
@@ -238,8 +238,9 @@ void slab_automove_extstore_run(void *arg, int *src, int *dst) {
     memcpy(a->sam_before, a->sam_after,
             sizeof(slab_stats_automove) * MAX_NUMBER_OF_SLAB_CLASSES);
     // only make decisions if window has filled once.
-    if (a->window_cur < a->window_size)
+    if (a->window_cur < a->window_size) {
         return;
+    }
 
     settings.ext_global_pool_min = a->global_pool_watermark;
     if (!too_free && global_low && oldest != -1) {
