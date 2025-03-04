@@ -1447,9 +1447,6 @@ int mcplib_rcontext_result(lua_State *L) {
     return 2;
 }
 
-// TODO: best_result AND worst_result are EXPERIMENTAL.
-// Do not rely on their behavior yet!
-//
 // arg must be an array table.
 // returns res, GOOD|OK|ANY
 // tries to find a result in that order.

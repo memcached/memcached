@@ -616,6 +616,27 @@ function badreturn_gen(rctx)
     end
 end
 
+function bestres_factory_gen(rctx, arg)
+    local handles = arg.t
+    return function(r)
+        rctx:enqueue(r, handles)
+        rctx:wait_cond(#handles)
+        local res, tag = rctx:best_result(handles)
+        return res
+    end
+end
+
+function worstres_factory_gen(rctx, arg)
+    local handles = arg.t
+    return function(r)
+        rctx:enqueue(r, handles)
+        rctx:wait_cond(#handles)
+        local res, tag = rctx:worst_result(handles)
+        return res
+    end
+end
+
+
 -- TODO: this might be supported only in a later update.
 -- new queue after parent return
 -- - do an immediate return + cb queue, queue from that callback
@@ -655,6 +676,9 @@ function mcp_config_routes(p)
     local suberr_wrap = new_direct_factory({ p = suberrors, name = "suberrwrap" })
     local badreturn = new_error_factory(badreturn_gen, "badreturn")
 
+    local bestres = new_basic_factory({ list = p, name = "bestres" }, bestres_factory_gen)
+    local worstres = new_basic_factory({ list = p, name = "worstres" }, worstres_factory_gen)
+
     -- for testing traffic splitting.
     local split = new_split_factory({ a = single, b = singletwo, name = "split" })
     local splitfailover = new_split_factory({ a = failover, b = singletwo, name = "splitfailover" })
@@ -678,6 +702,8 @@ function mcp_config_routes(p)
         ["splitfailover"] = splitfailover,
         ["locality"] = locality,
         ["badreturn"] = badreturn,
+        ["bestres"] = bestres,
+        ["worstres"] = worstres,
     }
 
     local parg = {

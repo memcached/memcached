@@ -31,6 +31,8 @@ $t->set_c($ps);
 $t->accept_backends();
 {
     # Comment out unused sections when debugging.
+    test_best();
+    test_worst();
     test_logging();
     test_pipeline();
     test_split();
@@ -47,6 +49,172 @@ $t->accept_backends();
 }
 
 done_testing();
+
+sub test_best {
+    subtest 'rctx:best_result first' => sub {
+        $t->c_send("mg bestres/a v t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send(0, "VA 2 t30\r\nhi\r\n");
+        $t->be_send([1, 2], "EN\r\n");
+        $t->c_recv("VA 2 t30\r\n", "client received best result");
+        $t->c_recv("hi\r\n", "client received best result value");
+        $t->clear();
+    };
+
+    subtest 'rctx:best_result middle' => sub {
+        $t->c_send("mg bestres/a v t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send(0, "EN\r\n");
+        $t->be_send(1, "VA 2 t31\r\nhi\r\n");
+        $t->be_send(2, "EN\r\n");
+        $t->c_recv("VA 2 t31\r\n", "client received best result");
+        $t->c_recv("hi\r\n", "client received best result value");
+        $t->clear();
+    };
+
+    subtest 'rctx:best_result last' => sub {
+        $t->c_send("mg bestres/a v t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send(0, "EN\r\n");
+        $t->be_send(1, "EN\r\n");
+        $t->be_send(2, "VA 2 t32\r\nhi\r\n");
+        $t->c_recv("VA 2 t32\r\n", "client received best result");
+        $t->c_recv("hi\r\n", "client received best result value");
+        $t->clear();
+    };
+
+    subtest 'rctx:best_result hit over miss' => sub {
+        $t->c_send("mg bestres/a t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send(0, "EN\r\n");
+        $t->be_send(1, "HD t40\r\n");
+        $t->be_send(2, "EN\r\n");
+        $t->c_recv("HD t40\r\n", "client received best result");
+        $t->clear();
+    };
+
+    subtest 'rctx:best_result hit over error' => sub {
+        $t->c_send("mg bestres/a t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send(0, "SERVER_ERROR borked\r\n");
+        $t->be_send(1, "HD t41\r\n");
+        $t->be_send(2, "EN\r\n");
+        $t->c_recv("HD t41\r\n", "client received best result");
+        $t->clear();
+    };
+
+    subtest 'rctx:best_result miss over error' => sub {
+        $t->c_send("mg bestres/a t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send(0, "SERVER_ERROR borked\r\n");
+        $t->be_send(1, "SERVER_ERROR borked2\r\n");
+        $t->be_send(2, "EN\r\n");
+        $t->c_recv("EN\r\n", "client received best result");
+        $t->clear();
+    };
+
+    subtest 'rctx:best_result first hit' => sub {
+        $t->c_send("mg bestres/a t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send(0, "HD t50\r\n");
+        $t->be_send(1, "HD t51\r\n");
+        $t->be_send(2, "HD t52\r\n");
+        $t->c_recv("HD t50\r\n", "client received best result");
+        $t->clear();
+    };
+
+    # In case of sequential failover, ensure final result.
+    subtest 'rctx:best_result last miss' => sub {
+        $t->c_send("mg bestres/a t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send(0, "EN O1\r\n");
+        $t->be_send(1, "EN O2\r\n");
+        $t->be_send(2, "EN O3\r\n");
+        $t->c_recv("EN O3\r\n", "client received best result");
+        $t->clear();
+    };
+}
+
+sub test_worst {
+    subtest 'rctx:worst_result first' => sub {
+        $t->c_send("mg worstres/a v t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send(0, "VA 2 t30\r\nhi\r\n");
+        $t->be_send([1, 2], "EN\r\n");
+        $t->c_recv("EN\r\n", "client received worst result");
+        $t->clear();
+    };
+
+    subtest 'rctx:worst_result middle' => sub {
+        $t->c_send("mg worstres/a v t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send(0, "EN O1\r\n");
+        $t->be_send(1, "VA 2 t31\r\nhi\r\n");
+        $t->be_send(2, "EN O2\r\n");
+        $t->c_recv("EN O2\r\n", "client received last worst result");
+        $t->clear();
+    };
+
+    subtest 'rctx:worst_result last' => sub {
+        $t->c_send("mg worstres/a v t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send(0, "EN O1\r\n");
+        $t->be_send(1, "EN O2\r\n");
+        $t->be_send(2, "VA 2 t32\r\nhi\r\n");
+        $t->c_recv("EN O2\r\n", "client received worst result");
+        $t->clear();
+    };
+
+    subtest 'rctx:worst_result miss over hit' => sub {
+        $t->c_send("mg worstres/a t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send(0, "EN\r\n");
+        $t->be_send(1, "HD t40\r\n");
+        $t->be_send(2, "EN\r\n");
+        $t->c_recv("EN\r\n", "client received worst result");
+        $t->clear();
+    };
+
+    subtest 'rctx:worst_result error over hit or miss' => sub {
+        $t->c_send("mg worstres/a t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send(0, "SERVER_ERROR borked\r\n");
+        $t->be_send(1, "HD t41\r\n");
+        $t->be_send(2, "EN\r\n");
+        $t->c_recv("SERVER_ERROR borked\r\n", "client received worst result");
+        $t->clear();
+    };
+
+    subtest 'rctx:worst_result first error' => sub {
+        $t->c_send("mg worstres/a t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send(0, "SERVER_ERROR borked\r\n");
+        $t->be_send(1, "SERVER_ERROR borked2\r\n");
+        $t->be_send(2, "EN\r\n");
+        $t->c_recv("SERVER_ERROR borked\r\n", "client received worst result");
+        $t->clear();
+    };
+
+    subtest 'rctx:worst_result first hit' => sub {
+        $t->c_send("mg worstres/a t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send(0, "HD t50\r\n");
+        $t->be_send(1, "HD t51\r\n");
+        $t->be_send(2, "HD t52\r\n");
+        $t->c_recv("HD t50\r\n", "client received worst result");
+        $t->clear();
+    };
+
+    subtest 'rctx:worst_result last miss' => sub {
+        $t->c_send("mg worstres/a t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send(0, "EN O1\r\n");
+        $t->be_send(1, "EN O2\r\n");
+        $t->be_send(2, "EN O3\r\n");
+        $t->c_recv("EN O3\r\n", "client received worst result");
+        $t->clear();
+    };
+}
 
 sub test_logging {
     subtest 'log error' => sub {
