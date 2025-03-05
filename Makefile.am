@@ -30,7 +30,8 @@ memcached_SOURCES = memcached.c memcached.h \
                     authfile.c authfile.h \
                     restart.c restart.h \
                     proto_text.c proto_text.h \
-                    proto_bin.c proto_bin.h
+                    proto_bin.c proto_bin.h \
+                    proto_parser.c proto_parser.h
 
 if BUILD_SOLARIS_PRIVS
 memcached_SOURCES += solaris_priv.c
