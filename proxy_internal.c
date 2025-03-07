@@ -11,71 +11,7 @@
 #define _DO_TOUCH true
 #define _NO_TOUCH false
 
-static int _store_item_copy_from_buf(item *d_it, char *buf, const int len) {
-    if (d_it->it_flags & ITEM_CHUNKED) {
-        item_chunk *dch = (item_chunk *) ITEM_schunk(d_it);
-        int done = 0;
-        // Fill dch's via a flat data buffer
-        while (len > done && dch) {
-            int todo = (dch->size - dch->used < len - done)
-                ? dch->size - dch->used : len - done;
-            memcpy(dch->data + dch->used, buf + done, todo);
-            done += todo;
-            dch->used += todo;
-            assert(dch->used <= dch->size);
-
-            if (dch->size == dch->used) {
-                item_chunk *tch = do_item_alloc_chunk(dch, len - done);
-                if (tch) {
-                    dch = tch;
-                } else {
-                    return -1;
-                }
-            }
-        }
-        assert(len == done);
-    } else {
-        memcpy(ITEM_data(d_it), buf, len);
-    }
-
-    return 0;
-}
-
-// TODO (v2): out_string() needs to change to just take a *resp, but I don't
-// want to do the huge refactor in this change series. So for now we have a
-// custom out_string().
-static void pout_string(mc_resp *resp, const char *str) {
-    size_t len;
-    bool skip = resp->skip;
-    assert(resp != NULL);
-
-    // if response was original filled with something, but we're now writing
-    // out an error or similar, have to reset the object first.
-    resp_reset(resp);
-
-    // We blank the response "just in case", but if we're not intending on
-    // sending it lets not rewrite it.
-    if (skip) {
-        resp->skip = true;
-        return;
-    }
-
-    // Fill response object with static string.
-
-    len = strlen(str);
-    if ((len + 2) > WRITE_BUFFER_SIZE) {
-        /* ought to be always enough. just fail for simplicity */
-        str = "SERVER_ERROR output line too long";
-        len = strlen(str);
-    }
-
-    memcpy(resp->wbuf, str, len);
-    memcpy(resp->wbuf + len, "\r\n", 2);
-    resp_add_iov(resp, resp->wbuf, len + 2);
-
-    return;
-}
-
+// FIXME: func or macro from storage for crc check
 #ifdef EXTSTORE
 static void _storage_get_item_cb(void *e, obj_io *eio, int ret) {
     io_pending_proxy_t *io = (io_pending_proxy_t *)eio->data;
@@ -198,112 +134,6 @@ static int proxy_storage_get(LIBEVENT_THREAD *t, item *it, mc_resp *resp) {
 
 #endif // EXTSTORE
 
-/* client flags == 0 means use no storage for client flags */
-static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas, int nbytes) {
-    char *p = suffix;
-    *p = ' ';
-    p++;
-    if (FLAGS_SIZE(it) == 0) {
-        *p = '0';
-        p++;
-    } else {
-        p = itoa_u64(*((client_flags_t *) ITEM_suffix(it)), p);
-    }
-    *p = ' ';
-    p = itoa_u32(nbytes-2, p+1);
-
-    if (return_cas) {
-        *p = ' ';
-        p = itoa_u64(ITEM_get_cas(it), p+1);
-    }
-
-    *p = '\r';
-    *(p+1) = '\n';
-    *(p+2) = '\0';
-    return (p - suffix) + 2;
-}
-
-static void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, bool return_cas, bool should_touch) {
-    const char *key = MCP_PARSER_KEY(pr);
-    int nkey = pr->klen;
-    rel_time_t exptime = 0;
-    bool overflow = false; // unused.
-
-    if (nkey > KEY_MAX_LENGTH) {
-        pout_string(resp, "CLIENT_ERROR bad command line format");
-        return;
-    }
-
-    item *it = limited_get(key, nkey, t, exptime, should_touch, DO_UPDATE, &overflow);
-    if (it) {
-      int nbytes = it->nbytes;;
-      nbytes = it->nbytes;
-      char *p = resp->wbuf;
-      memcpy(p, "VALUE ", 6);
-      p += 6;
-      memcpy(p, ITEM_key(it), it->nkey);
-      p += it->nkey;
-      p += make_ascii_get_suffix(p, it, return_cas, nbytes);
-      resp_add_iov(resp, resp->wbuf, p - resp->wbuf);
-
-#ifdef EXTSTORE
-      if (it->it_flags & ITEM_HDR) {
-          if (proxy_storage_get(t, it, resp) != 0) {
-              pthread_mutex_lock(&t->stats.mutex);
-              t->stats.get_oom_extstore++;
-              pthread_mutex_unlock(&t->stats.mutex);
-
-              item_remove(it);
-              proxy_out_errstring(resp, PROXY_SERVER_ERROR, "out of memory writing get response");
-              return;
-          }
-      } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
-          resp_add_iov(resp, ITEM_data(it), it->nbytes);
-      } else {
-          resp_add_chunked_iov(resp, it, it->nbytes);
-      }
-#else
-      if ((it->it_flags & ITEM_CHUNKED) == 0) {
-          resp_add_iov(resp, ITEM_data(it), it->nbytes);
-      } else {
-          resp_add_chunked_iov(resp, it, it->nbytes);
-      }
-#endif
-
-        /* item_get() has incremented it->refcount for us */
-        pthread_mutex_lock(&t->stats.mutex);
-        if (should_touch) {
-            t->stats.touch_cmds++;
-            t->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
-        } else {
-            t->stats.lru_hits[it->slabs_clsid]++;
-            t->stats.get_cmds++;
-        }
-        pthread_mutex_unlock(&t->stats.mutex);
-#ifdef EXTSTORE
-        /* If ITEM_HDR, an io_wrap owns the reference. */
-        if ((it->it_flags & ITEM_HDR) == 0) {
-            resp->item = it;
-        }
-#else
-        resp->item = it;
-#endif
-    } else {
-        pthread_mutex_lock(&t->stats.mutex);
-        if (should_touch) {
-            t->stats.touch_cmds++;
-            t->stats.touch_misses++;
-        } else {
-            t->stats.get_misses++;
-            t->stats.get_cmds++;
-        }
-        pthread_mutex_unlock(&t->stats.mutex);
-    }
-
-    resp_add_iov(resp, "END\r\n", 5);
-    return;
-}
-
 /*** Lua and internal handler ***/
 
 static inline int _mcplib_internal_run(LIBEVENT_THREAD *t, mcp_request_t *rq, mcp_resp_t *r, mc_resp *resp) {
@@ -324,16 +154,16 @@ static inline int _mcplib_internal_run(LIBEVENT_THREAD *t, mcp_request_t *rq, mc
             process_marithmetic_cmd(t, pr, resp);
             break;
         case CMD_GET:
-            process_get_cmd(t, pr, resp, _NO_CAS, _NO_TOUCH);
+            process_get_cmd(t, pr, resp, proxy_storage_get, _NO_CAS, _NO_TOUCH);
             break;
         case CMD_GETS:
-            process_get_cmd(t, pr, resp, _DO_CAS, _NO_TOUCH);
+            process_get_cmd(t, pr, resp, proxy_storage_get, _DO_CAS, _NO_TOUCH);
             break;
         case CMD_GAT:
-            process_get_cmd(t, pr, resp, _NO_CAS, _DO_TOUCH);
+            process_get_cmd(t, pr, resp, proxy_storage_get, _NO_CAS, _DO_TOUCH);
             break;
         case CMD_GATS:
-            process_get_cmd(t, pr, resp, _DO_CAS, _DO_TOUCH);
+            process_get_cmd(t, pr, resp, proxy_storage_get, _DO_CAS, _DO_TOUCH);
             break;
         case CMD_SET:
             process_update_cmd(t, pr, resp, NREAD_SET, _NO_CAS);

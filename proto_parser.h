@@ -129,6 +129,8 @@ struct _meta_flags {
 
 int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen);
 
+typedef int (*proxy_storage_get_cb)(LIBEVENT_THREAD *t, item *it, mc_resp *resp);
+void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, proxy_storage_get_cb storage_cb, bool return_cas, bool should_touch);
 void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, int comm, bool handle_cas);
 void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, const bool incr);
 void process_delete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
@@ -136,7 +138,6 @@ void process_touch_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 
 int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
         struct _meta_flags *of, char **errstr);
-typedef int (*proxy_storage_get_cb)(LIBEVENT_THREAD *t, item *it, mc_resp *resp);
 void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, proxy_storage_get_cb storage_cb);
 void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);

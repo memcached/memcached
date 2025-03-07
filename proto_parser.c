@@ -519,6 +519,112 @@ int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
     return of->has_error ? -1 : 0;
 }
 
+/* client flags == 0 means use no storage for client flags */
+static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas, int nbytes) {
+    char *p = suffix;
+    *p = ' ';
+    p++;
+    if (FLAGS_SIZE(it) == 0) {
+        *p = '0';
+        p++;
+    } else {
+        p = itoa_u64(*((client_flags_t *) ITEM_suffix(it)), p);
+    }
+    *p = ' ';
+    p = itoa_u32(nbytes-2, p+1);
+
+    if (return_cas) {
+        *p = ' ';
+        p = itoa_u64(ITEM_get_cas(it), p+1);
+    }
+
+    *p = '\r';
+    *(p+1) = '\n';
+    *(p+2) = '\0';
+    return (p - suffix) + 2;
+}
+
+void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, proxy_storage_get_cb storage_cb, bool return_cas, bool should_touch) {
+    const char *key = MCP_PARSER_KEY(pr);
+    int nkey = pr->klen;
+    rel_time_t exptime = 0;
+    bool overflow = false; // unused.
+
+    if (nkey > KEY_MAX_LENGTH) {
+        pout_string(resp, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    item *it = limited_get(key, nkey, t, exptime, should_touch, DO_UPDATE, &overflow);
+    if (it) {
+      int nbytes = it->nbytes;;
+      nbytes = it->nbytes;
+      char *p = resp->wbuf;
+      memcpy(p, "VALUE ", 6);
+      p += 6;
+      memcpy(p, ITEM_key(it), it->nkey);
+      p += it->nkey;
+      p += make_ascii_get_suffix(p, it, return_cas, nbytes);
+      resp_add_iov(resp, resp->wbuf, p - resp->wbuf);
+
+#ifdef EXTSTORE
+      if (it->it_flags & ITEM_HDR) {
+          if (storage_cb(t, it, resp) != 0) {
+              pthread_mutex_lock(&t->stats.mutex);
+              t->stats.get_oom_extstore++;
+              pthread_mutex_unlock(&t->stats.mutex);
+
+              item_remove(it);
+              pout_errstring(resp, "SERVER_ERROR out of memory writing get response");
+              return;
+          }
+      } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
+          resp_add_iov(resp, ITEM_data(it), it->nbytes);
+      } else {
+          resp_add_chunked_iov(resp, it, it->nbytes);
+      }
+#else
+      if ((it->it_flags & ITEM_CHUNKED) == 0) {
+          resp_add_iov(resp, ITEM_data(it), it->nbytes);
+      } else {
+          resp_add_chunked_iov(resp, it, it->nbytes);
+      }
+#endif
+
+        /* item_get() has incremented it->refcount for us */
+        pthread_mutex_lock(&t->stats.mutex);
+        if (should_touch) {
+            t->stats.touch_cmds++;
+            t->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
+        } else {
+            t->stats.lru_hits[it->slabs_clsid]++;
+            t->stats.get_cmds++;
+        }
+        pthread_mutex_unlock(&t->stats.mutex);
+#ifdef EXTSTORE
+        /* If ITEM_HDR, an io_wrap owns the reference. */
+        if ((it->it_flags & ITEM_HDR) == 0) {
+            resp->item = it;
+        }
+#else
+        resp->item = it;
+#endif
+    } else {
+        pthread_mutex_lock(&t->stats.mutex);
+        if (should_touch) {
+            t->stats.touch_cmds++;
+            t->stats.touch_misses++;
+        } else {
+            t->stats.get_misses++;
+            t->stats.get_cmds++;
+        }
+        pthread_mutex_unlock(&t->stats.mutex);
+    }
+
+    resp_add_iov(resp, "END\r\n", 5);
+    return;
+}
+
 void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, int comm, bool handle_cas) {
     const char *key = MCP_PARSER_KEY(pr);
     size_t nkey = pr->klen;
