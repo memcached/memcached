@@ -132,6 +132,8 @@ int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen);
 
 int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
         struct _meta_flags *of, char **errstr);
+void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
+void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 
 #endif
