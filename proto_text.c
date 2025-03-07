@@ -64,7 +64,7 @@ static void _finalize_mset(conn *c, int nbytes, enum store_item_type ret, uint64
     case STORED:
       memcpy(p, "HD", 2);
       // Only place noreply is used for meta cmds is a nominal response.
-      if (c->noreply) {
+      if (c->resp->noreply) {
           resp->skip = true;
       }
       break;
@@ -78,8 +78,7 @@ static void _finalize_mset(conn *c, int nbytes, enum store_item_type ret, uint64
       memcpy(p, "NS", 2);
       break;
     default:
-      c->noreply = false;
-      out_string(c, "SERVER_ERROR Unhandled storage type.");
+      out_errstring(c, "SERVER_ERROR Unhandled storage type.");
       return;
     }
     p += 2;
@@ -175,7 +174,7 @@ void complete_nread_ascii(conn *c) {
     if (!is_valid) {
         // metaset mode always returns errors.
         if (c->mset_res) {
-            c->noreply = false;
+            c->resp->noreply = false;
         }
         out_string(c, "CLIENT_ERROR bad data chunk");
     } else {
@@ -515,9 +514,9 @@ static inline bool set_noreply_maybe(conn *c, token_t *tokens, size_t ntokens)
     */
     if (tokens[noreply_index].value
         && strcmp(tokens[noreply_index].value, "noreply") == 0) {
-        c->noreply = true;
+        c->resp->noreply = true;
     }
-    return c->noreply;
+    return c->resp->noreply;
 }
 
 /* client flags == 0 means use no storage for client flags */
@@ -1118,7 +1117,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         out_errstring(c, errstr);
         return;
     }
-    c->noreply = of.no_reply;
+    c->resp->noreply = of.no_reply;
 
     // Grab key and length after meta preparsing in case it was decoded.
     key = tokens[KEY_TOKEN].value;
@@ -1361,7 +1360,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
         // This gets elided in noreply mode.
-        if (c->noreply)
+        if (c->resp->noreply)
             resp->skip = true;
         memcpy(p, "EN", 2);
         p += 2;
@@ -1458,7 +1457,7 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     nkey = tokens[KEY_TOKEN].length;
 
     // Set noreply after tokens are understood.
-    c->noreply = of.no_reply;
+    c->resp->noreply = of.no_reply;
     // Set cas return value
     c->cas = of.has_cas_in ? of.cas_id_in : get_cas_id();
     exptime = of.exptime;
@@ -1648,7 +1647,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
         return;
     }
     assert(c != NULL);
-    c->noreply = of.no_reply;
+    c->resp->noreply = of.no_reply;
 
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
@@ -1718,7 +1717,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
 
             ITEM_set_cas(it, of.has_cas_in ? of.cas_id_in : get_cas_id());
             // Clients can noreply nominal responses.
-            if (c->noreply)
+            if (c->resp->noreply)
                 resp->skip = true;
 
             memcpy(resp->wbuf, "HD", 2);
@@ -1732,7 +1731,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
                 do_item_unlink(it, hv);
                 STORAGE_delete(c->thread->storage, it);
             }
-            if (c->noreply)
+            if (c->resp->noreply)
                 resp->skip = true;
             memcpy(resp->wbuf, "HD", 2);
         }
@@ -1805,7 +1804,7 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
         return;
     }
     assert(c != NULL);
-    c->noreply = of.no_reply;
+    c->resp->noreply = of.no_reply;
 
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
@@ -1840,7 +1839,7 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
     bool item_created = false;
     switch(do_add_delta(c->thread, key, nkey, incr, of.delta, tmpbuf, &of.req_cas_id, hv, &it)) {
     case OK:
-        if (c->noreply)
+        if (c->resp->noreply)
             resp->skip = true;
         // *it was filled, set the status below.
         if (of.has_cas_in) {
@@ -2615,7 +2614,7 @@ static void process_flush_all_command(conn *c, token_t *tokens, const size_t nto
         return;
     }
 
-    if (ntokens != (c->noreply ? 3 : 2)) {
+    if (ntokens != (c->resp->noreply ? 3 : 2)) {
         if (!safe_strtol(tokens[1].value, &exptime)) {
             out_string(c, "CLIENT_ERROR invalid exptime argument");
             return;

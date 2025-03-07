@@ -242,7 +242,7 @@ static void handle_binary_protocol_error(conn *c) {
 
 /* Form and send a response to a command over the binary protocol */
 static void write_bin_response(conn *c, void *d, int hlen, int keylen, int dlen) {
-    if (!c->noreply || c->cmd == PROTOCOL_BINARY_CMD_GET ||
+    if (!c->resp->noreply || c->cmd == PROTOCOL_BINARY_CMD_GET ||
         c->cmd == PROTOCOL_BINARY_CMD_GETK) {
         add_bin_header(c, 0, hlen, keylen, dlen);
         mc_resp *resp = c->resp;
@@ -587,7 +587,7 @@ static void process_bin_get_or_touch(conn *c, char *extbuf) {
             MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
         }
 
-        if (c->noreply) {
+        if (c->resp->noreply) {
             conn_set_state(c, conn_new_cmd);
         } else {
             if (should_return_key) {
@@ -904,7 +904,7 @@ static void dispatch_bin_command(conn *c, char *extbuf) {
     }
 
     MEMCACHED_PROCESS_COMMAND_START(c->sfd, c->rcurr, c->rbytes);
-    c->noreply = true;
+    c->resp->noreply = true;
 
     /* binprot supports 16bit keys, but internals are still 8bit */
     if (keylen > KEY_MAX_LENGTH) {
@@ -956,7 +956,7 @@ static void dispatch_bin_command(conn *c, char *extbuf) {
         c->cmd = PROTOCOL_BINARY_CMD_GATK;
         break;
     default:
-        c->noreply = false;
+        c->resp->noreply = false;
     }
 
     switch (c->cmd) {

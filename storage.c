@@ -283,7 +283,7 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
     p->active = true;
     p->miss = false;
     p->badcrc = false;
-    p->noreply = c->noreply;
+    p->noreply = c->resp->noreply;
     p->thread = c->thread;
     p->return_cb = storage_return_cb;
     p->finalize_cb = storage_finalize_cb;

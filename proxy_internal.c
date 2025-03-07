@@ -1438,7 +1438,6 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
         pout_errstring(resp, "CLIENT_ERROR invalid or duplicate flag");
         return;
     }
-    //c->noreply = of.no_reply;
 
     // "mode switch" to alternative commands
     switch (of.mode) {
@@ -1471,8 +1470,8 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
     uint64_t cas = 0;
     switch(do_add_delta(t, key, nkey, incr, of.delta, tmpbuf, &of.req_cas_id, hv, &it)) {
     case OK:
-        //if (c->noreply)
-        //    resp->skip = true;
+        if (of.no_reply)
+            resp->skip = true;
         // *it was filled, set the status below.
         if (of.has_cas_in) {
             // override the CAS. slightly inefficient but fixing that can wait

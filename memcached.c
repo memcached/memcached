@@ -725,8 +725,6 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->ssl_wbuf = NULL;
 #endif
 
-    c->noreply = false;
-
     if (ssl) {
         // musn't get here without ssl enabled.
         assert(settings.ssl_enabled);
@@ -1232,7 +1230,7 @@ void out_string(conn *c, const char *str) {
     // tosend and reset if nonzero?
     resp_reset(resp);
 
-    if (c->noreply) {
+    if (resp->noreply) {
         // TODO: just invalidate the response since nothing's been attempted
         // to send yet?
         resp->skip = true;
@@ -1265,7 +1263,7 @@ void out_string(conn *c, const char *str) {
 // For metaget-style ASCII commands. Ignores noreply, ensuring clients see
 // protocol level errors.
 void out_errstring(conn *c, const char *str) {
-    c->noreply = false;
+    c->resp->noreply = false;
     out_string(c, str);
 }
 
@@ -3087,7 +3085,6 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_parse_cmd:
-            c->noreply = false;
             if (c->try_read_command(c) == 0) {
                 /* we need more data! */
                 if (c->resp_head) {

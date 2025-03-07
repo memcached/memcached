@@ -786,6 +786,7 @@ typedef struct _mc_resp {
     bool skip;
     bool suspended; // waiting for response from subsystem
     bool free; // double free detection.
+    bool noreply; // TODO: remove if we can rely on skip-only
 #ifdef PROXY
     bool proxy_res; // we're handling a proxied response buffer.
 #endif
@@ -886,7 +887,6 @@ struct conn {
     struct sockaddr_in6 request_addr; /* udp: Who sent the most recent request */
     socklen_t request_addr_size;
 
-    bool   noreply;   /* True if the reply should not be sent. */
     /* current stats command */
     struct {
         char *buffer;
