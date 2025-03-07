@@ -1,6 +1,10 @@
 #ifndef PROTO_PARSER_H
 #define PROTO_PARSER_H
 
+#include "config.h"
+#include "vendor/mcmc/mcmc.h"
+#include <stdbool.h>
+
 typedef struct mcp_parser_s mcp_parser_t;
 
 // certain classes of ascii commands have similar parsing (ie;
@@ -76,6 +80,58 @@ struct mcp_parser_s {
 
 #define MCP_PARSER_KEY(pr) (&(pr)->request[(pr)->tok.tokens[(pr)->keytoken]])
 
+#define META_SPACE(p) { \
+    *p = ' '; \
+    p++; \
+}
+
+#define META_CHAR(p, c) { \
+    *p = ' '; \
+    *(p+1) = c; \
+    p += 2; \
+}
+
+// FIXME: binary key support.
+#define META_KEY(p, key, nkey, bin) { \
+    META_CHAR(p, 'k'); \
+    memcpy(p, key, nkey); \
+    p += nkey; \
+}
+
+#define MFLAG_MAX_OPT_LENGTH 20
+#define MFLAG_MAX_OPAQUE_LENGTH 32
+
+struct _meta_flags {
+    unsigned int has_error :1; // flipped if we found an error during parsing.
+    unsigned int no_update :1;
+    unsigned int locked :1;
+    unsigned int vivify :1;
+    unsigned int la :1;
+    unsigned int hit :1;
+    unsigned int value :1;
+    unsigned int set_stale :1;
+    unsigned int no_reply :1;
+    unsigned int has_cas :1;
+    unsigned int has_cas_in :1;
+    unsigned int new_ttl :1;
+    unsigned int key_binary:1;
+    unsigned int remove_val:1;
+    char mode; // single character mode switch, common to ms/ma
+    rel_time_t exptime;
+    rel_time_t autoviv_exptime;
+    rel_time_t recache_time;
+    client_flags_t client_flags;
+    uint64_t req_cas_id;
+    uint64_t cas_id_in; // client supplied next-CAS
+    uint64_t delta; // ma
+    uint64_t initial; // ma
+};
+
+
 int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen);
+
+int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
+        struct _meta_flags *of, char **errstr);
+void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 
 #endif
