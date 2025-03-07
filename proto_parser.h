@@ -127,11 +127,12 @@ struct _meta_flags {
     uint64_t initial; // ma
 };
 
-
 int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen);
 
 int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
         struct _meta_flags *of, char **errstr);
+typedef int (*proxy_storage_get_cb)(LIBEVENT_THREAD *t, item *it, mc_resp *resp);
+void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, proxy_storage_get_cb storage_cb);
 void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);

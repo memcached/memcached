@@ -519,6 +519,315 @@ int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
     return of->has_error ? -1 : 0;
 }
 
+void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp,
+        proxy_storage_get_cb storage_cb) {
+    const char *key = MCP_PARSER_KEY(pr);
+    size_t nkey = pr->klen;
+    item *it;
+    unsigned int i = 0;
+    struct _meta_flags of = {0}; // option bitflags.
+    uint32_t hv; // cached hash value for unlocking an item.
+    bool failed = false;
+    bool item_created = false;
+    bool won_token = false;
+    bool ttl_set = false;
+    char *errstr = "CLIENT_ERROR bad command line format";
+    assert(t != NULL);
+    char *p = resp->wbuf;
+    int tlen = 0;
+
+    // FIXME: still needed?
+    //WANT_TOKENS_MIN(ntokens, 3);
+
+    if (nkey > KEY_MAX_LENGTH) {
+        pout_string(resp, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    if (pr->tok.ntokens > MFLAG_MAX_OPT_LENGTH) {
+        // TODO: ensure the command tokenizer gives us at least this many
+        pout_errstring(resp, "CLIENT_ERROR options flags are too long");
+        return;
+    }
+
+    // scrubs duplicated options and sets flags for how to load the item.
+    // we pass in the first token that should be a flag.
+    if (_meta_flag_preparse(pr, 2, &of, &errstr) != 0) {
+        pout_errstring(resp, errstr);
+        return;
+    }
+
+    bool overflow = false;
+    if (!of.locked) {
+        it = limited_get(key, nkey, t, 0, false, !of.no_update, &overflow);
+    } else {
+        // If we had to lock the item, we're doing our own bump later.
+        it = limited_get_locked(key, nkey, t, DONT_UPDATE, &hv, &overflow);
+    }
+
+    // Since we're a new protocol, we can actually inform users that refcount
+    // overflow is happening by straight up throwing an error.
+    // We definitely don't want to re-autovivify by accident.
+    if (overflow) {
+        assert(it == NULL);
+        pout_errstring(resp, "SERVER_ERROR refcount overflow during fetch");
+        return;
+    }
+
+    if (it == NULL && of.vivify) {
+        // Fill in the exptime during parsing later.
+        it = item_alloc(key, nkey, 0, realtime(0), 2);
+        // We don't actually need any of do_store_item's logic:
+        // - already fetched and missed an existing item.
+        // - lock is still held.
+        // - not append/prepend/replace
+        // - not testing CAS
+        if (it != NULL) {
+            // I look forward to the day I get rid of this :)
+            memcpy(ITEM_data(it), "\r\n", 2);
+            // NOTE: This initializes the CAS value.
+            do_item_link(it, hv, of.has_cas_in ? of.cas_id_in : get_cas_id());
+            item_created = true;
+        }
+    }
+
+    // don't have to check result of add_iov() since the iov size defaults are
+    // enough.
+    if (it) {
+        if (of.value) {
+            memcpy(p, "VA ", 3);
+            p = itoa_u32(it->nbytes-2, p+3);
+        } else {
+            memcpy(p, "HD", 2);
+            p += 2;
+        }
+
+        for (i = pr->keytoken+1; i < pr->tok.ntokens; i++) {
+            switch (pr->request[pr->tok.tokens[i]]) {
+                case 'T':
+                    ttl_set = true;
+                    it->exptime = of.exptime;
+                    break;
+                case 'N':
+                    if (item_created) {
+                        it->exptime = of.autoviv_exptime;
+                        won_token = true;
+                    }
+                    break;
+                case 'R':
+                    // If we haven't autovivified and supplied token is less
+                    // than current TTL, mark a win.
+                    if ((it->it_flags & ITEM_TOKEN_SENT) == 0
+                            && !item_created
+                            && it->exptime != 0
+                            && it->exptime < of.recache_time) {
+                        won_token = true;
+                    }
+                    break;
+                case 's':
+                    META_CHAR(p, 's');
+                    p = itoa_u32(it->nbytes-2, p);
+                    break;
+                case 't':
+                    // TTL remaining as of this request.
+                    // needs to be relative because server clocks may not be in sync.
+                    META_CHAR(p, 't');
+                    if (it->exptime == 0) {
+                        *p = '-';
+                        *(p+1) = '1';
+                        p += 2;
+                    } else {
+                        p = itoa_u32(it->exptime - current_time, p);
+                    }
+                    break;
+                case 'c':
+                    META_CHAR(p, 'c');
+                    p = itoa_u64(ITEM_get_cas(it), p);
+                    break;
+                case 'f':
+                    META_CHAR(p, 'f');
+                    if (FLAGS_SIZE(it) == 0) {
+                        *p = '0';
+                        p++;
+                    } else {
+                        p = itoa_u64(*((client_flags_t *) ITEM_suffix(it)), p);
+                    }
+                    break;
+                case 'l':
+                    META_CHAR(p, 'l');
+                    p = itoa_u32(current_time - it->time, p);
+                    break;
+                case 'h':
+                    META_CHAR(p, 'h');
+                    if (it->it_flags & ITEM_FETCHED) {
+                        *p = '1';
+                    } else {
+                        *p = '0';
+                    }
+                    p++;
+                    break;
+                case 'O':
+                    tlen = _process_token_len(pr, i);
+                    if (tlen > MFLAG_MAX_OPAQUE_LENGTH) {
+                        errstr = "CLIENT_ERROR opaque token too long";
+                        goto error;
+                    }
+                    META_SPACE(p);
+                    memcpy(p, &pr->request[pr->tok.tokens[i]], tlen);
+                    p += tlen;
+                    break;
+                case 'k':
+                    META_KEY(p, ITEM_key(it), it->nkey, (it->it_flags & ITEM_KEY_BINARY));
+                    break;
+            }
+        }
+
+        // Has this item already sent a token?
+        // Important to do this here so we don't send W with Z.
+        // Isn't critical, but easier for client authors to understand.
+        if (it->it_flags & ITEM_TOKEN_SENT) {
+            META_CHAR(p, 'Z');
+        }
+        if (it->it_flags & ITEM_STALE) {
+            META_CHAR(p, 'X');
+            // FIXME: think hard about this. is this a default, or a flag?
+            if ((it->it_flags & ITEM_TOKEN_SENT) == 0) {
+                // If we're stale but no token already sent, now send one.
+                won_token = true;
+            }
+        }
+
+        if (won_token) {
+            // Mark a win into the flag buffer.
+            META_CHAR(p, 'W');
+            it->it_flags |= ITEM_TOKEN_SENT;
+        }
+
+        *p = '\r';
+        *(p+1) = '\n';
+        *(p+2) = '\0';
+        p += 2;
+        // finally, chain in the buffer.
+        resp_add_iov(resp, resp->wbuf, p - resp->wbuf);
+
+        if (of.value) {
+#ifdef EXTSTORE
+            if (it->it_flags & ITEM_HDR) {
+                if (storage_cb(t, it, resp) != 0) {
+                    pthread_mutex_lock(&t->stats.mutex);
+                    t->stats.get_oom_extstore++;
+                    pthread_mutex_unlock(&t->stats.mutex);
+
+                    failed = true;
+                }
+            } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
+                resp_add_iov(resp, ITEM_data(it), it->nbytes);
+            } else {
+                resp_add_chunked_iov(resp, it, it->nbytes);
+            }
+#else
+            if ((it->it_flags & ITEM_CHUNKED) == 0) {
+                resp_add_iov(resp, ITEM_data(it), it->nbytes);
+            } else {
+                resp_add_chunked_iov(resp, it, it->nbytes);
+            }
+#endif
+        }
+
+        // need to hold the ref at least because of the key above.
+#ifdef EXTSTORE
+        if (!failed) {
+            if ((it->it_flags & ITEM_HDR) != 0 && of.value) {
+                // Only have extstore clean if header and returning value.
+                resp->item = NULL;
+            } else {
+                resp->item = it;
+            }
+        } else {
+            // Failed to set up extstore fetch.
+            if (of.locked) {
+                do_item_remove(it);
+            } else {
+                item_remove(it);
+            }
+        }
+#else
+        resp->item = it;
+#endif
+    } else {
+        failed = true;
+    }
+
+    if (of.locked) {
+        // Delayed bump so we could get fetched/last access time pre-update.
+        if (!of.no_update && it != NULL) {
+            do_item_bump(t, it, hv);
+        }
+        item_unlock(hv);
+    }
+
+    // we count this command as a normal one if we've gotten this far.
+    // TODO: for autovivify case, miss never happens. Is this okay?
+    if (!failed) {
+        pthread_mutex_lock(&t->stats.mutex);
+        if (ttl_set) {
+            t->stats.touch_cmds++;
+            t->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
+        } else {
+            t->stats.lru_hits[it->slabs_clsid]++;
+            t->stats.get_cmds++;
+        }
+        pthread_mutex_unlock(&t->stats.mutex);
+    } else {
+        pthread_mutex_lock(&t->stats.mutex);
+        if (ttl_set) {
+            t->stats.touch_cmds++;
+            t->stats.touch_misses++;
+        } else {
+            t->stats.get_misses++;
+            t->stats.get_cmds++;
+        }
+        pthread_mutex_unlock(&t->stats.mutex);
+
+        // This gets elided in noreply mode.
+        if (of.no_reply)
+            resp->skip = true;
+        memcpy(p, "EN", 2);
+        p += 2;
+        for (i = pr->keytoken+1; i < pr->tok.ntokens; i++) {
+            switch (pr->request[pr->tok.tokens[i]]) {
+                // TODO: macro perhaps?
+                case 'O':
+                    tlen = _process_token_len(pr, i);
+                    if (tlen > MFLAG_MAX_OPAQUE_LENGTH) {
+                        errstr = "CLIENT_ERROR opaque token too long";
+                        goto error;
+                    }
+                    META_SPACE(p);
+                    memcpy(p, &pr->request[pr->tok.tokens[i]], tlen);
+                    p += tlen;
+                    break;
+                case 'k':
+                    META_KEY(p, key, nkey, of.key_binary);
+                    break;
+            }
+        }
+        resp->wbytes = p - resp->wbuf;
+        memcpy(resp->wbuf + resp->wbytes, "\r\n", 2);
+        resp->wbytes += 2;
+        resp_add_iov(resp, resp->wbuf, resp->wbytes);
+    }
+    return;
+error:
+    if (it) {
+        do_item_remove(it);
+        if (of.locked) {
+            item_unlock(hv);
+        }
+    }
+    pout_errstring(resp, errstr);
+}
+
 void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
     const char *key = MCP_PARSER_KEY(pr);
     size_t nkey = pr->klen;
