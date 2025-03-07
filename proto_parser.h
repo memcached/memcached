@@ -129,6 +129,7 @@ struct _meta_flags {
 
 int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen);
 
+void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, const bool incr);
 void process_delete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 void process_touch_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 

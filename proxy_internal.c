@@ -413,50 +413,6 @@ static void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
     item_remove(it);
 }
 
-static void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, const bool incr) {
-    char temp[INCR_MAX_STORAGE_LEN];
-    uint64_t delta;
-    const char *key = MCP_PARSER_KEY(pr);
-    size_t nkey = pr->klen;
-
-    assert(t != NULL);
-
-    if (nkey > KEY_MAX_LENGTH) {
-        pout_string(resp, "CLIENT_ERROR bad command line format");
-        return;
-    }
-
-    if (!safe_strtoull(&pr->request[pr->tok.tokens[2]], &delta)) {
-        pout_string(resp, "CLIENT_ERROR invalid numeric delta argument");
-        return;
-    }
-
-    switch(add_delta(t, key, nkey, incr, delta, temp, NULL)) {
-    case OK:
-        pout_string(resp, temp);
-        break;
-    case NON_NUMERIC:
-        pout_string(resp, "CLIENT_ERROR cannot increment or decrement non-numeric value");
-        break;
-    case EOM:
-        pout_string(resp, "SERVER_ERROR out of memory");
-        break;
-    case DELTA_ITEM_NOT_FOUND:
-        pthread_mutex_lock(&t->stats.mutex);
-        if (incr) {
-            t->stats.incr_misses++;
-        } else {
-            t->stats.decr_misses++;
-        }
-        pthread_mutex_unlock(&t->stats.mutex);
-
-        pout_string(resp, "NOT_FOUND");
-        break;
-    case DELTA_ITEM_CAS_MISMATCH:
-        break; /* Should never get here */
-    }
-}
-
 /*** Lua and internal handler ***/
 
 static inline int _mcplib_internal_run(LIBEVENT_THREAD *t, mcp_request_t *rq, mcp_resp_t *r, mc_resp *resp) {
