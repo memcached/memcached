@@ -9,6 +9,7 @@
 // - some better/different structure for stats subcommands
 // would remove this abstraction leak.
 #include "proto_proxy.h"
+#include "proto_parser.h"
 #include "authfile.h"
 #include "storage.h"
 #include "base64.h"
@@ -27,23 +28,6 @@
     *p = ' '; \
     *(p+1) = c; \
     p += 2; \
-}
-
-// NOTE: being a little casual with the write buffer.
-// the buffer needs to be sized that the longest possible meta response will
-// fit. Here we allow the key to fill up to half the write buffer, in case
-// something terrible has gone wrong.
-#define META_KEY(p, key, nkey, bin) { \
-    META_CHAR(p, 'k'); \
-    if (!bin) { \
-        memcpy(p, key, nkey); \
-        p += nkey; \
-    } else { \
-        p += base64_encode((unsigned char *) key, nkey, (unsigned char *)p, WRITE_BUFFER_SIZE / 2); \
-        *p = ' '; \
-        *(p+1) = 'b'; \
-        p += 2; \
-    } \
 }
 
 typedef struct token_s {
@@ -905,36 +889,7 @@ static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens)
     pthread_mutex_unlock(&c->thread->stats.mutex);
 }
 
-#define MFLAG_MAX_OPT_LENGTH 20
-#define MFLAG_MAX_OPAQUE_LENGTH 32
-
-struct _meta_flags {
-    unsigned int has_error :1; // flipped if we found an error during parsing.
-    unsigned int no_update :1;
-    unsigned int locked :1;
-    unsigned int vivify :1;
-    unsigned int la :1;
-    unsigned int hit :1;
-    unsigned int value :1;
-    unsigned int set_stale :1;
-    unsigned int no_reply :1;
-    unsigned int has_cas :1;
-    unsigned int has_cas_in :1;
-    unsigned int new_ttl :1;
-    unsigned int key_binary:1;
-    unsigned int remove_val:1;
-    char mode; // single character mode switch, common to ms/ma
-    rel_time_t exptime;
-    rel_time_t autoviv_exptime;
-    rel_time_t recache_time;
-    client_flags_t client_flags;
-    uint64_t req_cas_id;
-    uint64_t cas_id_in; // client supplied next-CAS
-    uint64_t delta; // ma
-    uint64_t initial; // ma
-};
-
-static int _meta_flag_preparse(token_t *tokens, const size_t start,
+static int t_meta_flag_preparse(token_t *tokens, const size_t start,
         struct _meta_flags *of, char **errstr) {
     unsigned int i;
     size_t ret;
@@ -1113,7 +1068,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
 
     // scrubs duplicated options and sets flags for how to load the item.
     // we pass in the first token that should be a flag.
-    if (_meta_flag_preparse(tokens, 2, &of, &errstr) != 0) {
+    if (t_meta_flag_preparse(tokens, 2, &of, &errstr) != 0) {
         out_errstring(c, errstr);
         return;
     }
@@ -1449,7 +1404,7 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     // We need to at least try to get the size to properly slurp bad bytes
     // after an error.
     // we pass in the first token that should be a flag.
-    if (_meta_flag_preparse(tokens, 3, &of, &errstr) != 0) {
+    if (t_meta_flag_preparse(tokens, 3, &of, &errstr) != 0) {
         goto error;
     }
 
@@ -1642,7 +1597,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
     // scrubs duplicated options and sets flags for how to load the item.
     // we pass in the first token that should be a flag.
     // FIXME: not using the preparse errstr?
-    if (_meta_flag_preparse(tokens, 2, &of, &errstr) != 0) {
+    if (t_meta_flag_preparse(tokens, 2, &of, &errstr) != 0) {
         out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
         return;
     }
@@ -1799,7 +1754,7 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
 
     // scrubs duplicated options and sets flags for how to load the item.
     // we pass in the first token that should be a flag.
-    if (_meta_flag_preparse(tokens, 2, &of, &errstr) != 0) {
+    if (t_meta_flag_preparse(tokens, 2, &of, &errstr) != 0) {
         out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
         return;
     }
@@ -2877,7 +2832,7 @@ static void process_refresh_certs_command(conn *c, token_t *tokens, const size_t
 // we can't drop out and back in again.
 // Leaving this note here to spend more time on a fix when necessary, or if an
 // opportunity becomes obvious.
-void process_command_ascii(conn *c, char *command) {
+static void _process_command_ascii(conn *c, char *command) {
 
     token_t tokens[MAX_TOKENS];
     size_t ntokens;
@@ -2894,12 +2849,6 @@ void process_command_ascii(conn *c, char *command) {
      * for commands set/add/replace, we build an item and read the data
      * directly into it, then continue in nread_complete().
      */
-
-    // Prep the response object for this query.
-    if (!resp_start(c)) {
-        conn_set_state(c, conn_closing);
-        return;
-    }
 
     c->thread->cur_sfd = c->sfd; // cuddle sfd for logging.
     ntokens = tokenize_command(command, tokens, MAX_TOKENS);
@@ -3095,4 +3044,31 @@ void process_command_ascii(conn *c, char *command) {
     return;
 }
 
+void process_command_ascii(conn *c, char *command) {
+    mcp_parser_t pr = {0};
+    // Prep the response object for this query.
+    if (!resp_start(c)) {
+        conn_set_state(c, conn_closing);
+        return;
+    }
 
+    // FIXME: get a length passed in from caller, since we end up calling
+    // strlen a bunch of times.
+    size_t cmdlen = strlen(command);
+    int ret = process_request(&pr, command, cmdlen);
+    if (ret == 0) {
+        bool handled = false;
+        switch (pr.command) {
+            case CMD_MA:
+                //process_marithmetic_cmd(c->thread, &pr, c->resp);
+                //handled = true;
+                break;
+        }
+
+        if (handled)
+            return;
+    }
+
+    // Fallback parser.
+    _process_command_ascii(c, command);
+}

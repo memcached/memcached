@@ -140,7 +140,7 @@ static inline int _mcplib_internal_run(LIBEVENT_THREAD *t, mcp_request_t *rq, mc
     mcp_parser_t *pr = &rq->pr;
 
     // TODO: meta no-op isn't handled here. haven't decided how yet.
-    switch (rq->pr.command) {
+    switch (pr->command) {
         case CMD_MG:
             process_mget_cmd(t, pr, resp, proxy_storage_mg);
             break;
