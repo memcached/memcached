@@ -1018,21 +1018,12 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     }
 
     if (!hook_ref.lua_ref) {
-        // need to pass our command string into the internal handler.
-        // to minimize the code change, this means allowing it to tokenize the
-        // full command. The proxy's indirect parser should be built out to
-        // become common code for both proxy and ascii handlers.
-        // For now this means we have to null-terminate the command string,
-        // then call into text protocol handler.
-        // FIXME (v2): use a ptr or something; don't like this code.
-        if (cmdlen > 1 && command[cmdlen-2] == '\r') {
-            command[cmdlen-2] = '\0';
-        } else {
-            command[cmdlen-1] = '\0';
-        }
         // lets nread_proxy know we're in ascii mode.
         c->proxy_rctx = NULL;
-        process_command_ascii(c, command);
+        // FIXME: in try_r_ascii *el is the index of '\n'
+        // the cmdlen we get in proxy_process_command seems to be \n+1 somehow
+        // follow up on this in case we're off-by-one'ing somewhere.
+        process_command_ascii(c, command, command+cmdlen-1);
         return;
     }
 

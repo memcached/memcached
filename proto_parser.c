@@ -1383,7 +1383,7 @@ void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
     size_t nkey = pr->klen;
     item *it = NULL;
     int i;
-    uint32_t hv;
+    uint32_t hv = 0;
     struct _meta_flags of = {0}; // option bitflags.
     char *errstr = "CLIENT_ERROR bad command line format";
     assert(t != NULL);

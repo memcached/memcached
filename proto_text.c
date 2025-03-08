@@ -466,15 +466,11 @@ int try_read_command_ascii(conn *c) {
         return 0;
     }
     cont = el + 1;
-    if ((el - c->rcurr) > 1 && *(el - 1) == '\r') {
-        el--;
-    }
-    *el = '\0';
 
     assert(cont <= (c->rcurr + c->rbytes));
 
     c->last_cmd_time = current_time;
-    process_command_ascii(c, c->rcurr);
+    process_command_ascii(c, c->rcurr, el);
 
     c->rbytes -= (cont - c->rcurr);
     c->rcurr = cont;
@@ -1720,237 +1716,6 @@ error:
     out_errstring(c, errstr);
 }
 
-static void process_marithmetic_command(conn *c, token_t *tokens, const size_t ntokens) {
-    char *key;
-    size_t nkey;
-    int i;
-    struct _meta_flags of = {0}; // option bitflags.
-    char *errstr = "CLIENT_ERROR bad command line format";
-    assert(c != NULL);
-    mc_resp *resp = c->resp;
-    // no reservation (like del/set) since we post-process the status line.
-    char *p = resp->wbuf;
-
-    // If no argument supplied, incr or decr by one.
-    of.delta = 1;
-    of.initial = 0; // redundant, for clarity.
-    bool incr = true; // default mode is to increment.
-    bool locked = false;
-    uint32_t hv = 0;
-    item *it = NULL; // item returned by do_add_delta.
-
-    WANT_TOKENS_MIN(ntokens, 3);
-
-    // TODO: most of this is identical to mget.
-    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
-        out_string(c, "CLIENT_ERROR bad command line format");
-        return;
-    }
-
-    if (ntokens > MFLAG_MAX_OPT_LENGTH) {
-        out_string(c, "CLIENT_ERROR options flags too long");
-        return;
-    }
-
-    // scrubs duplicated options and sets flags for how to load the item.
-    // we pass in the first token that should be a flag.
-    if (t_meta_flag_preparse(tokens, 2, &of, &errstr) != 0) {
-        out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
-        return;
-    }
-    assert(c != NULL);
-    c->resp->noreply = of.no_reply;
-
-    key = tokens[KEY_TOKEN].value;
-    nkey = tokens[KEY_TOKEN].length;
-
-    // "mode switch" to alternative commands
-    switch (of.mode) {
-        case 0: // no switch supplied.
-            break;
-        case 'I': // Incr (default)
-        case '+':
-            incr = true;
-            break;
-        case 'D': // Decr.
-        case '-':
-            incr = false;
-            break;
-        default:
-            errstr = "CLIENT_ERROR invalid mode for ma M token";
-            goto error;
-            break;
-    }
-
-    // take hash value and manually lock item... hold lock during store phase
-    // on miss and avoid recalculating the hash multiple times.
-    hv = hash(key, nkey);
-    item_lock(hv);
-    locked = true;
-    char tmpbuf[INCR_MAX_STORAGE_LEN];
-
-    // return a referenced item if it exists, so we can modify it here, rather
-    // than adding even more parameters to do_add_delta.
-    bool item_created = false;
-    switch(do_add_delta(c->thread, key, nkey, incr, of.delta, tmpbuf, &of.req_cas_id, hv, &it)) {
-    case OK:
-        if (c->resp->noreply)
-            resp->skip = true;
-        // *it was filled, set the status below.
-        if (of.has_cas_in) {
-            // override the CAS. slightly inefficient but fixing that can wait
-            // until the next time do_add_delta is changed.
-            ITEM_set_cas(it, of.cas_id_in);
-        }
-        break;
-    case NON_NUMERIC:
-        errstr = "CLIENT_ERROR cannot increment or decrement non-numeric value";
-        goto error;
-        break;
-    case EOM:
-        errstr = "SERVER_ERROR out of memory";
-        goto error;
-        break;
-    case DELTA_ITEM_NOT_FOUND:
-        if (of.vivify) {
-            itoa_u64(of.initial, tmpbuf);
-            int vlen = strlen(tmpbuf);
-
-            it = item_alloc(key, nkey, 0, 0, vlen+2);
-            if (it != NULL) {
-                memcpy(ITEM_data(it), tmpbuf, vlen);
-                memcpy(ITEM_data(it) + vlen, "\r\n", 2);
-                if (do_store_item(it, NREAD_ADD, c->thread, hv, NULL, NULL,
-                            of.has_cas_in ? of.cas_id_in : get_cas_id(), CAS_NO_STALE)) {
-                    item_created = true;
-                } else {
-                    // Not sure how we can get here if we're holding the lock.
-                    memcpy(resp->wbuf, "NS", 2);
-                }
-            } else {
-                errstr = "SERVER_ERROR Out of memory allocating new item";
-                goto error;
-            }
-        } else {
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            if (incr) {
-                c->thread->stats.incr_misses++;
-            } else {
-                c->thread->stats.decr_misses++;
-            }
-            pthread_mutex_unlock(&c->thread->stats.mutex);
-            // won't have a valid it here.
-            memcpy(p, "NF", 2);
-            p += 2;
-        }
-        break;
-    case DELTA_ITEM_CAS_MISMATCH:
-        // also returns without a valid it.
-        memcpy(p, "EX", 2);
-        p += 2;
-        break;
-    }
-
-    // final loop
-    // allows building the response with information after vivifying from a
-    // miss, or returning a new CAS value after add_delta().
-    if (it) {
-        size_t vlen = strlen(tmpbuf);
-        if (of.value) {
-            memcpy(p, "VA ", 3);
-            p = itoa_u32(vlen, p+3);
-        } else {
-            memcpy(p, "HD", 2);
-            p += 2;
-        }
-
-        for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
-            switch (tokens[i].value[0]) {
-                case 'c':
-                    META_CHAR(p, 'c');
-                    p = itoa_u64(ITEM_get_cas(it), p);
-                    break;
-                case 't':
-                    META_CHAR(p, 't');
-                    if (it->exptime == 0) {
-                        *p = '-';
-                        *(p+1) = '1';
-                        p += 2;
-                    } else {
-                        p = itoa_u32(it->exptime - current_time, p);
-                    }
-                    break;
-                case 'T':
-                    it->exptime = of.exptime;
-                    break;
-                case 'N':
-                    if (item_created) {
-                        it->exptime = of.autoviv_exptime;
-                    }
-                    break;
-                // TODO: macro perhaps?
-                case 'O':
-                    if (tokens[i].length > MFLAG_MAX_OPAQUE_LENGTH) {
-                        errstr = "CLIENT_ERROR opaque token too long";
-                        goto error;
-                    }
-                    META_SPACE(p);
-                    memcpy(p, tokens[i].value, tokens[i].length);
-                    p += tokens[i].length;
-                    break;
-                case 'k':
-                    META_KEY(p, key, nkey, of.key_binary);
-                    break;
-            }
-        }
-
-        if (of.value) {
-            *p = '\r';
-            *(p+1) = '\n';
-            p += 2;
-            memcpy(p, tmpbuf, vlen);
-            p += vlen;
-        }
-
-        do_item_remove(it);
-    } else {
-        // No item to handle. still need to return opaque/key tokens
-        for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
-            switch (tokens[i].value[0]) {
-                // TODO: macro perhaps?
-                case 'O':
-                    if (tokens[i].length > MFLAG_MAX_OPAQUE_LENGTH) {
-                        errstr = "CLIENT_ERROR opaque token too long";
-                        goto error;
-                    }
-                    META_SPACE(p);
-                    memcpy(p, tokens[i].value, tokens[i].length);
-                    p += tokens[i].length;
-                    break;
-                case 'k':
-                    META_KEY(p, key, nkey, of.key_binary);
-                    break;
-            }
-        }
-    }
-
-    item_unlock(hv);
-
-    resp->wbytes = p - resp->wbuf;
-    memcpy(resp->wbuf + resp->wbytes, "\r\n", 2);
-    resp->wbytes += 2;
-    resp_add_iov(resp, resp->wbuf, resp->wbytes);
-    conn_set_state(c, conn_new_cmd);
-    return;
-error:
-    if (it != NULL)
-        do_item_remove(it);
-    if (locked)
-        item_unlock(hv);
-    out_errstring(c, errstr);
-}
-
-
 static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, int comm, bool handle_cas) {
     char *key;
     size_t nkey;
@@ -2877,9 +2642,6 @@ static void _process_command_ascii(conn *c, char *command) {
                 // mn command forces immediate writeback flush.
                 conn_set_state(c, conn_mwrite);
                 break;
-            case 'a':
-                process_marithmetic_command(c, tokens, ntokens);
-                break;
             case 'e':
                 process_meta_command(c, tokens, ntokens);
                 break;
@@ -3044,7 +2806,7 @@ static void _process_command_ascii(conn *c, char *command) {
     return;
 }
 
-void process_command_ascii(conn *c, char *command) {
+void process_command_ascii(conn *c, char *command, char *el) {
     mcp_parser_t pr = {0};
     // Prep the response object for this query.
     if (!resp_start(c)) {
@@ -3054,20 +2816,26 @@ void process_command_ascii(conn *c, char *command) {
 
     // FIXME: get a length passed in from caller, since we end up calling
     // strlen a bunch of times.
-    size_t cmdlen = strlen(command);
+    size_t cmdlen = el - command;
     int ret = process_request(&pr, command, cmdlen);
     if (ret == 0) {
         bool handled = false;
         switch (pr.command) {
             case CMD_MA:
-                //process_marithmetic_cmd(c->thread, &pr, c->resp);
-                //handled = true;
+                process_marithmetic_cmd(c->thread, &pr, c->resp);
+                conn_set_state(c, conn_new_cmd);
+                handled = true;
                 break;
         }
 
         if (handled)
             return;
     }
+
+    if ((el - command) > 1 && *(el - 1) == '\r') {
+        el--;
+    }
+    *el = '\0';
 
     // Fallback parser.
     _process_command_ascii(c, command);
