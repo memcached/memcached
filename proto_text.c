@@ -2163,11 +2163,6 @@ static void _process_command_ascii(conn *c, char *command) {
             case 's':
                 process_mset_command(c, tokens, ntokens);
                 break;
-            case 'n':
-                out_string(c, "MN");
-                // mn command forces immediate writeback flush.
-                conn_set_state(c, conn_mwrite);
-                break;
             case 'e':
                 process_meta_command(c, tokens, ntokens);
                 break;
@@ -2342,7 +2337,7 @@ void process_command_ascii(conn *c, char *command, char *el) {
 
     // FIXME: get a length passed in from caller, since we end up calling
     // strlen a bunch of times.
-    size_t cmdlen = el - command;
+    size_t cmdlen = el - command + 1;
     int ret = process_request(&pr, command, cmdlen);
     if (ret == 0) {
         LIBEVENT_THREAD *t = c->thread;
@@ -2367,6 +2362,12 @@ void process_command_ascii(conn *c, char *command, char *el) {
                 } else {
                     conn_set_state(c, conn_new_cmd);
                 }
+                handled = true;
+                break;
+            case CMD_MN:
+                out_string(c, "MN");
+                // mn command forces immediate writeback flush.
+                conn_set_state(c, conn_mwrite);
                 handled = true;
                 break;
         }
