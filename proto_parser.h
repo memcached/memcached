@@ -127,10 +127,12 @@ struct _meta_flags {
     unsigned int key_binary:1;
     unsigned int remove_val:1;
     char mode; // single character mode switch, common to ms/ma
+    uint8_t key_len; // decoded binary key length
     rel_time_t exptime;
     rel_time_t autoviv_exptime;
     rel_time_t recache_time;
     client_flags_t client_flags;
+    const char *key;
     uint64_t req_cas_id;
     uint64_t cas_id_in; // client supplied next-CAS
     uint64_t delta; // ma
@@ -139,16 +141,16 @@ struct _meta_flags {
 
 int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen);
 
-typedef int (*proxy_storage_get_cb)(LIBEVENT_THREAD *t, item *it, mc_resp *resp);
-void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, proxy_storage_get_cb storage_cb, bool return_cas, bool should_touch);
+typedef int (*parser_storage_get_cb)(LIBEVENT_THREAD *t, item *it, mc_resp *resp);
+void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, parser_storage_get_cb storage_cb, bool return_cas, bool should_touch);
 void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, int comm, bool handle_cas);
 void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, const bool incr);
 void process_delete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 void process_touch_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 
 int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
-        struct _meta_flags *of, char **errstr);
-void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, proxy_storage_get_cb storage_cb);
+        struct _meta_flags *of, char *binkey, char **errstr);
+void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, parser_storage_get_cb storage_cb);
 void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);

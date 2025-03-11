@@ -584,13 +584,17 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
 #ifdef EXTSTORE
                   if (it->it_flags & ITEM_HDR) {
-                      if (storage_get_item(c, it, resp) != 0) {
+                      if (storage_get_item(c->thread, it, resp) != 0) {
                           pthread_mutex_lock(&c->thread->stats.mutex);
                           c->thread->stats.get_oom_extstore++;
                           pthread_mutex_unlock(&c->thread->stats.mutex);
 
                           item_remove(it);
                           goto stop;
+                      } else {
+                        assert(resp->io_pending != NULL);
+                        resp->io_pending->c = c;
+                        conn_resp_suspend(c, resp);
                       }
                   } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
                       resp_add_iov(resp, ITEM_data(it), it->nbytes);
@@ -1029,326 +1033,6 @@ static int t_meta_flag_preparse(token_t *tokens, const size_t start,
     return of->has_error ? -1 : 0;
 }
 
-static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens) {
-    char *key;
-    size_t nkey;
-    item *it;
-    unsigned int i = 0;
-    struct _meta_flags of = {0}; // option bitflags.
-    uint32_t hv; // cached hash value for unlocking an item.
-    bool failed = false;
-    bool item_created = false;
-    bool won_token = false;
-    bool ttl_set = false;
-    char *errstr = "CLIENT_ERROR bad command line format";
-    assert(c != NULL);
-    mc_resp *resp = c->resp;
-    char *p = resp->wbuf;
-
-    WANT_TOKENS_MIN(ntokens, 3);
-
-    // FIXME: do we move this check to after preparse?
-    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
-        out_errstring(c, "CLIENT_ERROR bad command line format");
-        return;
-    }
-
-    // NOTE: final token has length == 0.
-    // KEY_TOKEN == 1. 0 is command.
-
-    if (ntokens > MFLAG_MAX_OPT_LENGTH) {
-        // TODO: ensure the command tokenizer gives us at least this many
-        out_errstring(c, "CLIENT_ERROR options flags are too long");
-        return;
-    }
-
-    // scrubs duplicated options and sets flags for how to load the item.
-    // we pass in the first token that should be a flag.
-    if (t_meta_flag_preparse(tokens, 2, &of, &errstr) != 0) {
-        out_errstring(c, errstr);
-        return;
-    }
-    c->resp->noreply = of.no_reply;
-
-    // Grab key and length after meta preparsing in case it was decoded.
-    key = tokens[KEY_TOKEN].value;
-    nkey = tokens[KEY_TOKEN].length;
-
-    // TODO: need to indicate if the item was overflowed or not?
-    // I think we do, since an overflow shouldn't trigger an alloc/replace.
-    bool overflow = false;
-    if (!of.locked) {
-        it = limited_get(key, nkey, c->thread, 0, false, !of.no_update, &overflow);
-    } else {
-        // If we had to lock the item, we're doing our own bump later.
-        it = limited_get_locked(key, nkey, c->thread, DONT_UPDATE, &hv, &overflow);
-    }
-
-    // Since we're a new protocol, we can actually inform users that refcount
-    // overflow is happening by straight up throwing an error.
-    // We definitely don't want to re-autovivify by accident.
-    if (overflow) {
-        assert(it == NULL);
-        out_errstring(c, "SERVER_ERROR refcount overflow during fetch");
-        return;
-    }
-
-    if (it == NULL && of.vivify) {
-        // Fill in the exptime during parsing later.
-        it = item_alloc(key, nkey, 0, realtime(0), 2);
-        // We don't actually need any of do_store_item's logic:
-        // - already fetched and missed an existing item.
-        // - lock is still held.
-        // - not append/prepend/replace
-        // - not testing CAS
-        if (it != NULL) {
-            // I look forward to the day I get rid of this :)
-            memcpy(ITEM_data(it), "\r\n", 2);
-            // NOTE: This initializes the CAS value.
-            do_item_link(it, hv, of.has_cas_in ? of.cas_id_in : get_cas_id());
-            item_created = true;
-        }
-    }
-
-    // don't have to check result of add_iov() since the iov size defaults are
-    // enough.
-    if (it) {
-        if (of.value) {
-            memcpy(p, "VA ", 3);
-            p = itoa_u32(it->nbytes-2, p+3);
-        } else {
-            memcpy(p, "HD", 2);
-            p += 2;
-        }
-
-        for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
-            switch (tokens[i].value[0]) {
-                case 'T':
-                    ttl_set = true;
-                    it->exptime = of.exptime;
-                    break;
-                case 'N':
-                    if (item_created) {
-                        it->exptime = of.autoviv_exptime;
-                        won_token = true;
-                    }
-                    break;
-                case 'R':
-                    // If we haven't autovivified and supplied token is less
-                    // than current TTL, mark a win.
-                    if ((it->it_flags & ITEM_TOKEN_SENT) == 0
-                            && !item_created
-                            && it->exptime != 0
-                            && it->exptime < of.recache_time) {
-                        won_token = true;
-                    }
-                    break;
-                case 's':
-                    META_CHAR(p, 's');
-                    p = itoa_u32(it->nbytes-2, p);
-                    break;
-                case 't':
-                    // TTL remaining as of this request.
-                    // needs to be relative because server clocks may not be in sync.
-                    META_CHAR(p, 't');
-                    if (it->exptime == 0) {
-                        *p = '-';
-                        *(p+1) = '1';
-                        p += 2;
-                    } else {
-                        p = itoa_u32(it->exptime - current_time, p);
-                    }
-                    break;
-                case 'c':
-                    META_CHAR(p, 'c');
-                    p = itoa_u64(ITEM_get_cas(it), p);
-                    break;
-                case 'f':
-                    META_CHAR(p, 'f');
-                    if (FLAGS_SIZE(it) == 0) {
-                        *p = '0';
-                        p++;
-                    } else {
-                        p = itoa_u64(*((client_flags_t *) ITEM_suffix(it)), p);
-                    }
-                    break;
-                case 'l':
-                    META_CHAR(p, 'l');
-                    p = itoa_u32(current_time - it->time, p);
-                    break;
-                case 'h':
-                    META_CHAR(p, 'h');
-                    if (it->it_flags & ITEM_FETCHED) {
-                        *p = '1';
-                    } else {
-                        *p = '0';
-                    }
-                    p++;
-                    break;
-                case 'O':
-                    if (tokens[i].length > MFLAG_MAX_OPAQUE_LENGTH) {
-                        errstr = "CLIENT_ERROR opaque token too long";
-                        goto error;
-                    }
-                    META_SPACE(p);
-                    memcpy(p, tokens[i].value, tokens[i].length);
-                    p += tokens[i].length;
-                    break;
-                case 'k':
-                    META_KEY(p, ITEM_key(it), it->nkey, (it->it_flags & ITEM_KEY_BINARY));
-                    break;
-            }
-        }
-
-        // Has this item already sent a token?
-        // Important to do this here so we don't send W with Z.
-        // Isn't critical, but easier for client authors to understand.
-        if (it->it_flags & ITEM_TOKEN_SENT) {
-            META_CHAR(p, 'Z');
-        }
-        if (it->it_flags & ITEM_STALE) {
-            META_CHAR(p, 'X');
-            // FIXME: think hard about this. is this a default, or a flag?
-            if ((it->it_flags & ITEM_TOKEN_SENT) == 0) {
-                // If we're stale but no token already sent, now send one.
-                won_token = true;
-            }
-        }
-
-        if (won_token) {
-            // Mark a win into the flag buffer.
-            META_CHAR(p, 'W');
-            it->it_flags |= ITEM_TOKEN_SENT;
-        }
-
-        *p = '\r';
-        *(p+1) = '\n';
-        *(p+2) = '\0';
-        p += 2;
-        // finally, chain in the buffer.
-        resp_add_iov(resp, resp->wbuf, p - resp->wbuf);
-
-        if (of.value) {
-#ifdef EXTSTORE
-            if (it->it_flags & ITEM_HDR) {
-                if (storage_get_item(c, it, resp) != 0) {
-                    pthread_mutex_lock(&c->thread->stats.mutex);
-                    c->thread->stats.get_oom_extstore++;
-                    pthread_mutex_unlock(&c->thread->stats.mutex);
-
-                    failed = true;
-                }
-            } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
-                resp_add_iov(resp, ITEM_data(it), it->nbytes);
-            } else {
-                resp_add_chunked_iov(resp, it, it->nbytes);
-            }
-#else
-            if ((it->it_flags & ITEM_CHUNKED) == 0) {
-                resp_add_iov(resp, ITEM_data(it), it->nbytes);
-            } else {
-                resp_add_chunked_iov(resp, it, it->nbytes);
-            }
-#endif
-        }
-
-        // need to hold the ref at least because of the key above.
-#ifdef EXTSTORE
-        if (!failed) {
-            if ((it->it_flags & ITEM_HDR) != 0 && of.value) {
-                // Only have extstore clean if header and returning value.
-                resp->item = NULL;
-            } else {
-                resp->item = it;
-            }
-        } else {
-            // Failed to set up extstore fetch.
-            if (of.locked) {
-                do_item_remove(it);
-            } else {
-                item_remove(it);
-            }
-        }
-#else
-        resp->item = it;
-#endif
-    } else {
-        failed = true;
-    }
-
-    if (of.locked) {
-        // Delayed bump so we could get fetched/last access time pre-update.
-        if (!of.no_update && it != NULL) {
-            do_item_bump(c->thread, it, hv);
-        }
-        item_unlock(hv);
-    }
-
-    // we count this command as a normal one if we've gotten this far.
-    // TODO: for autovivify case, miss never happens. Is this okay?
-    if (!failed) {
-        pthread_mutex_lock(&c->thread->stats.mutex);
-        if (ttl_set) {
-            c->thread->stats.touch_cmds++;
-            c->thread->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
-        } else {
-            c->thread->stats.lru_hits[it->slabs_clsid]++;
-            c->thread->stats.get_cmds++;
-        }
-        pthread_mutex_unlock(&c->thread->stats.mutex);
-
-        conn_set_state(c, conn_new_cmd);
-    } else {
-        pthread_mutex_lock(&c->thread->stats.mutex);
-        if (ttl_set) {
-            c->thread->stats.touch_cmds++;
-            c->thread->stats.touch_misses++;
-        } else {
-            c->thread->stats.get_misses++;
-            c->thread->stats.get_cmds++;
-        }
-        MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
-        pthread_mutex_unlock(&c->thread->stats.mutex);
-
-        // This gets elided in noreply mode.
-        if (c->resp->noreply)
-            resp->skip = true;
-        memcpy(p, "EN", 2);
-        p += 2;
-        for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
-            switch (tokens[i].value[0]) {
-                // TODO: macro perhaps?
-                case 'O':
-                    if (tokens[i].length > MFLAG_MAX_OPAQUE_LENGTH) {
-                        errstr = "CLIENT_ERROR opaque token too long";
-                        goto error;
-                    }
-                    META_SPACE(p);
-                    memcpy(p, tokens[i].value, tokens[i].length);
-                    p += tokens[i].length;
-                    break;
-                case 'k':
-                    META_KEY(p, key, nkey, of.key_binary);
-                    break;
-            }
-        }
-        resp->wbytes = p - resp->wbuf;
-        memcpy(resp->wbuf + resp->wbytes, "\r\n", 2);
-        resp->wbytes += 2;
-        resp_add_iov(resp, resp->wbuf, resp->wbytes);
-        conn_set_state(c, conn_new_cmd);
-    }
-    return;
-error:
-    if (it) {
-        do_item_remove(it);
-        if (of.locked) {
-            item_unlock(hv);
-        }
-    }
-    out_errstring(c, errstr);
-}
-
 static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens) {
     char *key;
     size_t nkey;
@@ -1562,158 +1246,6 @@ error:
     out_errstring(c, errstr);
     // TODO: pass state in? else switching twice meh.
     conn_set_state(c, conn_swallow);
-}
-
-static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntokens) {
-    char *key;
-    size_t nkey;
-    item *it = NULL;
-    int i;
-    uint32_t hv = 0;
-    struct _meta_flags of = {0}; // option bitflags.
-    char *errstr = "CLIENT_ERROR bad command line format";
-    assert(c != NULL);
-    mc_resp *resp = c->resp;
-    // reserve bytes for status code
-    char *p = resp->wbuf + 2;
-
-    WANT_TOKENS_MIN(ntokens, 3);
-
-    // TODO: most of this is identical to mget.
-    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
-        out_string(c, "CLIENT_ERROR bad command line format");
-        return;
-    }
-
-    if (ntokens > MFLAG_MAX_OPT_LENGTH) {
-        out_string(c, "CLIENT_ERROR options flags too long");
-        return;
-    }
-
-    // scrubs duplicated options and sets flags for how to load the item.
-    // we pass in the first token that should be a flag.
-    // FIXME: not using the preparse errstr?
-    if (t_meta_flag_preparse(tokens, 2, &of, &errstr) != 0) {
-        out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
-        return;
-    }
-    assert(c != NULL);
-    c->resp->noreply = of.no_reply;
-
-    key = tokens[KEY_TOKEN].value;
-    nkey = tokens[KEY_TOKEN].length;
-
-    for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
-        switch (tokens[i].value[0]) {
-            // TODO: macro perhaps?
-            case 'O':
-                if (tokens[i].length > MFLAG_MAX_OPAQUE_LENGTH) {
-                    errstr = "CLIENT_ERROR opaque token too long";
-                    goto error;
-                }
-                META_SPACE(p);
-                memcpy(p, tokens[i].value, tokens[i].length);
-                p += tokens[i].length;
-                break;
-            case 'k':
-                META_KEY(p, key, nkey, of.key_binary);
-                break;
-        }
-    }
-
-    it = item_get_locked(key, nkey, c->thread, DONT_UPDATE, &hv);
-    if (it) {
-        MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
-
-        // allow only deleting/marking if a CAS value matches.
-        if (of.has_cas && ITEM_get_cas(it) != of.req_cas_id) {
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.delete_misses++;
-            pthread_mutex_unlock(&c->thread->stats.mutex);
-
-            memcpy(resp->wbuf, "EX", 2);
-            goto cleanup;
-        }
-
-        // If requested, create a new empty tombstone item.
-        if (of.remove_val) {
-            item *new_it = item_alloc(key, nkey, of.client_flags, of.exptime, 2);
-            if (new_it != NULL) {
-                memcpy(ITEM_data(new_it), "\r\n", 2);
-                if (do_store_item(new_it, NREAD_SET, c->thread, hv, NULL, NULL,
-                            of.has_cas_in ? of.cas_id_in : ITEM_get_cas(it), CAS_NO_STALE)) {
-                    do_item_remove(it);
-                    it = new_it;
-                } else {
-                    do_item_remove(new_it);
-                    memcpy(resp->wbuf, "NS", 2);
-                    goto cleanup;
-                }
-            } else {
-                errstr = "SERVER_ERROR out of memory";
-                goto error;
-            }
-        }
-
-        // If we're to set this item as stale, we don't actually want to
-        // delete it. We mark the stale bit, bump CAS, and update exptime if
-        // we were supplied a new TTL.
-        if (of.set_stale) {
-            if (of.new_ttl) {
-                it->exptime = of.exptime;
-            }
-            it->it_flags |= ITEM_STALE;
-            // Also need to remove TOKEN_SENT, so next client can win.
-            it->it_flags &= ~ITEM_TOKEN_SENT;
-
-            ITEM_set_cas(it, of.has_cas_in ? of.cas_id_in : get_cas_id());
-            // Clients can noreply nominal responses.
-            if (c->resp->noreply)
-                resp->skip = true;
-
-            memcpy(resp->wbuf, "HD", 2);
-        } else {
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
-            pthread_mutex_unlock(&c->thread->stats.mutex);
-
-            LOGGER_LOG(NULL, LOG_DELETIONS, LOGGER_DELETIONS, it, LOG_TYPE_META_DELETE);
-            if (!of.remove_val) {
-                do_item_unlink(it, hv);
-                STORAGE_delete(c->thread->storage, it);
-            }
-            if (c->resp->noreply)
-                resp->skip = true;
-            memcpy(resp->wbuf, "HD", 2);
-        }
-        goto cleanup;
-    } else {
-        pthread_mutex_lock(&c->thread->stats.mutex);
-        c->thread->stats.delete_misses++;
-        pthread_mutex_unlock(&c->thread->stats.mutex);
-
-        memcpy(resp->wbuf, "NF", 2);
-        goto cleanup;
-    }
-cleanup:
-    if (it) {
-        do_item_remove(it);
-    }
-    // Item is always returned locked, even if missing.
-    item_unlock(hv);
-    resp->wbytes = p - resp->wbuf;
-    memcpy(resp->wbuf + resp->wbytes, "\r\n", 2);
-    resp->wbytes += 2;
-    resp_add_iov(resp, resp->wbuf, resp->wbytes);
-    conn_set_state(c, conn_new_cmd);
-    return;
-error:
-    // cleanup if an error happens after we fetched an item.
-    if (it) {
-        do_item_remove(it);
-        item_unlock(hv);
-    }
-    out_errstring(c, errstr);
 }
 
 static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, int comm, bool handle_cas) {
@@ -2628,14 +2160,8 @@ static void _process_command_ascii(conn *c, char *command) {
     char first = tokens[COMMAND_TOKEN].value[0];
     if (first == 'm' && tokens[COMMAND_TOKEN].length == 2) {
         switch (tokens[COMMAND_TOKEN].value[1]) {
-            case 'g':
-                process_mget_command(c, tokens, ntokens);
-                break;
             case 's':
                 process_mset_command(c, tokens, ntokens);
-                break;
-            case 'd':
-                process_mdelete_command(c, tokens, ntokens);
                 break;
             case 'n':
                 out_string(c, "MN");
@@ -2819,11 +2345,28 @@ void process_command_ascii(conn *c, char *command, char *el) {
     size_t cmdlen = el - command;
     int ret = process_request(&pr, command, cmdlen);
     if (ret == 0) {
+        LIBEVENT_THREAD *t = c->thread;
+        mc_resp *resp = c->resp;
         bool handled = false;
         switch (pr.command) {
             case CMD_MA:
-                process_marithmetic_cmd(c->thread, &pr, c->resp);
+                process_marithmetic_cmd(t, &pr, resp);
                 conn_set_state(c, conn_new_cmd);
+                handled = true;
+                break;
+             case CMD_MD:
+                process_mdelete_cmd(t, &pr, resp);
+                conn_set_state(c, conn_new_cmd);
+                handled = true;
+                break;
+             case CMD_MG:
+                process_mget_cmd(t, &pr, resp, storage_get_item);
+                if (resp->io_pending) {
+                    resp->io_pending->c = c;
+                    conn_resp_suspend(c, resp);
+                } else {
+                    conn_set_state(c, conn_new_cmd);
+                }
                 handled = true;
                 break;
         }

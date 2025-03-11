@@ -787,6 +787,7 @@ typedef struct _mc_resp {
     bool suspended; // waiting for response from subsystem
     bool free; // double free detection.
     bool noreply; // TODO: remove if we can rely on skip-only
+    bool binary_prot; // let main ascii prot know if we're binary or not
 #ifdef PROXY
     bool proxy_res; // we're handling a proxied response buffer.
 #endif

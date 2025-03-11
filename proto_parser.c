@@ -378,11 +378,25 @@ static int _store_item_copy_from_buf(item *d_it, char *buf, const int len) {
 
 // FIXME: rename from _meta to pr_meta
 int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
-        struct _meta_flags *of, char **errstr) {
+        struct _meta_flags *of, char *binkey, char **errstr) {
     unsigned int i;
-    //size_t ret;
+    size_t ret;
     int32_t tmp_int;
     uint8_t seen[127] = {0};
+    of->key = MCP_PARSER_KEY(pr);
+    of->key_len = pr->klen;
+
+    if (pr->klen > KEY_MAX_LENGTH) {
+        *errstr = "CLIENT_ERROR bad command line format";
+        return -1;
+    }
+
+    if (pr->tok.ntokens > MFLAG_MAX_OPT_LENGTH) {
+        // TODO: ensure the command tokenizer gives us at least this many
+        *errstr = "CLIENT_ERROR options flags are too long";
+        return -1;
+    }
+
     // Start just past the key token. Look at first character of each token.
     for (i = start; i < pr->tok.ntokens; i++) {
         uint8_t o = (uint8_t)pr->request[pr->tok.tokens[i]];
@@ -393,21 +407,20 @@ int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
         }
         seen[o] = 1;
         switch (o) {
-            // base64 decode the key in-place, as the binary should always be
+            // base64 decode the key in stack memory, as the binary should always be
             // shorter and the conversion code buffers bytes.
-            // TODO: we need temporary space for the binary key decode since
-            // request should be const.
-            /*case 'b':
-                ret = base64_decode((unsigned char *)tokens[KEY_TOKEN].value, tokens[KEY_TOKEN].length,
-                            (unsigned char *)tokens[KEY_TOKEN].value, tokens[KEY_TOKEN].length);
+            case 'b':
+                ret = base64_decode((unsigned char *)MCP_PARSER_KEY(pr), pr->klen,
+                            (unsigned char *)binkey, pr->klen);
                 if (ret == 0) {
                     // Failed to decode
                     *errstr = "CLIENT_ERROR error decoding key";
                     of->has_error = 1;
                 }
-                tokens[KEY_TOKEN].length = ret;
+                of->key = binkey;
+                of->key_len = ret;
                 of->key_binary = 1;
-                break;*/
+                break;
             /* Negative exptimes can underflow and end up immortal. realtime() will
                immediately expire values that are greater than REALTIME_MAXDELTA, but less
                than process_started, so lets aim for that. */
@@ -545,7 +558,7 @@ static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas,
     return (p - suffix) + 2;
 }
 
-void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, proxy_storage_get_cb storage_cb, bool return_cas, bool should_touch) {
+void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, parser_storage_get_cb storage_cb, bool return_cas, bool should_touch) {
     const char *key = MCP_PARSER_KEY(pr);
     int nkey = pr->klen;
     rel_time_t exptime = 0;
@@ -860,9 +873,8 @@ void process_touch_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
 }
 
 void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp,
-        proxy_storage_get_cb storage_cb) {
-    const char *key = MCP_PARSER_KEY(pr);
-    size_t nkey = pr->klen;
+        parser_storage_get_cb storage_cb) {
+    char binkey[KEY_MAX_LENGTH]; // if we decode a binary key, put it here.
     item *it;
     unsigned int i = 0;
     struct _meta_flags of = {0}; // option bitflags.
@@ -879,23 +891,16 @@ void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp,
     // FIXME: still needed?
     //WANT_TOKENS_MIN(ntokens, 3);
 
-    if (nkey > KEY_MAX_LENGTH) {
-        pout_string(resp, "CLIENT_ERROR bad command line format");
-        return;
-    }
-
-    if (pr->tok.ntokens > MFLAG_MAX_OPT_LENGTH) {
-        // TODO: ensure the command tokenizer gives us at least this many
-        pout_errstring(resp, "CLIENT_ERROR options flags are too long");
-        return;
-    }
-
     // scrubs duplicated options and sets flags for how to load the item.
     // we pass in the first token that should be a flag.
-    if (_meta_flag_preparse(pr, 2, &of, &errstr) != 0) {
+    if (_meta_flag_preparse(pr, 2, &of, binkey, &errstr) != 0) {
         pout_errstring(resp, errstr);
         return;
     }
+
+    // indirect key access, in case of binary key.
+    const char *key = of.key;
+    size_t nkey = of.key_len;
 
     bool overflow = false;
     if (!of.locked) {
@@ -1169,9 +1174,7 @@ error:
 }
 
 void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
-    const char *key = MCP_PARSER_KEY(pr);
-    size_t nkey = pr->klen;
-
+    char binkey[KEY_MAX_LENGTH]; // if we decode a binary key, put it here.
     item *it;
     int i;
     short comm = NREAD_SET;
@@ -1185,23 +1188,21 @@ void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
 
     //WANT_TOKENS_MIN(ntokens, 3);
 
-    if (nkey > KEY_MAX_LENGTH || pr->tok.ntokens < 3) {
+    if (pr->tok.ntokens < 3) {
         pout_string(resp, "CLIENT_ERROR bad command line format");
-        return;
-    }
-
-    if (pr->tok.ntokens > MFLAG_MAX_OPT_LENGTH) {
-        // TODO: ensure the command tokenizer gives us at least this many
-        pout_errstring(resp, "CLIENT_ERROR options flags are too long");
         return;
     }
 
     // We need to at least try to get the size to properly slurp bad bytes
     // after an error.
     // we pass in the first token that should be a flag.
-    if (_meta_flag_preparse(pr, 3, &of, &errstr) != 0) {
+    if (_meta_flag_preparse(pr, 3, &of, binkey, &errstr) != 0) {
         goto error;
     }
+
+    // indirect key access, in case of binary key.
+    const char *key = of.key;
+    size_t nkey = of.key_len;
 
     rel_time_t exptime = of.exptime;
     // "mode switch" to alternative commands
@@ -1379,8 +1380,7 @@ error:
 }
 
 void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
-    const char *key = MCP_PARSER_KEY(pr);
-    size_t nkey = pr->klen;
+    char binkey[KEY_MAX_LENGTH]; // if we decode a binary key, put it here.
     item *it = NULL;
     int i;
     uint32_t hv = 0;
@@ -1393,24 +1393,16 @@ void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
 
     //WANT_TOKENS_MIN(ntokens, 3);
 
-    if (nkey > KEY_MAX_LENGTH) {
-        pout_string(resp, "CLIENT_ERROR bad command line format");
-        return;
-    }
-
-    if (pr->tok.ntokens > MFLAG_MAX_OPT_LENGTH) {
-        // TODO: ensure the command tokenizer gives us at least this many
-        pout_errstring(resp, "CLIENT_ERROR options flags are too long");
-        return;
-    }
-
     // scrubs duplicated options and sets flags for how to load the item.
     // we pass in the first token that should be a flag.
-    // FIXME: not using the preparse errstr?
-    if (_meta_flag_preparse(pr, 2, &of, &errstr) != 0) {
-        pout_errstring(resp, "CLIENT_ERROR invalid or duplicate flag");
+    if (_meta_flag_preparse(pr, 2, &of, binkey, &errstr) != 0) {
+        pout_errstring(resp, errstr);
         return;
     }
+
+    // indirect key access, in case of binary key.
+    const char *key = of.key;
+    size_t nkey = of.key_len;
 
     for (i = pr->keytoken+1; i < pr->tok.ntokens; i++) {
         switch (pr->request[pr->tok.tokens[i]]) {
@@ -1524,8 +1516,7 @@ error:
 }
 
 void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
-    const char *key = MCP_PARSER_KEY(pr);
-    size_t nkey = pr->klen;
+    char binkey[KEY_MAX_LENGTH]; // if we decode a binary key, put it here.
     int i;
     struct _meta_flags of = {0}; // option bitflags.
     char *errstr = "CLIENT_ERROR bad command line format";
@@ -1544,23 +1535,16 @@ void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
 
     //WANT_TOKENS_MIN(ntokens, 3);
 
-    if (nkey > KEY_MAX_LENGTH) {
-        pout_string(resp, "CLIENT_ERROR bad command line format");
-        return;
-    }
-
-    if (pr->tok.ntokens > MFLAG_MAX_OPT_LENGTH) {
-        // TODO: ensure the command tokenizer gives us at least this many
-        pout_errstring(resp, "CLIENT_ERROR options flags are too long");
-        return;
-    }
-
     // scrubs duplicated options and sets flags for how to load the item.
     // we pass in the first token that should be a flag.
-    if (_meta_flag_preparse(pr, 2, &of, &errstr) != 0) {
+    if (_meta_flag_preparse(pr, 2, &of, binkey, &errstr) != 0) {
         pout_errstring(resp, "CLIENT_ERROR invalid or duplicate flag");
         return;
     }
+
+    // indirect key access, in case of binary key.
+    const char *key = of.key;
+    size_t nkey = of.key_len;
 
     // "mode switch" to alternative commands
     switch (of.mode) {
