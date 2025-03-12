@@ -338,7 +338,8 @@ static void pout_string(mc_resp *resp, const char *str) {
 
     // We blank the response "just in case", but if we're not intending on
     // sending it lets not rewrite it.
-    if (skip) {
+    // FIXME: do noreply and skip need to be separate?
+    if (skip || resp->noreply) {
         resp->skip = true;
         return;
     }
@@ -830,6 +831,7 @@ void process_delete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
     uint32_t hv;
 
     assert(t != NULL);
+    resp->noreply = pr->noreply;
 
     // NOTE: removed a compatibility bodge from a decade ago.
     // delete used to take a "delay" argument, which was removed, but some
@@ -840,6 +842,10 @@ void process_delete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
     if (nkey > KEY_MAX_LENGTH) {
         pout_string(resp, "CLIENT_ERROR bad command line format");
         return;
+    }
+
+    if (settings.detail_enabled) {
+        stats_prefix_record_delete(key, nkey);
     }
 
     it = item_get_locked(key, nkey, t, DONT_UPDATE, &hv);

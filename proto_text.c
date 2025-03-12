@@ -1174,62 +1174,6 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
     }
 }
 
-
-static void process_delete_command(conn *c, token_t *tokens, const size_t ntokens) {
-    char *key;
-    size_t nkey;
-    item *it;
-    uint32_t hv;
-
-    assert(c != NULL);
-
-    if (ntokens > 3) {
-        bool hold_is_zero = strcmp(tokens[KEY_TOKEN+1].value, "0") == 0;
-        bool sets_noreply = set_noreply_maybe(c, tokens, ntokens);
-        bool valid = (ntokens == 4 && (hold_is_zero || sets_noreply))
-            || (ntokens == 5 && hold_is_zero && sets_noreply);
-        if (!valid) {
-            out_string(c, "CLIENT_ERROR bad command line format.  "
-                       "Usage: delete <key> [noreply]");
-            return;
-        }
-    }
-
-
-    key = tokens[KEY_TOKEN].value;
-    nkey = tokens[KEY_TOKEN].length;
-
-    if(nkey > KEY_MAX_LENGTH) {
-        out_string(c, "CLIENT_ERROR bad command line format");
-        return;
-    }
-
-    if (settings.detail_enabled) {
-        stats_prefix_record_delete(key, nkey);
-    }
-
-    it = item_get_locked(key, nkey, c->thread, DONT_UPDATE, &hv);
-    if (it) {
-        MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
-
-        pthread_mutex_lock(&c->thread->stats.mutex);
-        c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
-        pthread_mutex_unlock(&c->thread->stats.mutex);
-        LOGGER_LOG(NULL, LOG_DELETIONS, LOGGER_DELETIONS, it, LOG_TYPE_DELETE);
-        do_item_unlink(it, hv);
-        STORAGE_delete(c->thread->storage, it);
-        do_item_remove(it);      /* release our reference */
-        out_string(c, "DELETED");
-    } else {
-        pthread_mutex_lock(&c->thread->stats.mutex);
-        c->thread->stats.delete_misses++;
-        pthread_mutex_unlock(&c->thread->stats.mutex);
-
-        out_string(c, "NOT_FOUND");
-    }
-    item_unlock(hv);
-}
-
 static void process_verbosity_command(conn *c, token_t *tokens, const size_t ntokens) {
     unsigned int level;
 
@@ -1963,11 +1907,7 @@ static void _process_command_ascii(conn *c, char *command) {
             out_string(c, "ERROR");
         }
     } else if (first == 'd') {
-        if (strcmp(tokens[COMMAND_TOKEN].value, "delete") == 0) {
-
-            WANT_TOKENS(ntokens, 3, 5);
-            process_delete_command(c, tokens, ntokens);
-        } else if (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0) {
+        if (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0) {
 
             WANT_TOKENS_OR(ntokens, 4, 5);
             process_arithmetic_command(c, tokens, ntokens, 0);
@@ -1996,13 +1936,6 @@ static void _process_command_ascii(conn *c, char *command) {
 
         WANT_TOKENS_OR(ntokens, 6, 7);
         process_update_command(c, tokens, ntokens, comm, false);
-
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "bget") == 0) {
-        // ancient "binary get" command which isn't in any documentation, was
-        // removed > 10 years ago, etc. Keeping for compatibility reasons but
-        // we should look deeper into client code and remove this.
-        WANT_TOKENS_MIN(ntokens, 3);
-        process_get_command(c, tokens, ntokens, false, false);
 
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "flush_all") == 0) {
 
@@ -2098,6 +2031,11 @@ void process_command_ascii(conn *c, char *command, char *el) {
                 break;
              case CMD_MS:
                 process_mset_command(c, &pr, resp);
+                handled = true;
+                break;
+             case CMD_DELETE:
+                process_delete_cmd(t, &pr, resp);
+                conn_set_state(c, conn_new_cmd);
                 handled = true;
                 break;
         }
