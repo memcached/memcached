@@ -9,6 +9,37 @@
 
 #define PARSER_MAXLEN USHRT_MAX-1
 
+struct _meta_flags {
+    unsigned int has_error :1; // flipped if we found an error during parsing.
+    unsigned int no_update :1;
+    unsigned int locked :1;
+    unsigned int vivify :1;
+    unsigned int la :1;
+    unsigned int hit :1;
+    unsigned int value :1;
+    unsigned int set_stale :1;
+    unsigned int no_reply :1;
+    unsigned int has_cas :1;
+    unsigned int has_cas_in :1;
+    unsigned int new_ttl :1;
+    unsigned int key_binary:1;
+    unsigned int remove_val:1;
+    char mode; // single character mode switch, common to ms/ma
+    uint8_t key_len; // decoded binary key length
+    rel_time_t exptime;
+    rel_time_t autoviv_exptime;
+    rel_time_t recache_time;
+    client_flags_t client_flags;
+    const char *key;
+    uint64_t req_cas_id;
+    uint64_t cas_id_in; // client supplied next-CAS
+    uint64_t delta; // ma
+    uint64_t initial; // ma
+};
+
+static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
+        struct _meta_flags *of, char *binkey, char **errstr);
+
 /*
  * BEGIN TOKENIZER CODE
  */
@@ -277,14 +308,14 @@ int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
     }
 
     // TODO: log more specific error code.
-    if (cmd == -1 || ret != 0) {
-        return -1;
+    if (cmd == -1) {
+        return PROCESS_REQUEST_CMD_NOT_FOUND;
     }
 
     pr->command = cmd;
     pr->cmd_type = type;
 
-    return 0;
+    return ret;
 }
 
 /*
@@ -377,7 +408,7 @@ static int _store_item_copy_from_buf(item *d_it, char *buf, const int len) {
 }
 
 // FIXME: rename from _meta to pr_meta
-int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
+static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
         struct _meta_flags *of, char *binkey, char **errstr) {
     unsigned int i;
     size_t ret;
@@ -1173,24 +1204,20 @@ error:
     pout_errstring(resp, errstr);
 }
 
-void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
+item *process_mset_cmd_start(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp,
+        uint64_t *cas_in, bool *has_cas_in, short *comm) {
     char binkey[KEY_MAX_LENGTH]; // if we decode a binary key, put it here.
     item *it;
-    int i;
-    short comm = NREAD_SET;
+    *comm = NREAD_SET;
     struct _meta_flags of = {0}; // option bitflags.
     char *errstr = "CLIENT_ERROR bad command line format";
     uint32_t hv; // cached hash value.
     int vlen = pr->vlen; // value from data line.
     assert(t != NULL);
-    char *p = resp->wbuf;
-    int tlen = 0;
-
-    //WANT_TOKENS_MIN(ntokens, 3);
 
     if (pr->tok.ntokens < 3) {
         pout_string(resp, "CLIENT_ERROR bad command line format");
-        return;
+        return NULL;
     }
 
     // We need to at least try to get the size to properly slurp bad bytes
@@ -1210,29 +1237,29 @@ void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
         case 0:
             break; // no mode supplied.
         case 'E': // Add...
-            comm = NREAD_ADD;
+            *comm = NREAD_ADD;
             break;
         case 'A': // Append.
             if (of.vivify) {
-                comm = NREAD_APPENDVIV;
+                *comm = NREAD_APPENDVIV;
                 exptime = of.autoviv_exptime;
             } else {
-                comm = NREAD_APPEND;
+                *comm = NREAD_APPEND;
             }
             break;
         case 'P': // Prepend.
             if (of.vivify) {
-                comm = NREAD_PREPENDVIV;
+                *comm = NREAD_PREPENDVIV;
                 exptime = of.autoviv_exptime;
             } else {
-                comm = NREAD_PREPEND;
+                *comm = NREAD_PREPEND;
             }
             break;
         case 'R': // Replace.
-            comm = NREAD_REPLACE;
+            *comm = NREAD_REPLACE;
             break;
         case 'S': // Set. Default.
-            comm = NREAD_SET;
+            *comm = NREAD_SET;
             break;
         default:
             errstr = "CLIENT_ERROR invalid mode for ms M token";
@@ -1244,24 +1271,30 @@ void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
     // Also allows REPLACE to work, as REPLACE + CAS works the same as CAS.
     // add-with-cas works the same as add; but could only LRU bump if match..
     // APPEND/PREPEND allow a simplified CAS check.
-    if (of.has_cas && (comm == NREAD_SET || comm == NREAD_REPLACE)) {
-        comm = NREAD_CAS;
+    if (of.has_cas && (*comm == NREAD_SET || *comm == NREAD_REPLACE)) {
+        *comm = NREAD_CAS;
     }
 
     it = item_alloc(key, nkey, of.client_flags, exptime, vlen);
 
     if (it == 0) {
+        enum store_item_type status;
         if (! item_size_ok(nkey, of.client_flags, vlen)) {
             errstr = "SERVER_ERROR object too large for cache";
+            status = TOO_LARGE;
             pthread_mutex_lock(&t->stats.mutex);
             t->stats.store_too_large++;
             pthread_mutex_unlock(&t->stats.mutex);
         } else {
             errstr = "SERVER_ERROR out of memory storing object";
+            status = NO_MEMORY;
             pthread_mutex_lock(&t->stats.mutex);
             t->stats.store_no_memory++;
             pthread_mutex_unlock(&t->stats.mutex);
         }
+        // FIXME: LOGGER_LOG specific to mset, include options.
+        LOGGER_LOG(t->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
+                NULL, status, comm, key, nkey, 0, 0);
 
         /* Avoid stale data persisting in cache because we failed alloc. */
         // NOTE: only if SET mode?
@@ -1284,15 +1317,37 @@ void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
         it->it_flags |= ITEM_KEY_BINARY;
     }
 
-    bool set_stale = CAS_NO_STALE;
-    if (of.set_stale && comm == NREAD_CAS) {
-        set_stale = CAS_ALLOW_STALE;
+    resp->set_stale = CAS_NO_STALE;
+    if (of.set_stale && *comm == NREAD_CAS) {
+        resp->set_stale = CAS_ALLOW_STALE;
     }
-    resp->wbytes = p - resp->wbuf;
+    resp->noreply = of.no_reply;
 
     pthread_mutex_lock(&t->stats.mutex);
     t->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
     pthread_mutex_unlock(&t->stats.mutex);
+
+    if (of.has_cas_in) {
+        *cas_in = of.cas_id_in;
+        *has_cas_in = true;
+    }
+    return it;
+error:
+    // Note: no errors possible after the item was successfully allocated.
+    // So we're just looking at dumping error codes and returning.
+    pout_errstring(resp, errstr);
+    return NULL;
+}
+
+void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
+    bool has_cas_in = false;
+    uint64_t cas_in = 0;
+    short comm = 0;
+    item *it = process_mset_cmd_start(t, pr, resp, &cas_in, &has_cas_in, &comm);
+    char *errstr = "CLIENT_ERROR bad command line format";
+
+    if (it == NULL)
+        return;
 
     // complete_nread_proxy() does the data chunk check so all we need to do
     // is copy the data.
@@ -1302,14 +1357,15 @@ void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
         return;
     }
 
+    char *p = resp->wbuf;
     uint64_t cas = 0;
     int nbytes = 0;
-    int ret = store_item(it, comm, t, &nbytes, &cas, of.has_cas_in ? of.cas_id_in : get_cas_id(), set_stale);
+    int ret = store_item(it, comm, t, &nbytes, &cas, has_cas_in ? cas_in : get_cas_id(), resp->set_stale);
     switch (ret) {
         case STORED:
           memcpy(p, "HD", 2);
           // Only place noreply is used for meta cmds is a nominal response.
-          if (of.no_reply) {
+          if (resp->noreply) {
               resp->skip = true;
           }
           break;
@@ -1329,7 +1385,8 @@ void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
     }
     p += 2;
 
-    for (i = pr->keytoken+1; i < pr->tok.ntokens; i++) {
+    for (int i = pr->keytoken+1; i < pr->tok.ntokens; i++) {
+        int tlen;
         switch (pr->request[pr->tok.tokens[i]]) {
             case 'O':
                 tlen = _process_token_len(pr, i);

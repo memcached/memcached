@@ -2,10 +2,8 @@
 #define PROTO_PARSER_H
 
 #include "config.h"
-#include "vendor/mcmc/mcmc.h"
+#include "proto_parser_type.h"
 #include <stdbool.h>
-
-typedef struct mcp_parser_s mcp_parser_t;
 
 // certain classes of ascii commands have similar parsing (ie;
 // get/gets/gat/gats). Use types so we don't have to test a ton of them.
@@ -63,21 +61,6 @@ enum proxy_defines {
 };
 #undef X
 
-// Note that we must use offsets into request for tokens,
-// as *request can change between parsing and later accessors.
-struct mcp_parser_s {
-    const char *request;
-    void *vbuf; // temporary buffer for holding value lengths.
-    mcmc_tokenizer_t tok; // tokenizer structure
-    uint8_t command;
-    uint8_t cmd_type; // command class.
-    uint8_t keytoken; // because GAT. sigh. also cmds without a key.
-    uint32_t reqlen; // full length of request buffer.
-    int vlen;
-    uint32_t klen; // length of key.
-    bool noreply; // if quiet/noreply mode is set.
-};
-
 #define MCP_PARSER_KEY(pr) (&(pr)->request[(pr)->tok.tokens[(pr)->keytoken]])
 
 #define META_SPACE(p) { \
@@ -111,34 +94,9 @@ struct mcp_parser_s {
 #define MFLAG_MAX_OPT_LENGTH 20
 #define MFLAG_MAX_OPAQUE_LENGTH 32
 
-struct _meta_flags {
-    unsigned int has_error :1; // flipped if we found an error during parsing.
-    unsigned int no_update :1;
-    unsigned int locked :1;
-    unsigned int vivify :1;
-    unsigned int la :1;
-    unsigned int hit :1;
-    unsigned int value :1;
-    unsigned int set_stale :1;
-    unsigned int no_reply :1;
-    unsigned int has_cas :1;
-    unsigned int has_cas_in :1;
-    unsigned int new_ttl :1;
-    unsigned int key_binary:1;
-    unsigned int remove_val:1;
-    char mode; // single character mode switch, common to ms/ma
-    uint8_t key_len; // decoded binary key length
-    rel_time_t exptime;
-    rel_time_t autoviv_exptime;
-    rel_time_t recache_time;
-    client_flags_t client_flags;
-    const char *key;
-    uint64_t req_cas_id;
-    uint64_t cas_id_in; // client supplied next-CAS
-    uint64_t delta; // ma
-    uint64_t initial; // ma
-};
-
+#define PROCESS_REQUEST_OK 0
+#define PROCESS_REQUEST_BAD_FORMAT -1
+#define PROCESS_REQUEST_CMD_NOT_FOUND -2
 int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen);
 
 typedef int (*parser_storage_get_cb)(LIBEVENT_THREAD *t, item *it, mc_resp *resp);
@@ -148,9 +106,9 @@ void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp,
 void process_delete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 void process_touch_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 
-int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
-        struct _meta_flags *of, char *binkey, char **errstr);
 void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, parser_storage_get_cb storage_cb);
+item *process_mset_cmd_start(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp,
+        uint64_t *cas_in, bool *has_cas_in, short *comm);
 void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
 void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp);
