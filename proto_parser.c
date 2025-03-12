@@ -787,6 +787,7 @@ void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp,
     size_t nkey = pr->klen;
 
     assert(t != NULL);
+    resp->noreply = pr->noreply;
 
     if (nkey > KEY_MAX_LENGTH) {
         pout_string(resp, "CLIENT_ERROR bad command line format");

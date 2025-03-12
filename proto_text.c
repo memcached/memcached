@@ -1125,55 +1125,6 @@ static void process_touch_command(conn *c, token_t *tokens, const size_t ntokens
     }
 }
 
-static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const bool incr) {
-    char temp[INCR_MAX_STORAGE_LEN];
-    uint64_t delta;
-    char *key;
-    size_t nkey;
-
-    assert(c != NULL);
-
-    set_noreply_maybe(c, tokens, ntokens);
-
-    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
-        out_string(c, "CLIENT_ERROR bad command line format");
-        return;
-    }
-
-    key = tokens[KEY_TOKEN].value;
-    nkey = tokens[KEY_TOKEN].length;
-
-    if (!safe_strtoull(tokens[2].value, &delta)) {
-        out_string(c, "CLIENT_ERROR invalid numeric delta argument");
-        return;
-    }
-
-    switch(add_delta(c->thread, key, nkey, incr, delta, temp, NULL)) {
-    case OK:
-        out_string(c, temp);
-        break;
-    case NON_NUMERIC:
-        out_string(c, "CLIENT_ERROR cannot increment or decrement non-numeric value");
-        break;
-    case EOM:
-        out_of_memory(c, "SERVER_ERROR out of memory");
-        break;
-    case DELTA_ITEM_NOT_FOUND:
-        pthread_mutex_lock(&c->thread->stats.mutex);
-        if (incr) {
-            c->thread->stats.incr_misses++;
-        } else {
-            c->thread->stats.decr_misses++;
-        }
-        pthread_mutex_unlock(&c->thread->stats.mutex);
-
-        out_string(c, "NOT_FOUND");
-        break;
-    case DELTA_ITEM_CAS_MISMATCH:
-        break; /* Should never get here */
-    }
-}
-
 static void process_verbosity_command(conn *c, token_t *tokens, const size_t ntokens) {
     unsigned int level;
 
@@ -1898,30 +1849,20 @@ static void _process_command_ascii(conn *c, char *command) {
         } else {
             out_string(c, "ERROR");
         }
-    } else if (first == 'i') {
-        if (strcmp(tokens[COMMAND_TOKEN].value, "incr") == 0) {
-
-            WANT_TOKENS_OR(ntokens, 4, 5);
-            process_arithmetic_command(c, tokens, ntokens, 1);
-        } else {
-            out_string(c, "ERROR");
-        }
     } else if (first == 'd') {
-        if (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0) {
-
-            WANT_TOKENS_OR(ntokens, 4, 5);
-            process_arithmetic_command(c, tokens, ntokens, 0);
 #ifdef MEMCACHED_DEBUG
-        } else if (strcmp(tokens[COMMAND_TOKEN].value, "debugtime") == 0) {
+       if (strcmp(tokens[COMMAND_TOKEN].value, "debugtime") == 0) {
             WANT_TOKENS_MIN(ntokens, 2);
             process_debugtime_command(c, tokens, ntokens);
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "debugitem") == 0) {
             WANT_TOKENS_MIN(ntokens, 2);
             process_debugitem_command(c, tokens, ntokens);
-#endif
         } else {
             out_string(c, "ERROR");
         }
+#else
+       out_string(c, "ERROR");
+#endif
     } else if (first == 't') {
         if (strcmp(tokens[COMMAND_TOKEN].value, "touch") == 0) {
 
@@ -2035,6 +1976,16 @@ void process_command_ascii(conn *c, char *command, char *el) {
                 break;
              case CMD_DELETE:
                 process_delete_cmd(t, &pr, resp);
+                conn_set_state(c, conn_new_cmd);
+                handled = true;
+                break;
+             case CMD_INCR:
+                process_arithmetic_cmd(t, &pr, resp, true);
+                conn_set_state(c, conn_new_cmd);
+                handled = true;
+                break;
+             case CMD_DECR:
+                process_arithmetic_cmd(t, &pr, resp, false);
                 conn_set_state(c, conn_new_cmd);
                 handled = true;
                 break;
