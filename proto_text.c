@@ -975,97 +975,13 @@ error:
     conn_set_state(c, conn_swallow);
 }
 
-static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, int comm, bool handle_cas) {
-    char *key;
-    size_t nkey;
-    client_flags_t flags;
-    int32_t exptime_int = 0;
-    rel_time_t exptime = 0;
-    int vlen;
-    uint64_t req_cas_id=0;
-    item *it;
-
-    assert(c != NULL);
-
-    set_noreply_maybe(c, tokens, ntokens);
-
-    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
-        out_string(c, "CLIENT_ERROR bad command line format");
-        return;
-    }
-
-    key = tokens[KEY_TOKEN].value;
-    nkey = tokens[KEY_TOKEN].length;
-
-    if (! (safe_strtoflags(tokens[2].value, &flags)
-           && safe_strtol(tokens[3].value, &exptime_int)
-           && safe_strtol(tokens[4].value, (int32_t *)&vlen))) {
-        out_string(c, "CLIENT_ERROR bad command line format");
-        return;
-    }
-
-    exptime = realtime(EXPTIME_TO_POSITIVE_TIME(exptime_int));
-
-    // does cas value exist?
-    if (handle_cas) {
-        if (!safe_strtoull(tokens[5].value, &req_cas_id)) {
-            out_string(c, "CLIENT_ERROR bad command line format");
-            return;
-        }
-    }
-
-    if (vlen < 0 || vlen > (INT_MAX - 2)) {
-        out_string(c, "CLIENT_ERROR bad command line format");
-        return;
-    }
-    vlen += 2;
-
-    if (settings.detail_enabled) {
-        stats_prefix_record_set(key, nkey);
-    }
-
-    it = item_alloc(key, nkey, flags, exptime, vlen);
-
-    if (it == 0) {
-        enum store_item_type status;
-        if (! item_size_ok(nkey, flags, vlen)) {
-            out_string(c, "SERVER_ERROR object too large for cache");
-            status = TOO_LARGE;
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.store_too_large++;
-            pthread_mutex_unlock(&c->thread->stats.mutex);
-        } else {
-            out_of_memory(c, "SERVER_ERROR out of memory storing object");
-            status = NO_MEMORY;
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.store_no_memory++;
-            pthread_mutex_unlock(&c->thread->stats.mutex);
-        }
-        LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
-                NULL, status, comm, key, nkey, 0, 0, c->sfd);
-        /* swallow the data line */
+static void process_update_command(conn *c, mcp_parser_t *pr, mc_resp *resp, int comm, bool handle_cas) {
+    item *it = process_update_cmd_start(c->thread, pr, resp, comm, handle_cas);
+    if (it == NULL) {
         conn_set_state(c, conn_swallow);
-        c->sbytes = vlen;
-
-        /* Avoid stale data persisting in cache because we failed alloc.
-         * Unacceptable for SET. Anywhere else too? */
-        if (comm == NREAD_SET) {
-            it = item_get(key, nkey, c->thread, DONT_UPDATE);
-            if (it) {
-                item_unlink(it);
-                STORAGE_delete(c->thread->storage, it);
-                item_remove(it);
-            }
-        }
-
+        c->sbytes = pr->vlen;
         return;
     }
-    ITEM_set_cas(it, req_cas_id);
-
-    pthread_mutex_lock(&c->thread->stats.mutex);
-    c->thread->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
-    pthread_mutex_unlock(&c->thread->stats.mutex);
-
     c->item = it;
 #ifdef NEED_ALIGN
     if (it->it_flags & ITEM_CHUNKED) {
@@ -1715,7 +1631,6 @@ static void _process_command_ascii(conn *c, char *command) {
 
     token_t tokens[MAX_TOKENS];
     size_t ntokens;
-    int comm;
 
     assert(c != NULL);
 
@@ -1768,11 +1683,7 @@ static void _process_command_ascii(conn *c, char *command) {
             out_string(c, "ERROR");
         }
     } else if (first == 's') {
-        if (strcmp(tokens[COMMAND_TOKEN].value, "set") == 0 && (comm = NREAD_SET)) {
-
-            WANT_TOKENS_OR(ntokens, 6, 7);
-            process_update_command(c, tokens, ntokens, comm, false);
-        } else if (strcmp(tokens[COMMAND_TOKEN].value, "stats") == 0) {
+        if (strcmp(tokens[COMMAND_TOKEN].value, "stats") == 0) {
 
             process_stat(c, tokens, ntokens);
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "shutdown") == 0) {
@@ -1784,21 +1695,8 @@ static void _process_command_ascii(conn *c, char *command) {
         } else {
             out_string(c, "ERROR");
         }
-    } else if (first == 'a') {
-        if ((strcmp(tokens[COMMAND_TOKEN].value, "add") == 0 && (comm = NREAD_ADD)) ||
-            (strcmp(tokens[COMMAND_TOKEN].value, "append") == 0 && (comm = NREAD_APPEND)) ) {
-
-            WANT_TOKENS_OR(ntokens, 6, 7);
-            process_update_command(c, tokens, ntokens, comm, false);
-        } else {
-            out_string(c, "ERROR");
-        }
     } else if (first == 'c') {
-        if (strcmp(tokens[COMMAND_TOKEN].value, "cas") == 0 && (comm = NREAD_CAS)) {
-
-            WANT_TOKENS_OR(ntokens, 7, 8);
-            process_update_command(c, tokens, ntokens, comm, true);
-        } else if (strcmp(tokens[COMMAND_TOKEN].value, "cache_memlimit") == 0) {
+        if (strcmp(tokens[COMMAND_TOKEN].value, "cache_memlimit") == 0) {
 
             WANT_TOKENS_OR(ntokens, 3, 4);
             process_memlimit_command(c, tokens, ntokens);
@@ -1819,13 +1717,6 @@ static void _process_command_ascii(conn *c, char *command) {
 #else
        out_string(c, "ERROR");
 #endif
-    } else if (
-                (strcmp(tokens[COMMAND_TOKEN].value, "replace") == 0 && (comm = NREAD_REPLACE)) ||
-                (strcmp(tokens[COMMAND_TOKEN].value, "prepend") == 0 && (comm = NREAD_PREPEND)) ) {
-
-        WANT_TOKENS_OR(ntokens, 6, 7);
-        process_update_command(c, tokens, ntokens, comm, false);
-
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "flush_all") == 0) {
 
         WANT_TOKENS(ntokens, 2, 4);
@@ -1940,6 +1831,30 @@ void process_command_ascii(conn *c, char *command, char *el) {
              case CMD_TOUCH:
                 process_touch_cmd(t, &pr, resp);
                 conn_set_state(c, conn_new_cmd);
+                handled = true;
+                break;
+             case CMD_SET:
+                process_update_command(c, &pr, resp, NREAD_SET, false);
+                handled = true;
+                break;
+            case CMD_ADD:
+                process_update_command(c, &pr, resp, NREAD_ADD, false);
+                handled = true;
+                break;
+            case CMD_APPEND:
+                process_update_command(c, &pr, resp, NREAD_APPEND, false);
+                handled = true;
+                break;
+            case CMD_PREPEND:
+                process_update_command(c, &pr, resp, NREAD_PREPEND, false);
+                handled = true;
+                break;
+            case CMD_REPLACE:
+                process_update_command(c, &pr, resp, NREAD_REPLACE, false);
+                handled = true;
+                break;
+            case CMD_CAS:
+                process_update_command(c, &pr, resp, NREAD_CAS, true);
                 handled = true;
                 break;
         }

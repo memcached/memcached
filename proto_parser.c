@@ -671,7 +671,7 @@ void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, parser
     return;
 }
 
-void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, int comm, bool handle_cas) {
+item *process_update_cmd_start(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, int comm, bool handle_cas) {
     const char *key = MCP_PARSER_KEY(pr);
     size_t nkey = pr->klen;
     client_flags_t flags;
@@ -681,10 +681,11 @@ void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, int
     item *it;
 
     assert(resp != NULL);
+    resp->noreply = pr->noreply;
 
     if (nkey > KEY_MAX_LENGTH) {
         pout_string(resp, "CLIENT_ERROR bad command line format");
-        return;
+        return NULL;
     }
 
     // TODO: convert to mcmc_token_etc which do not use strtol underneath.
@@ -692,7 +693,7 @@ void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, int
     if (! (safe_strtoflags(&pr->request[pr->tok.tokens[2]], &flags)
            && safe_strtol(&pr->request[pr->tok.tokens[3]], &exptime_int))) {
         pout_string(resp, "CLIENT_ERROR bad command line format");
-        return;
+        return NULL;
     }
 
     exptime = realtime(EXPTIME_TO_POSITIVE_TIME(exptime_int));
@@ -701,7 +702,7 @@ void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, int
     if (handle_cas) {
         if (!safe_strtoull(&pr->request[pr->tok.tokens[5]], &req_cas_id)) {
             pout_string(resp, "CLIENT_ERROR bad command line format");
-            return;
+            return NULL;
         }
     }
 
@@ -742,7 +743,7 @@ void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, int
             }
         }
 
-        return;
+        return NULL;
     }
     ITEM_set_cas(it, req_cas_id);
 
@@ -750,6 +751,14 @@ void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, int
     t->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
     pthread_mutex_unlock(&t->stats.mutex);
 
+    return it;
+}
+
+void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, int comm, bool handle_cas) {
+    item *it = process_update_cmd_start(t, pr, resp, comm, handle_cas);
+    if (it == NULL) {
+        return;
+    }
     // complete_nread_proxy() does the data chunk check so all we need to do
     // is copy the data.
     if (_store_item_copy_from_buf(it, pr->vbuf, it->nbytes) != 0) {
