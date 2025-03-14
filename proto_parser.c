@@ -593,12 +593,21 @@ static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas,
 void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, parser_storage_get_cb storage_cb, bool return_cas, bool should_touch) {
     const char *key = MCP_PARSER_KEY(pr);
     int nkey = pr->klen;
+    int32_t exptime_int = 0;
     rel_time_t exptime = 0;
     bool overflow = false; // unused.
 
     if (nkey > KEY_MAX_LENGTH) {
         pout_string(resp, "CLIENT_ERROR bad command line format");
         return;
+    }
+
+    if (should_touch) {
+        if (!safe_strtol(&pr->request[pr->tok.tokens[1]], &exptime_int)) {
+            pout_string(resp, "CLIENT_ERROR invalid exptime argument");
+            return;
+        }
+        exptime = realtime(EXPTIME_TO_POSITIVE_TIME(exptime_int));
     }
 
     item *it = limited_get(key, nkey, t, exptime, should_touch, DO_UPDATE, &overflow);
