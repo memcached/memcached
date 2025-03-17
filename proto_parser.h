@@ -100,7 +100,7 @@ enum proxy_defines {
 int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen);
 
 typedef int (*parser_storage_get_cb)(LIBEVENT_THREAD *t, item *it, mc_resp *resp);
-void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, parser_storage_get_cb storage_cb, bool return_cas, bool should_touch);
+int process_get_cmd(LIBEVENT_THREAD *t, const char *key, const int nkey, mc_resp *resp, parser_storage_get_cb storage_cb, rel_time_t exptime, bool return_cas, bool should_touch);
 item *process_update_cmd_start(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, int comm, bool handle_cas);
 void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, int comm, bool handle_cas);
 void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, const bool incr);

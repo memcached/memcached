@@ -132,6 +132,23 @@ static int proxy_storage_get(LIBEVENT_THREAD *t, item *it, mc_resp *resp) {
     return _proxy_storage_get(t, it, resp, PROXY_STORAGE_GET);
 }
 
+static void proxy_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, bool return_cas, bool should_touch) {
+    rel_time_t exptime = 0;
+    if (should_touch) {
+        int32_t exptime_int = 0;
+        if (!safe_strtol(&pr->request[pr->tok.tokens[1]], &exptime_int)) {
+            // FIXME:
+            //pout_string(resp, "CLIENT_ERROR invalid exptime argument");
+            return;
+        }
+        exptime = realtime(EXPTIME_TO_POSITIVE_TIME(exptime_int));
+    }
+
+    if (process_get_cmd(t, MCP_PARSER_KEY(pr), pr->klen, resp, proxy_storage_get, exptime, return_cas, should_touch) == 0) {
+        resp_add_iov(resp, "END\r\n", 5);
+    }
+}
+
 #endif // EXTSTORE
 
 /*** Lua and internal handler ***/
@@ -154,16 +171,16 @@ static inline int _mcplib_internal_run(LIBEVENT_THREAD *t, mcp_request_t *rq, mc
             process_marithmetic_cmd(t, pr, resp);
             break;
         case CMD_GET:
-            process_get_cmd(t, pr, resp, proxy_storage_get, _NO_CAS, _NO_TOUCH);
+            proxy_get_cmd(t, pr, resp, _NO_CAS, _NO_TOUCH);
             break;
         case CMD_GETS:
-            process_get_cmd(t, pr, resp, proxy_storage_get, _DO_CAS, _NO_TOUCH);
+            proxy_get_cmd(t, pr, resp, _DO_CAS, _NO_TOUCH);
             break;
         case CMD_GAT:
-            process_get_cmd(t, pr, resp, proxy_storage_get, _NO_CAS, _DO_TOUCH);
+            proxy_get_cmd(t, pr, resp, _NO_CAS, _DO_TOUCH);
             break;
         case CMD_GATS:
-            process_get_cmd(t, pr, resp, proxy_storage_get, _DO_CAS, _DO_TOUCH);
+            proxy_get_cmd(t, pr, resp, _DO_CAS, _DO_TOUCH);
             break;
         case CMD_SET:
             process_update_cmd(t, pr, resp, NREAD_SET, _NO_CAS);

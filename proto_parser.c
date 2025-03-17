@@ -590,27 +590,18 @@ static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas,
     return (p - suffix) + 2;
 }
 
-void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, parser_storage_get_cb storage_cb, bool return_cas, bool should_touch) {
-    const char *key = MCP_PARSER_KEY(pr);
-    int nkey = pr->klen;
-    int32_t exptime_int = 0;
-    rel_time_t exptime = 0;
+int process_get_cmd(LIBEVENT_THREAD *t, const char *key, const int nkey, mc_resp *resp, parser_storage_get_cb storage_cb, rel_time_t exptime, bool return_cas, bool should_touch) {
     bool overflow = false; // unused.
 
     if (nkey > KEY_MAX_LENGTH) {
         pout_string(resp, "CLIENT_ERROR bad command line format");
-        return;
-    }
-
-    if (should_touch) {
-        if (!safe_strtol(&pr->request[pr->tok.tokens[1]], &exptime_int)) {
-            pout_string(resp, "CLIENT_ERROR invalid exptime argument");
-            return;
-        }
-        exptime = realtime(EXPTIME_TO_POSITIVE_TIME(exptime_int));
+        return -1;
     }
 
     item *it = limited_get(key, nkey, t, exptime, should_touch, DO_UPDATE, &overflow);
+    if (settings.detail_enabled) {
+        stats_prefix_record_get(key, nkey, NULL != it);
+    }
     if (it) {
       int nbytes = it->nbytes;;
       nbytes = it->nbytes;
@@ -631,7 +622,7 @@ void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, parser
 
               item_remove(it);
               pout_errstring(resp, "SERVER_ERROR out of memory writing get response");
-              return;
+              return -1;
           }
       } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
           resp_add_iov(resp, ITEM_data(it), it->nbytes);
@@ -676,8 +667,7 @@ void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, parser
         pthread_mutex_unlock(&t->stats.mutex);
     }
 
-    resp_add_iov(resp, "END\r\n", 5);
-    return;
+    return 0;
 }
 
 item *process_update_cmd_start(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, int comm, bool handle_cas) {
