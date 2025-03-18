@@ -51,6 +51,14 @@ $t->accept_backends();
 done_testing();
 
 sub test_best {
+    subtest 'rctx:best_result all timeout' => sub {
+        $t->c_send("mg bestrestime/a v t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->c_recv("SERVER_ERROR bad response\r\n", "client received error");
+        $t->be_send([0, 1, 2], "EN\r\n");
+        $t->clear();
+    };
+
     subtest 'rctx:best_result first' => sub {
         $t->c_send("mg bestres/a v t\r\n");
         $t->be_recv_c([0, 1, 2], "received request");

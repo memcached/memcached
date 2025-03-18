@@ -1467,7 +1467,9 @@ int mcplib_rcontext_best_result(lua_State *L) {
             }
 
             struct mcp_rqueue_s *rqu = &rctx->qslots[handle];
-            if (rqu->flags & RQUEUE_R_GOOD) {
+            if (!rqu->flags) {
+                continue; // error or unprocessed.
+            } else if (rqu->flags & RQUEUE_R_GOOD) {
                 final_handle = handle;
                 break;
             } else if (rqu->flags & RQUEUE_R_OK) {
@@ -1513,7 +1515,9 @@ int mcplib_rcontext_worst_result(lua_State *L) {
             }
 
             struct mcp_rqueue_s *rqu = &rctx->qslots[handle];
-            if (rqu->flags & RQUEUE_R_ANY) {
+            if (!rqu->flags) {
+                continue;
+            } else if (rqu->flags & RQUEUE_R_ANY) {
                 // can't be worse than an ANY.
                 // TODO: is it possible to differentiate further?
                 final_handle = handle;

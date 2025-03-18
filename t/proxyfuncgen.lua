@@ -79,6 +79,7 @@ function new_basic_factory(arg, func)
     -- here would be a good place to do bounds checking on arguments in
     -- similar functions.
     o.wait = arg.wait
+    o.timeout = arg.timeout
     for _, v in pairs(arg.list) do
         table.insert(o.t, fgen:new_handle(v))
         o.c = o.c + 1
@@ -616,11 +617,21 @@ function badreturn_gen(rctx)
     end
 end
 
+-- TODO: should really make the wait time ignored if timeout is nil? throws an
+-- error but means more lua to deal with optional waits...
 function bestres_factory_gen(rctx, arg)
     local handles = arg.t
+    local timeout = nil
+    if arg.timeout then
+        timeout = arg.timeout
+    end
     return function(r)
         rctx:enqueue(r, handles)
-        rctx:wait_cond(#handles)
+        if timeout then
+            rctx:wait_cond(#handles, mcp.WAIT_ANY, timeout)
+        else
+            rctx:wait_cond(#handles)
+        end
         local res, tag = rctx:best_result(handles)
         return res
     end
@@ -677,6 +688,7 @@ function mcp_config_routes(p)
     local badreturn = new_error_factory(badreturn_gen, "badreturn")
 
     local bestres = new_basic_factory({ list = p, name = "bestres" }, bestres_factory_gen)
+    local bestrestime = new_basic_factory({ list = p, timeout = 0.5, name = "bestres" }, bestres_factory_gen)
     local worstres = new_basic_factory({ list = p, name = "worstres" }, worstres_factory_gen)
 
     -- for testing traffic splitting.
@@ -703,6 +715,7 @@ function mcp_config_routes(p)
         ["locality"] = locality,
         ["badreturn"] = badreturn,
         ["bestres"] = bestres,
+        ["bestrestime"] = bestrestime,
         ["worstres"] = worstres,
     }
 
