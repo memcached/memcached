@@ -310,6 +310,7 @@ void *assoc_get_iterator(void) {
     if (mutex_trylock(&maintenance_lock) == 0) {
         return iter;
     } else {
+        free(iter);
         return NULL;
     }
 }
