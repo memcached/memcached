@@ -460,6 +460,7 @@ static void _evict_page(store_engine *e, unsigned int bucket,
     if (low_version != ULLONG_MAX) {
         extstore_evict_page(e, low_page, low_version);
     }
+    free(st.page_data);
 }
 
 // call with *e locked
