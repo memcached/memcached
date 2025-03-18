@@ -172,6 +172,7 @@ enum restart_get_kv_ret restart_get_kv(void *ctx, char **key, char **val) {
             }
             if (cb == NULL) {
                 fprintf(stderr, "[restart] internal handler for metadata tag not found: %s:\n", line+1);
+                free(line);
                 return RESTART_NOTAG;
             }
             c->cb = cb;
@@ -205,6 +206,7 @@ enum restart_get_kv_ret restart_get_kv(void *ctx, char **key, char **val) {
     } else {
         // EOF or error in read.
         c->done = true;
+        free(line);
     }
 
     return RESTART_DONE;
