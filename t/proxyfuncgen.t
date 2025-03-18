@@ -31,6 +31,7 @@ $t->set_c($ps);
 $t->accept_backends();
 {
     # Comment out unused sections when debugging.
+    test_timesub();
     test_best();
     test_worst();
     test_logging();
@@ -49,6 +50,17 @@ $t->accept_backends();
 }
 
 done_testing();
+
+sub test_timesub {
+    subtest 'rctx WAIT_GOOD with timed out subrctx' => sub {
+        $t->c_send("mg timetop/a t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        sleep 2;
+        $t->be_send([0, 1, 2], "EN\r\n");
+        $t->c_recv("SERVER_ERROR backend failure\r\n", "client received error");
+        $t->clear();
+    };
+}
 
 sub test_best {
     subtest 'rctx:best_result all timeout' => sub {

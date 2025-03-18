@@ -647,6 +647,26 @@ function worstres_factory_gen(rctx, arg)
     end
 end
 
+function timeout_factory_gen(rctx, arg)
+    local handles = arg.t
+    local wait = #handles
+    local timeout = nil
+    if arg.wait then
+        wait = arg.wait
+    end
+    if arg.timeout then
+        timeout = arg.timeout
+    end
+    return function(r)
+        rctx:enqueue(r, handles)
+        if timeout then
+            rctx:wait_cond(wait, mcp.WAIT_GOOD, timeout)
+        else
+            rctx:wait_cond(wait, mcp.WAIT_GOOD)
+        end
+        return rctx:best_result(handles)
+    end
+end
 
 -- TODO: this might be supported only in a later update.
 -- new queue after parent return
@@ -695,6 +715,12 @@ function mcp_config_routes(p)
     local split = new_split_factory({ a = single, b = singletwo, name = "split" })
     local splitfailover = new_split_factory({ a = failover, b = singletwo, name = "splitfailover" })
 
+    -- test timeout via subrctx's that themselves timeout
+    local timesubone = new_basic_factory({ list = { p[1] }, timeout = 0.25, name = "timesubone" }, timeout_factory_gen)
+    local timesubtwo = new_basic_factory({ list = { p[2] }, timeout = 0.25, name = "timesubone" }, timeout_factory_gen)
+    local timesubthr = new_basic_factory({ list = { p[3] }, timeout = 0.25, name = "timesubone" }, timeout_factory_gen)
+    local timetop = new_basic_factory({ list = { timesubone, timesubtwo, timesubthr }, wait = 1, name = "timetop" }, timeout_factory_gen)
+
     local map = {
         ["single"] = single,
         ["first"] = first,
@@ -717,6 +743,7 @@ function mcp_config_routes(p)
         ["bestres"] = bestres,
         ["bestrestime"] = bestrestime,
         ["worstres"] = worstres,
+        ["timetop"] = timetop,
     }
 
     local parg = {
