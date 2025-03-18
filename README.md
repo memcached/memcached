@@ -23,6 +23,70 @@ list to ask questions, github issues aren't seen by everyone!
 * openssl (optional) - enables TLS support. need relatively up to date
   version. pkg-config is needed to find openssl dependencies (such as -lz).
 
+## Building from tarball
+
+If you downloaded this from the tarball, compilation is the standard process:
+
+```
+./configure
+make
+make test # optional
+make install
+```
+
+If you want TLS support, install OpenSSL's development packages and change the
+configure line:
+
+```
+./configure --enable-tls
+```
+
+If you want to enable the memcached proxy:
+
+```
+./configure --enable-proxy
+```
+
+## Building from git
+
+To build memcached in your machine from local repo you will have to install
+autotools, automake and libevent. In a debian based system that will look
+like this
+
+sudo apt-get install autotools-dev
+sudo apt-get install automake
+sudo apt-get install libevent-dev
+
+After that you can build memcached binary using automake
+
+```
+cd memcached
+./autogen.sh
+./configure
+make
+make test
+```
+
+It should create the binary in the same folder, which you can run
+
+./memcached
+
+You can telnet into that memcached to ensure it is up and running
+
+telnet 127.0.0.1 11211
+stats
+
+IF BUILDING PROXY, AN EXTRA STEP IS NECESSARY:
+
+cd memcached
+cd vendor
+./fetch.sh
+cd ..
+./autogen.sh
+./configure --enable-proxy
+make
+make test
+
 ## Environment
 
 Be warned that the -k (mlockall) option to memcached might be
