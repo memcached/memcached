@@ -53,9 +53,9 @@ To build memcached in your machine from local repo you will have to install
 autotools, automake and libevent. In a debian based system that will look
 like this
 
-sudo apt-get install autotools-dev
-sudo apt-get install automake
-sudo apt-get install libevent-dev
+```
+sudo apt-get install autotools-dev automake libevent-dev
+```
 
 After that you can build memcached binary using automake
 
@@ -69,15 +69,23 @@ make test
 
 It should create the binary in the same folder, which you can run
 
+```
 ./memcached
+```
 
 You can telnet into that memcached to ensure it is up and running
 
+```
 telnet 127.0.0.1 11211
 stats
+```
 
 IF BUILDING PROXY, AN EXTRA STEP IS NECESSARY:
 
+The proxy has some additional vendor dependency code that we keep out of the
+tree.
+
+```
 cd memcached
 cd vendor
 ./fetch.sh
@@ -86,6 +94,7 @@ cd ..
 ./configure --enable-proxy
 make
 make test
+```
 
 ## Environment
 
