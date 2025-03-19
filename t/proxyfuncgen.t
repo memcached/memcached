@@ -60,6 +60,15 @@ sub test_timesub {
         $t->c_recv("SERVER_ERROR backend failure\r\n", "client received error");
         $t->clear();
     };
+
+    subtest 'rctx WAIT_FASTGOOD with two errored subrctx' => sub {
+        $t->c_send("mg timefgtop/a t\r\n");
+        $t->be_recv_c([0, 1, 2], "received request");
+        $t->be_send([0, 1], "SERVER_ERROR nope\r\n");
+        $t->be_send(2, "EN\r\n");
+        $t->c_recv("EN\r\n", "got miss instead of error");
+        $t->clear();
+    };
 }
 
 sub test_best {

@@ -80,6 +80,7 @@ function new_basic_factory(arg, func)
     -- similar functions.
     o.wait = arg.wait
     o.timeout = arg.timeout
+    o.mode = arg.mode
     for _, v in pairs(arg.list) do
         table.insert(o.t, fgen:new_handle(v))
         o.c = o.c + 1
@@ -651,20 +652,25 @@ function timeout_factory_gen(rctx, arg)
     local handles = arg.t
     local wait = #handles
     local timeout = nil
+    local mode = mcp.WAIT_GOOD
     if arg.wait then
         wait = arg.wait
     end
     if arg.timeout then
         timeout = arg.timeout
     end
+    if arg.mode then
+        mode = arg.mode
+    end
     return function(r)
         rctx:enqueue(r, handles)
         if timeout then
-            rctx:wait_cond(wait, mcp.WAIT_GOOD, timeout)
+            rctx:wait_cond(wait, mode, timeout)
         else
-            rctx:wait_cond(wait, mcp.WAIT_GOOD)
+            rctx:wait_cond(wait, mode)
         end
-        return rctx:best_result(handles)
+        local res, tag = rctx:best_result(handles)
+        return res
     end
 end
 
@@ -720,6 +726,7 @@ function mcp_config_routes(p)
     local timesubtwo = new_basic_factory({ list = { p[2] }, timeout = 0.25, name = "timesubone" }, timeout_factory_gen)
     local timesubthr = new_basic_factory({ list = { p[3] }, timeout = 0.25, name = "timesubone" }, timeout_factory_gen)
     local timetop = new_basic_factory({ list = { timesubone, timesubtwo, timesubthr }, wait = 1, name = "timetop" }, timeout_factory_gen)
+    local timefgtop = new_basic_factory({ list = { timesubone, timesubtwo, timesubthr }, wait = 2, mode = mcp.WAIT_FASTGOOD, name = "timefgtop" }, timeout_factory_gen)
 
     local map = {
         ["single"] = single,
@@ -744,6 +751,7 @@ function mcp_config_routes(p)
         ["bestrestime"] = bestrestime,
         ["worstres"] = worstres,
         ["timetop"] = timetop,
+        ["timefgtop"] = timefgtop,
     }
 
     local parg = {
