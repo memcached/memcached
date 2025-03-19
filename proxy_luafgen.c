@@ -1062,7 +1062,7 @@ void mcp_process_rctx_wait(mcp_rcontext_t *rctx, int handle) {
                 possible++;
             }
         }
-        if (possible < rctx->wait_count - rctx->wait_done) {
+        if (possible == 0) {
             should_resume = true;
         }
     }
