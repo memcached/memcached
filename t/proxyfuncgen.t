@@ -211,17 +211,17 @@ sub test_worst {
         $t->be_send(0, "SERVER_ERROR borked\r\n");
         $t->be_send(1, "SERVER_ERROR borked2\r\n");
         $t->be_send(2, "EN\r\n");
-        $t->c_recv("SERVER_ERROR borked\r\n", "client received worst result");
+        $t->c_recv("SERVER_ERROR borked2\r\n", "client received worst result");
         $t->clear();
     };
 
-    subtest 'rctx:worst_result first hit' => sub {
+    subtest 'rctx:worst_result last hit' => sub {
         $t->c_send("mg worstres/a t\r\n");
         $t->be_recv_c([0, 1, 2], "received request");
         $t->be_send(0, "HD t50\r\n");
         $t->be_send(1, "HD t51\r\n");
         $t->be_send(2, "HD t52\r\n");
-        $t->c_recv("HD t50\r\n", "client received worst result");
+        $t->c_recv("HD t52\r\n", "client received worst result");
         $t->clear();
     };
 

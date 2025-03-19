@@ -1104,6 +1104,8 @@ int mcp_process_rqueue_return(mcp_rcontext_t *rctx, int handle, mcp_resp_t *res)
         } else {
             flag = RQUEUE_R_OK;
         }
+    } else {
+        flag = RQUEUE_R_ERROR;
     }
 
     if (res->be && res->be->use_logging) {
@@ -1528,6 +1530,7 @@ int mcplib_rcontext_worst_result(lua_State *L) {
 
     if (lua_istable(L, 2)) {
         int final_handle = -1;
+        int final_flags = 0;
         unsigned int len = lua_rawlen(L, 2);
         for (int x = 0; x < len; x++) {
             lua_rawgeti(L, 2, x+1);
@@ -1541,17 +1544,10 @@ int mcplib_rcontext_worst_result(lua_State *L) {
             struct mcp_rqueue_s *rqu = &rctx->qslots[handle];
             if (!rqu->flags) {
                 continue;
-            } else if (rqu->flags & RQUEUE_R_ANY) {
-                // can't be worse than an ANY.
-                // TODO: is it possible to differentiate further?
+            } else if (final_flags <= rqu->flags) {
+                // flag values increase by how bad they are.
                 final_handle = handle;
-                break;
-            } else if (rqu->flags & RQUEUE_R_OK) {
-                final_handle = handle;
-            } else if (final_handle == -1) {
-                // only allow a GOOD if it's the only thing we've seen.
-                assert(rqu->flags & RQUEUE_R_GOOD);
-                final_handle = handle;
+                final_flags = rqu->flags;
             }
         }
 
