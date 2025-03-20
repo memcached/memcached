@@ -620,7 +620,7 @@ int mcmc_tokenize(const char *l, size_t len, mcmc_tokenizer_t *t, int meta_offse
 }
 
 const char *mcmc_token_get(const char *l, mcmc_tokenizer_t *t, int idx, int *len) {
-    if (idx > 0 && idx < t->ntokens) {
+    if (idx >= 0 && idx < t->ntokens) {
         return _mcmc_token(l, t, idx, len);
     } else {
         return NULL;
