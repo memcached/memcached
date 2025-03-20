@@ -58,6 +58,33 @@ static int tokcmp(mcp_parser_t *pr, int token, const char *s) {
     return strncmp(t, s, len);
 }
 
+static bool toktou32(mcp_parser_t *pr, int token, uint32_t *val) {
+    if (mcmc_token_get_u32(pr->request, &pr->tok, token, val) != MCMC_OK) {
+        return false;
+    }
+    return true;
+}
+
+static bool tokto32(mcp_parser_t *pr, int token, int32_t *val) {
+    if (mcmc_token_get_32(pr->request, &pr->tok, token, val) != MCMC_OK) {
+        return false;
+    }
+    return true;
+}
+
+static bool toktod(mcp_parser_t *pr, int token, double *val) {
+    char buffer[32];
+    int len = 0;
+    const char *t = mcmc_token_get(pr->request, &pr->tok, token, &len);
+    if (len > sizeof(buffer)-1) {
+        return false;
+    }
+    memcpy(buffer, t, len);
+    buffer[len] = '\0';
+
+    return safe_strtod(buffer, val);
+}
+
 static void _finalize_mset(conn *c, int nbytes, enum store_item_type ret, uint64_t cas) {
     mc_resp *resp = c->resp;
     item *it = c->item;
@@ -247,30 +274,6 @@ void complete_nread_ascii(conn *c) {
 #define KEY_TOKEN 1
 
 #define MAX_TOKENS 24
-
-#define WANT_TOKENS(ntokens, min, max) \
-    do { \
-        if ((min != -1 && ntokens < min) || (max != -1 && ntokens > max)) { \
-            out_string(c, "ERROR"); \
-            return; \
-        } \
-    } while (0)
-
-#define WANT_TOKENS_OR(ntokens, a, b) \
-    do { \
-        if (ntokens != a && ntokens != b) { \
-            out_string(c, "ERROR"); \
-            return; \
-        } \
-    } while (0)
-
-#define WANT_TOKENS_MIN(ntokens, min) \
-    do { \
-        if (ntokens < min) { \
-            out_string(c, "ERROR"); \
-            return; \
-        } \
-    } while (0)
 
 /*
  * Tokenize the command string by replacing whitespace with '\0' and update
@@ -497,10 +500,8 @@ int try_read_command_ascii(conn *c) {
     return 1;
 }
 
-
-static inline bool set_noreply_maybe(conn *c, token_t *tokens, size_t ntokens)
-{
-    int noreply_index = ntokens - 2;
+static inline bool set_noreply_maybe(conn *c, mcp_parser_t *pr) {
+    int noreply_index = pr->tok.ntokens-1;
 
     /*
       NOTE: this function is not the first place where we are going to
@@ -509,9 +510,12 @@ static inline bool set_noreply_maybe(conn *c, token_t *tokens, size_t ntokens)
       malformed line for "noreply" option is not reliable anyway, so
       it can't be helped.
     */
-    if (tokens[noreply_index].value
-        && strcmp(tokens[noreply_index].value, "noreply") == 0) {
-        c->resp->noreply = true;
+    if (noreply_index >= 0) {
+        int len = 0;
+        const char *noreply = mcmc_token_get(pr->request, &pr->tok, noreply_index, &len);
+        if (strncmp(noreply, "noreply", 7) == 0) {
+            c->resp->noreply = true;
+        }
     }
     return c->resp->noreply;
 }
@@ -889,14 +893,13 @@ static void process_update_command(conn *c, mcp_parser_t *pr, mc_resp *resp, int
     conn_set_state(c, conn_nread);
 }
 
-static void process_verbosity_command(conn *c, token_t *tokens, const size_t ntokens) {
-    unsigned int level;
-
+static void process_verbosity_command(conn *c, mcp_parser_t *pr) {
     assert(c != NULL);
 
-    set_noreply_maybe(c, tokens, ntokens);
+    set_noreply_maybe(c, pr);
 
-    if (!safe_strtoul(tokens[1].value, (uint32_t*)&level)) {
+    uint32_t level;
+    if (mcmc_token_get_u32(pr->request, &pr->tok, 1, &level) != MCMC_OK) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
     }
@@ -906,7 +909,7 @@ static void process_verbosity_command(conn *c, token_t *tokens, const size_t nto
 }
 
 #ifdef MEMCACHED_DEBUG
-static void process_misbehave_command(conn *c) {
+static void process_misbehave_command(conn *c, mcp_parser_t *pr) {
     int allowed = 0;
 
     // try opening new TCP socket
@@ -929,18 +932,21 @@ static void process_misbehave_command(conn *c) {
     }
 }
 
-static void process_debugtime_command(conn *c, token_t *tokens, const size_t ntokens) {
-    if (strcmp(tokens[1].value, "p") == 0) {
+static void process_debugtime_command(conn *c, mcp_parser_t *pr) {
+    int len = 0;
+    const char *subcmd = mcmc_token_get(pr->request, &pr->tok, SUBCOMMAND_TOKEN, &len);
+
+    if (strncmp(subcmd, "p", len) == 0) {
         if (!is_paused) {
             is_paused = true;
         }
-    } else if (strcmp(tokens[1].value, "r") == 0) {
+    } else if (strncmp(subcmd, "r", len) == 0) {
         if (is_paused) {
             is_paused = false;
         }
     } else {
         int64_t time_delta = 0;
-        if (!safe_strtoll(tokens[1].value, &time_delta)) {
+        if (mcmc_token_get_64(pr->request, &pr->tok, SUBCOMMAND_TOKEN, &time_delta) != MCMC_OK) {
             out_string(c, "ERROR");
             return;
         }
@@ -950,24 +956,29 @@ static void process_debugtime_command(conn *c, token_t *tokens, const size_t nto
     out_string(c, "OK");
 }
 
-static void process_debugitem_command(conn *c, token_t *tokens, const size_t ntokens) {
-    if (strcmp(tokens[1].value, "lock") == 0) {
-        uint32_t hv = hash(tokens[2].value, tokens[2].length);
+static void process_debugitem_command(conn *c, mcp_parser_t *pr) {
+    int len = 0;
+    int klen = 0;
+    const char *subcmd = mcmc_token_get(pr->request, &pr->tok, 1, &len);
+    const char *key = mcmc_token_get(pr->request, &pr->tok, 2, &klen);
+
+    if (strncmp(subcmd, "lock", len) == 0) {
+        uint32_t hv = hash(key, klen);
         item_lock(hv);
-    } else if (strcmp(tokens[1].value, "unlock") == 0) {
-        uint32_t hv = hash(tokens[2].value, tokens[2].length);
+    } else if (strncmp(subcmd, "unlock", len) == 0) {
+        uint32_t hv = hash(key, klen);
         item_unlock(hv);
-    } else if (strcmp(tokens[1].value, "ref") == 0) {
+    } else if (strncmp(subcmd, "ref", len) == 0) {
         // intentionally leak a reference.
-        item *it = item_get(tokens[2].value, tokens[2].length, c->thread, DONT_UPDATE);
+        item *it = item_get(key, klen, c->thread, DONT_UPDATE);
         if (it == NULL) {
             out_string(c, "MISS");
             return;
         }
-    } else if (strcmp(tokens[1].value, "unref") == 0) {
+    } else if (strncmp(subcmd, "unref", len) == 0) {
         // double unlink. debugger must have already ref'ed it or this
         // underflows.
-        item *it = item_get(tokens[2].value, tokens[2].length, c->thread, DONT_UPDATE);
+        item *it = item_get(key, klen, c->thread, DONT_UPDATE);
         if (it == NULL) {
             out_string(c, "MISS");
             return;
@@ -982,31 +993,38 @@ static void process_debugitem_command(conn *c, token_t *tokens, const size_t nto
 }
 #endif
 
-static void process_slabs_automove_command(conn *c, token_t *tokens, const size_t ntokens) {
+static void process_slabs_automove_command(conn *c, mcp_parser_t *pr) {
     unsigned int level;
     double ratio;
+    int len = 0;
+    int ntokens = pr->tok.ntokens;
 
     assert(c != NULL);
 
-    set_noreply_maybe(c, tokens, ntokens);
+    set_noreply_maybe(c, pr);
 
-    if (strcmp(tokens[2].value, "ratio") == 0) {
-        if (ntokens < 5 || !safe_strtod(tokens[3].value, &ratio)) {
+    const char *subcmd = mcmc_token_get(pr->request, &pr->tok, 2, &len);
+    if (strncmp(subcmd, "ratio", len) == 0) {
+        int vlen = 0;
+        const char *val = mcmc_token_get(pr->request, &pr->tok, 3, &vlen);
+        if (ntokens < 4 || !safe_strtod(val, &ratio)) {
             out_string(c, "ERROR");
             return;
         }
         // TODO: settings needs an overhaul... no locks/etc.
         settings.slab_automove_ratio = ratio;
         settings.slab_automove_version++;
-    } else if (strcmp(tokens[2].value, "freeratio") == 0) {
-        if (ntokens < 5 || !safe_strtod(tokens[3].value, &ratio)) {
+    } else if (strncmp(subcmd, "freeratio", len) == 0) {
+        int vlen = 0;
+        const char *val = mcmc_token_get(pr->request, &pr->tok, 3, &vlen);
+        if (ntokens < 4 || !safe_strtod(val, &ratio)) {
             out_string(c, "ERROR");
             return;
         }
         settings.slab_automove_freeratio = ratio;
         settings.slab_automove_version++;
-    } else if (strcmp(tokens[2].value, "window") == 0) {
-        if (ntokens < 5 || !safe_strtoul(tokens[3].value, (uint32_t*)&level)) {
+    } else if (strncmp(subcmd, "window", len) == 0) {
+        if (ntokens < 4 || mcmc_token_get_u32(pr->request, &pr->tok, 3, &level) != MCMC_OK) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
@@ -1014,7 +1032,7 @@ static void process_slabs_automove_command(conn *c, token_t *tokens, const size_
         settings.slab_automove_window = level;
         settings.slab_automove_version++;
     } else {
-        if (!safe_strtoul(tokens[2].value, (uint32_t*)&level)) {
+        if (mcmc_token_get_u32(pr->request, &pr->tok, 2, &level) != MCMC_OK) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
@@ -1095,13 +1113,13 @@ static void process_watch_command(conn *c, mcp_parser_t *pr) {
     }
 }
 
-static void process_memlimit_command(conn *c, token_t *tokens, const size_t ntokens) {
+static void process_memlimit_command(conn *c, mcp_parser_t *pr) {
     uint32_t memlimit;
     assert(c != NULL);
 
-    set_noreply_maybe(c, tokens, ntokens);
+    set_noreply_maybe(c, pr);
 
-    if (!safe_strtoul(tokens[1].value, &memlimit)) {
+    if (mcmc_token_get_u32(pr->request, &pr->tok, 1, &memlimit) != MCMC_OK) {
         out_string(c, "ERROR");
     } else {
         if (memlimit < 8) {
@@ -1122,20 +1140,23 @@ static void process_memlimit_command(conn *c, token_t *tokens, const size_t ntok
     }
 }
 
-static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) {
+static void process_lru_command(conn *c, mcp_parser_t *pr) {
     uint32_t pct_hot;
     uint32_t pct_warm;
     double hot_factor;
     int32_t ttl;
     double factor;
+    int len = 0;
+    int ntokens = pr->tok.ntokens;
+    const char *subcmd = mcmc_token_get(pr->request, &pr->tok, SUBCOMMAND_TOKEN, &len);
 
-    set_noreply_maybe(c, tokens, ntokens);
+    set_noreply_maybe(c, pr);
 
-    if (strcmp(tokens[1].value, "tune") == 0 && ntokens >= 7) {
-        if (!safe_strtoul(tokens[2].value, &pct_hot) ||
-            !safe_strtoul(tokens[3].value, &pct_warm) ||
-            !safe_strtod(tokens[4].value, &hot_factor) ||
-            !safe_strtod(tokens[5].value, &factor)) {
+    if (strncmp(subcmd, "tune", len) == 0 && ntokens >= 6) {
+        if (!toktou32(pr, 2, &pct_hot) ||
+            !toktou32(pr, 3, &pct_warm) ||
+            !toktod(pr, 4, &hot_factor) ||
+            !toktod(pr, 5, &factor)) {
             out_string(c, "ERROR");
         } else {
             if (pct_hot + pct_warm > 80) {
@@ -1150,20 +1171,20 @@ static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) 
                 out_string(c, "OK");
             }
         }
-    } else if (strcmp(tokens[1].value, "mode") == 0 && ntokens >= 4 &&
+    } else if (strncmp(subcmd, "mode", len) == 0 && ntokens >= 3 &&
                settings.lru_maintainer_thread) {
-        if (strcmp(tokens[2].value, "flat") == 0) {
+        if (tokcmp(pr, 2, "flat") == 0) {
             settings.lru_segmented = false;
             out_string(c, "OK");
-        } else if (strcmp(tokens[2].value, "segmented") == 0) {
+        } else if (tokcmp(pr, 2, "segmented") == 0) {
             settings.lru_segmented = true;
             out_string(c, "OK");
         } else {
             out_string(c, "ERROR");
         }
-    } else if (strcmp(tokens[1].value, "temp_ttl") == 0 && ntokens >= 4 &&
+    } else if (strncmp(subcmd, "temp_ttl", len) == 0 && ntokens >= 3 &&
                settings.lru_maintainer_thread) {
-        if (!safe_strtol(tokens[2].value, &ttl)) {
+        if (!tokto32(pr, 2, &ttl)) {
             out_string(c, "ERROR");
         } else {
             if (ttl < 0) {
@@ -1179,17 +1200,21 @@ static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) 
     }
 }
 #ifdef EXTSTORE
-static void process_extstore_command(conn *c, token_t *tokens, const size_t ntokens) {
-    set_noreply_maybe(c, tokens, ntokens);
+static void process_extstore_command(conn *c, mcp_parser_t *pr) {
+    set_noreply_maybe(c, pr);
     bool ok = true;
-    if (ntokens < 4) {
+    int ntokens = pr->tok.ntokens;
+    int len = 0;
+    const char *subcmd = mcmc_token_get(pr->request, &pr->tok, SUBCOMMAND_TOKEN, &len);
+
+    if (ntokens < 3) {
         ok = false;
-    } else if (strcmp(tokens[1].value, "free_memchunks") == 0 && ntokens > 4) {
+    } else if (strncmp(subcmd, "free_memchunks", len) == 0 && ntokens > 3) {
         // setting is deprecated and ignored, but accepted for backcompat
         unsigned int clsid = 0;
         unsigned int limit = 0;
-        if (!safe_strtoul(tokens[2].value, &clsid) ||
-                !safe_strtoul(tokens[3].value, &limit)) {
+        if (!toktou32(pr, 2, &clsid) ||
+                !toktou32(pr, 3, &limit)) {
             ok = false;
         } else {
             if (clsid < MAX_NUMBER_OF_SLAB_CLASSES) {
@@ -1198,36 +1223,36 @@ static void process_extstore_command(conn *c, token_t *tokens, const size_t ntok
                 ok = false;
             }
         }
-    } else if (strcmp(tokens[1].value, "item_size") == 0) {
-        if (safe_strtoul(tokens[2].value, &settings.ext_item_size)) {
+    } else if (strncmp(subcmd, "item_size", len) == 0) {
+        if (toktou32(pr, 2, &settings.ext_item_size)) {
             settings.slab_automove_version++;
         } else {
             ok = false;
         }
-    } else if (strcmp(tokens[1].value, "item_age") == 0) {
-        if (!safe_strtoul(tokens[2].value, &settings.ext_item_age))
+    } else if (strncmp(subcmd, "item_age", len) == 0) {
+        if (!toktou32(pr, 2, &settings.ext_item_age))
             ok = false;
-    } else if (strcmp(tokens[1].value, "low_ttl") == 0) {
-        if (!safe_strtoul(tokens[2].value, &settings.ext_low_ttl))
+    } else if (strncmp(subcmd, "low_ttl", len) == 0) {
+        if (!toktou32(pr, 2, &settings.ext_low_ttl))
             ok = false;
-    } else if (strcmp(tokens[1].value, "recache_rate") == 0) {
-        if (!safe_strtoul(tokens[2].value, &settings.ext_recache_rate))
+    } else if (strncmp(subcmd, "recache_rate", len) == 0) {
+        if (!toktou32(pr, 2, &settings.ext_recache_rate))
             ok = false;
-    } else if (strcmp(tokens[1].value, "compact_under") == 0) {
-        if (!safe_strtoul(tokens[2].value, &settings.ext_compact_under))
+    } else if (strncmp(subcmd, "compact_under", len) == 0) {
+        if (!toktou32(pr, 2, &settings.ext_compact_under))
             ok = false;
-    } else if (strcmp(tokens[1].value, "drop_under") == 0) {
-        if (!safe_strtoul(tokens[2].value, &settings.ext_drop_under))
+    } else if (strncmp(subcmd, "drop_under", len) == 0) {
+        if (!toktou32(pr, 2, &settings.ext_drop_under))
             ok = false;
-    } else if (strcmp(tokens[1].value, "max_sleep") == 0) {
-        if (!safe_strtoul(tokens[2].value, &settings.ext_max_sleep))
+    } else if (strncmp(subcmd, "max_sleep", len) == 0) {
+        if (!toktou32(pr, 2, &settings.ext_max_sleep))
             ok = false;
-    } else if (strcmp(tokens[1].value, "max_frag") == 0) {
-        if (!safe_strtod(tokens[2].value, &settings.ext_max_frag))
+    } else if (strncmp(subcmd, "max_frag", len) == 0) {
+        if (!toktod(pr, 2, &settings.ext_max_frag))
             ok = false;
-    } else if (strcmp(tokens[1].value, "drop_unread") == 0) {
+    } else if (strncmp(subcmd, "drop_unread", len) == 0) {
         unsigned int v;
-        if (!safe_strtoul(tokens[2].value, &v)) {
+        if (!toktou32(pr, 2, &v)) {
             ok = false;
         } else {
             settings.ext_drop_unread = v == 0 ? false : true;
@@ -1242,11 +1267,11 @@ static void process_extstore_command(conn *c, token_t *tokens, const size_t ntok
     }
 }
 #endif
-static void process_flush_all_command(conn *c, token_t *tokens, const size_t ntokens) {
+static void process_flush_all_command(conn *c, mcp_parser_t *pr) {
     int32_t exptime = 0;
     rel_time_t new_oldest = 0;
 
-    set_noreply_maybe(c, tokens, ntokens);
+    set_noreply_maybe(c, pr);
 
     pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.flush_cmds++;
@@ -1258,8 +1283,8 @@ static void process_flush_all_command(conn *c, token_t *tokens, const size_t nto
         return;
     }
 
-    if (ntokens != (c->resp->noreply ? 3 : 2)) {
-        if (!safe_strtol(tokens[1].value, &exptime)) {
+    if (pr->tok.ntokens != (c->resp->noreply ? 2 : 1)) {
+        if (!tokto32(pr, 1, &exptime)) {
             out_string(c, "CLIENT_ERROR invalid exptime argument");
             return;
         }
@@ -1311,8 +1336,11 @@ static void process_shutdown_command(conn *c, mcp_parser_t *pr) {
     }
 }
 
-static void process_slabs_command(conn *c, token_t *tokens, const size_t ntokens) {
-    if (ntokens == 5 && strcmp(tokens[COMMAND_TOKEN + 1].value, "reassign") == 0) {
+static void process_slabs_command(conn *c, mcp_parser_t *pr) {
+    int ntokens = pr->tok.ntokens;
+    int len = 0;
+    const char *subcmd = mcmc_token_get(pr->request, &pr->tok, SUBCOMMAND_TOKEN, &len);
+    if (ntokens == 4 && strncmp(subcmd, "reassign", len) == 0) {
         int src, dst, rv;
 
         if (settings.slab_reassign == false) {
@@ -1320,8 +1348,7 @@ static void process_slabs_command(conn *c, token_t *tokens, const size_t ntokens
             return;
         }
 
-        if (! (safe_strtol(tokens[2].value, (int32_t*)&src)
-               && safe_strtol(tokens[3].value, (int32_t*)&dst))) {
+        if (!tokto32(pr, 2, &src) || !tokto32(pr, 3, &dst)) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
@@ -1345,24 +1372,35 @@ static void process_slabs_command(conn *c, token_t *tokens, const size_t ntokens
             break;
         }
         return;
-    } else if (ntokens >= 4 &&
-        (strcmp(tokens[COMMAND_TOKEN + 1].value, "automove") == 0)) {
-        process_slabs_automove_command(c, tokens, ntokens);
+    } else if (ntokens >= 3 &&
+        (strncmp(subcmd, "automove", len) == 0)) {
+        process_slabs_automove_command(c, pr);
     } else {
         out_string(c, "ERROR");
     }
 }
 
-static void process_lru_crawler_command(conn *c, token_t *tokens, const size_t ntokens) {
-    if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "crawl") == 0) {
+static void process_lru_crawler_command(conn *c, mcp_parser_t *pr) {
+    int ntokens = pr->tok.ntokens;
+    int len = 0;
+    const char *subcmd = mcmc_token_get(pr->request, &pr->tok, 1, &len);
+    char sc_buf[512];
+
+    if (ntokens == 3 && strncmp(subcmd, "crawl", len) == 0) {
         int rv;
         if (settings.lru_crawler == false) {
             out_string(c, "CLIENT_ERROR lru crawler disabled");
             return;
         }
 
-        rv = lru_crawler_crawl(tokens[2].value, CRAWLER_EXPIRED, NULL, 0,
+        const char *slabclass = mcmc_token_get(pr->request, &pr->tok, 2, &len);
+        len = len > sizeof(sc_buf)-1 ? sizeof(sc_buf)-1 : len;
+        memcpy(sc_buf, slabclass, len > sizeof(sc_buf)-1 ? sizeof(sc_buf)-1 : len);
+        sc_buf[len] = '\0';
+
+        rv = lru_crawler_crawl(sc_buf, CRAWLER_EXPIRED, NULL, 0,
                 settings.lru_crawler_tocrawl);
+
         switch(rv) {
         case CRAWLER_OK:
             out_string(c, "OK");
@@ -1381,7 +1419,7 @@ static void process_lru_crawler_command(conn *c, token_t *tokens, const size_t n
             break;
         }
         return;
-    } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "metadump") == 0) {
+    } else if (ntokens == 3 && strncmp(subcmd, "metadump", len) == 0) {
         if (settings.lru_crawler == false) {
             out_string(c, "CLIENT_ERROR lru crawler disabled");
             return;
@@ -1395,7 +1433,12 @@ static void process_lru_crawler_command(conn *c, token_t *tokens, const size_t n
             return;
         }
 
-        int rv = lru_crawler_crawl(tokens[2].value, CRAWLER_METADUMP,
+        const char *slabclass = mcmc_token_get(pr->request, &pr->tok, 2, &len);
+        len = len > sizeof(sc_buf)-1 ? sizeof(sc_buf)-1 : len;
+        memcpy(sc_buf, slabclass, len > sizeof(sc_buf)-1 ? sizeof(sc_buf)-1 : len);
+        sc_buf[len] = '\0';
+
+        int rv = lru_crawler_crawl(sc_buf, CRAWLER_METADUMP,
                 c, c->sfd, LRU_CRAWLER_CAP_REMAINING);
         switch(rv) {
             case CRAWLER_OK:
@@ -1422,7 +1465,7 @@ static void process_lru_crawler_command(conn *c, token_t *tokens, const size_t n
                 break;
         }
         return;
-    } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "mgdump") == 0) {
+    } else if (ntokens == 3 && strncmp(subcmd, "mgdump", len) == 0) {
         if (settings.lru_crawler == false) {
             out_string(c, "CLIENT_ERROR lru crawler disabled");
             return;
@@ -1436,7 +1479,12 @@ static void process_lru_crawler_command(conn *c, token_t *tokens, const size_t n
             return;
         }
 
-        int rv = lru_crawler_crawl(tokens[2].value, CRAWLER_MGDUMP,
+        const char *slabclass = mcmc_token_get(pr->request, &pr->tok, 2, &len);
+        len = len > sizeof(sc_buf)-1 ? sizeof(sc_buf)-1 : len;
+        memcpy(sc_buf, slabclass, len > sizeof(sc_buf)-1 ? sizeof(sc_buf)-1 : len);
+        sc_buf[len] = '\0';
+
+        int rv = lru_crawler_crawl(sc_buf, CRAWLER_MGDUMP,
                 c, c->sfd, LRU_CRAWLER_CAP_REMAINING);
         switch(rv) {
             case CRAWLER_OK:
@@ -1457,18 +1505,18 @@ static void process_lru_crawler_command(conn *c, token_t *tokens, const size_t n
                 break;
         }
         return;
-    } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "tocrawl") == 0) {
+    } else if (ntokens == 3 && strncmp(subcmd, "tocrawl", len) == 0) {
         uint32_t tocrawl;
-         if (!safe_strtoul(tokens[2].value, &tocrawl)) {
+         if (!toktou32(pr, 2, &tocrawl)) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
         settings.lru_crawler_tocrawl = tocrawl;
         out_string(c, "OK");
         return;
-    } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "sleep") == 0) {
+    } else if (ntokens == 3 && strncmp(subcmd, "sleep", len) == 0) {
         uint32_t tosleep;
-        if (!safe_strtoul(tokens[2].value, &tosleep)) {
+        if (!toktou32(pr, 2, &tosleep)) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
@@ -1479,14 +1527,14 @@ static void process_lru_crawler_command(conn *c, token_t *tokens, const size_t n
         settings.lru_crawler_sleep = tosleep;
         out_string(c, "OK");
         return;
-    } else if (ntokens == 3) {
-        if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "enable") == 0)) {
+    } else if (ntokens == 2) {
+        if ((strncmp(subcmd, "enable", len) == 0)) {
             if (start_item_crawler_thread() == 0) {
                 out_string(c, "OK");
             } else {
                 out_string(c, "ERROR failed to start lru crawler thread");
             }
-        } else if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "disable") == 0)) {
+        } else if ((strncmp(subcmd, "disable", len) == 0)) {
             if (stop_item_crawler_thread(CRAWLER_NOWAIT) == 0) {
                 out_string(c, "OK");
             } else {
@@ -1521,101 +1569,6 @@ static void process_refresh_certs_command(conn *c, token_t *tokens, const size_t
 // we can't drop out and back in again.
 // Leaving this note here to spend more time on a fix when necessary, or if an
 // opportunity becomes obvious.
-static void _process_command_ascii(conn *c, char *command) {
-
-    token_t tokens[MAX_TOKENS];
-    size_t ntokens;
-
-    assert(c != NULL);
-
-    MEMCACHED_PROCESS_COMMAND_START(c->sfd, c->rcurr, c->rbytes);
-
-    if (settings.verbose > 1)
-        fprintf(stderr, "<%d %s\n", c->sfd, command);
-
-    /*
-     * for commands set/add/replace, we build an item and read the data
-     * directly into it, then continue in nread_complete().
-     */
-
-    c->thread->cur_sfd = c->sfd; // cuddle sfd for logging.
-    ntokens = tokenize_command(command, tokens, MAX_TOKENS);
-    // All commands need a minimum of two tokens: cmd and NULL finalizer
-    // There are also no valid commands shorter than two bytes.
-    if (ntokens < 2 || tokens[COMMAND_TOKEN].length < 2) {
-        out_string(c, "ERROR");
-        return;
-    }
-
-    // Meta commands are all 2-char in length.
-    char first = tokens[COMMAND_TOKEN].value[0];
-    if (first == 's') {
-        if (strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0) {
-
-            process_slabs_command(c, tokens, ntokens);
-        } else {
-            out_string(c, "ERROR");
-        }
-    } else if (first == 'c') {
-        if (strcmp(tokens[COMMAND_TOKEN].value, "cache_memlimit") == 0) {
-
-            WANT_TOKENS_OR(ntokens, 3, 4);
-            process_memlimit_command(c, tokens, ntokens);
-        } else {
-            out_string(c, "ERROR");
-        }
-    } else if (first == 'd') {
-#ifdef MEMCACHED_DEBUG
-       if (strcmp(tokens[COMMAND_TOKEN].value, "debugtime") == 0) {
-            WANT_TOKENS_MIN(ntokens, 2);
-            process_debugtime_command(c, tokens, ntokens);
-        } else if (strcmp(tokens[COMMAND_TOKEN].value, "debugitem") == 0) {
-            WANT_TOKENS_MIN(ntokens, 2);
-            process_debugitem_command(c, tokens, ntokens);
-        } else {
-            out_string(c, "ERROR");
-        }
-#else
-       out_string(c, "ERROR");
-#endif
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "flush_all") == 0) {
-
-        WANT_TOKENS(ntokens, 2, 4);
-        process_flush_all_command(c, tokens, ntokens);
-
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "lru_crawler") == 0) {
-
-        process_lru_crawler_command(c, tokens, ntokens);
-
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0) {
-        WANT_TOKENS_OR(ntokens, 3, 4);
-        process_verbosity_command(c, tokens, ntokens);
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "lru") == 0) {
-        WANT_TOKENS_MIN(ntokens, 3);
-        process_lru_command(c, tokens, ntokens);
-#ifdef MEMCACHED_DEBUG
-    // commands which exist only for testing the memcached's security protection
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "misbehave") == 0) {
-        process_misbehave_command(c);
-#endif
-#ifdef EXTSTORE
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "extstore") == 0) {
-        WANT_TOKENS_MIN(ntokens, 3);
-        process_extstore_command(c, tokens, ntokens);
-#endif
-#ifdef TLS
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "refresh_certs") == 0) {
-        process_refresh_certs_command(c, tokens, ntokens);
-#endif
-    } else {
-        if (strncmp(tokens[ntokens - 2].value, "HTTP/", 5) == 0) {
-            conn_set_state(c, conn_closing);
-        } else {
-            out_string(c, "ERROR");
-        }
-    }
-    return;
-}
 
 // TODO: this isn't a performance sensitive section of the code (these
 // commands are all rare), but a hash table could speed things up.
@@ -1630,11 +1583,45 @@ struct text_cmd_entry {
 
 enum text_cmds {
     text_cmd_shutdown = 0,
+    text_cmd_slabs,
+    text_cmd_cache_memlimit,
+#ifdef MEMCACHED_DEBUG
+    text_cmd_debugtime,
+    text_cmd_debugitem,
+    text_cmd_misbehave,
+#endif
+    text_cmd_flush_all,
+    text_cmd_lru_crawler,
+    text_cmd_verbosity,
+    text_cmd_lru,
+#ifdef EXTSTORE
+    text_cmd_extstore,
+#endif
+#ifdef TLS
+    text_cmd_refresh_certs,
+#endif
     text_cmd_final,
 };
 
 static const struct text_cmd_entry text_cmd_entries[] = {
     [text_cmd_shutdown] = {"shutdown", 0, 0, process_shutdown_command},
+    [text_cmd_slabs] = {"slabs", 0, 0, process_slabs_command},
+    [text_cmd_cache_memlimit] = {"cache_memlimit", 0, 0, process_memlimit_command},
+#ifdef MEMCACHED_DEBUG
+    [text_cmd_debugtime] = {"debugtime", 0, 0, process_debugtime_command},
+    [text_cmd_debugitem] = {"debugitem", 0, 0, process_debugitem_command},
+    [text_cmd_misbehave] = {"misbehave", 0, 0, process_misbehave_command},
+#endif
+    [text_cmd_flush_all] = {"flush_all", 0, 0, process_flush_all_command},
+    [text_cmd_lru_crawler] = {"lru_crawler", 0, 0, process_lru_crawler_command},
+    [text_cmd_verbosity] = {"verbosity", 0, 0, process_verbosity_command},
+    [text_cmd_lru] = {"lru", 3, 7, process_lru_command},
+#ifdef EXTSTORE
+    [text_cmd_extstore] = {"extstore", 0, 0, process_extstore_command},
+#endif
+#ifdef TLS
+    [text_cmd_refresh_certs] = {"refresh_certs", 0, 0, process_refresh_certs_command},
+#endif
     [text_cmd_final] = {NULL, 0, 0, NULL},
 };
 
@@ -1783,16 +1770,20 @@ void process_command_ascii(conn *c, char *command, char *el) {
                 return;
             }
         }
+
+        if (pr.tok.ntokens > 1) {
+            int len = 0;
+            const char *subcm = mcmc_token_get(pr.request, &pr.tok, pr.tok.ntokens-1, &len);
+            if (len >= 5 && strncmp(subcm, "HTTP/", 5) == 0) {
+                conn_set_state(c, conn_closing);
+                c->close_reason = ERROR_CLOSE;
+                return;
+            }
+        }
     } else if (ret == PROCESS_REQUEST_BAD_FORMAT) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
     }
 
-    if ((el - command) > 1 && *(el - 1) == '\r') {
-        el--;
-    }
-    *el = '\0';
-
-    // Fallback parser.
-    _process_command_ascii(c, command);
+    out_string(c, "ERROR");
 }
