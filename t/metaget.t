@@ -112,7 +112,7 @@ my $sock = $server->sock;
 # Test basic parser.
 {
     print $sock " \n";
-    is(scalar <$sock>, "ERROR\r\n", "error from blank command");
+    is(scalar <$sock>, "CLIENT_ERROR bad command line format\r\n", "error from blank command");
 }
 
 {

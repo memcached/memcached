@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
 use strict;
-use Test::More tests => 43;
+use Test::More tests => 42;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -70,9 +70,7 @@ is(scalar <$sock>, "NOT_FOUND\r\n", "cas failed, foo does not exist");
 
 # cas empty
 print $sock "cas foo 0 0 6 \r\nbarva2\r\n";
-is(scalar <$sock>, "ERROR\r\n", "cas empty, throw error");
-# cant parse barval2\r\n
-is(scalar <$sock>, "ERROR\r\n", "error out on barval2 parsing");
+is(scalar <$sock>, "CLIENT_ERROR bad command line format\r\n", "cas empty, throw error");
 
 # set foo1
 print $sock "set foo1 0 0 1\r\n1\r\n";

@@ -148,7 +148,6 @@ static void _storage_get_item_cb(void *e, obj_io *io, int ret) {
     // FIXME: assumes success
     io_pending_storage_t *p = (io_pending_storage_t *)io->data;
     mc_resp *resp = p->resp;
-    conn *c = p->c;
     assert(p->active == true);
     item *read_it = (item *)io->buf;
     bool miss = false;
@@ -189,7 +188,7 @@ static void _storage_get_item_cb(void *e, obj_io *io, int ret) {
             // The header requires knowing a bunch of stateful crap, so rather
             // than simply writing out a "new" miss response we mangle what's
             // already there.
-            if (c->protocol == binary_prot) {
+            if (resp->binary_prot) {
                 protocol_binary_response_header *header =
                     (protocol_binary_response_header *)resp->wbuf;
 
@@ -249,14 +248,14 @@ static void _storage_get_item_cb(void *e, obj_io *io, int ret) {
     return_io_pending((io_pending_t *)p);
 }
 
-int storage_get_item(conn *c, item *it, mc_resp *resp) {
+int storage_get_item(LIBEVENT_THREAD *t, item *it, mc_resp *resp) {
 #ifdef NEED_ALIGN
     item_hdr hdr;
     memcpy(&hdr, ITEM_data(it), sizeof(hdr));
 #else
     item_hdr *hdr = (item_hdr *)ITEM_data(it);
 #endif
-    io_queue_t *q = thread_io_queue_get(c->thread, IO_QUEUE_EXTSTORE);
+    io_queue_t *q = thread_io_queue_get(t, IO_QUEUE_EXTSTORE);
     size_t ntotal = ITEM_ntotal(it);
     unsigned int clsid = slabs_clsid(ntotal);
     item *new_it;
@@ -276,15 +275,15 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
     // so we can free the chunk on a miss
     new_it->slabs_clsid = clsid;
 
-    io_pending_storage_t *p = do_cache_alloc(c->thread->io_cache);
+    io_pending_storage_t *p = do_cache_alloc(t->io_cache);
     // this is a re-cast structure, so assert that we never outsize it.
     assert(sizeof(io_pending_t) >= sizeof(io_pending_storage_t));
     memset(p, 0, sizeof(io_pending_storage_t));
     p->active = true;
     p->miss = false;
     p->badcrc = false;
-    p->noreply = c->noreply;
-    p->thread = c->thread;
+    p->noreply = resp->noreply;
+    p->thread = t;
     p->return_cb = storage_return_cb;
     p->finalize_cb = storage_finalize_cb;
     // io_pending owns the reference for this object now.
@@ -306,7 +305,7 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
         eio->iov = malloc(sizeof(struct iovec) * IOV_MAX);
         if (eio->iov == NULL) {
             item_remove(new_it);
-            do_cache_free(c->thread->io_cache, p);
+            do_cache_free(t->io_cache, p);
             return -1;
         }
 
@@ -323,7 +322,7 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
                 free(eio->iov);
                 // TODO: wrapper function for freeing up an io wrap?
                 eio->iov = NULL;
-                do_cache_free(c->thread->io_cache, p);
+                do_cache_free(t->io_cache, p);
                 return -1;
             }
             eio->iov[ciovcnt].iov_base = chunk->data;
@@ -338,7 +337,7 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
 
     // Chunked or non chunked we reserve a response iov here.
     p->iovec_data = resp->iovcnt;
-    int iovtotal = (c->protocol == binary_prot) ? it->nbytes - 2 : it->nbytes;
+    int iovtotal = (resp->binary_prot) ? it->nbytes - 2 : it->nbytes;
     if (chunked) {
         resp_add_chunked_iov(resp, new_it, iovtotal);
     } else {
@@ -347,10 +346,8 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
 
     // We can't bail out anymore, so mc_resp owns the IO from here.
     resp->io_pending = (io_pending_t *)p;
-    conn_resp_suspend(c, resp);
 
     eio->buf = (void *)new_it;
-    p->c = c;
 
     STAILQ_INSERT_TAIL(&q->stack, (io_pending_t *)p, iop_next);
 
@@ -374,9 +371,9 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
     // FIXME: This stat needs to move to reflect # of flash hits vs misses
     // for now it's a good gauge on how often we request out to flash at
     // least.
-    pthread_mutex_lock(&c->thread->stats.mutex);
-    c->thread->stats.get_extstore++;
-    pthread_mutex_unlock(&c->thread->stats.mutex);
+    pthread_mutex_lock(&t->stats.mutex);
+    t->stats.get_extstore++;
+    pthread_mutex_unlock(&t->stats.mutex);
 
     return 0;
 }

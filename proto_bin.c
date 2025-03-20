@@ -242,7 +242,7 @@ static void handle_binary_protocol_error(conn *c) {
 
 /* Form and send a response to a command over the binary protocol */
 static void write_bin_response(conn *c, void *d, int hlen, int keylen, int dlen) {
-    if (!c->noreply || c->cmd == PROTOCOL_BINARY_CMD_GET ||
+    if (!c->resp->noreply || c->cmd == PROTOCOL_BINARY_CMD_GET ||
         c->cmd == PROTOCOL_BINARY_CMD_GETK) {
         add_bin_header(c, 0, hlen, keylen, dlen);
         mc_resp *resp = c->resp;
@@ -528,12 +528,18 @@ static void process_bin_get_or_touch(conn *c, char *extbuf) {
             /* Add the data minus the CRLF */
 #ifdef EXTSTORE
             if (it->it_flags & ITEM_HDR) {
-                if (storage_get_item(c, it, c->resp) != 0) {
+                mc_resp *resp = c->resp;
+                resp->binary_prot = true;
+                if (storage_get_item(c->thread, it, resp) != 0) {
                     pthread_mutex_lock(&c->thread->stats.mutex);
                     c->thread->stats.get_oom_extstore++;
                     pthread_mutex_unlock(&c->thread->stats.mutex);
 
                     failed = true;
+                } else {
+                    assert(resp->io_pending != NULL);
+                    resp->io_pending->c = c;
+                    conn_resp_suspend(c, resp);
                 }
             } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
                 resp_add_iov(c->resp, ITEM_data(it), it->nbytes - 2);
@@ -587,7 +593,7 @@ static void process_bin_get_or_touch(conn *c, char *extbuf) {
             MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
         }
 
-        if (c->noreply) {
+        if (c->resp->noreply) {
             conn_set_state(c, conn_new_cmd);
         } else {
             if (should_return_key) {
@@ -904,7 +910,7 @@ static void dispatch_bin_command(conn *c, char *extbuf) {
     }
 
     MEMCACHED_PROCESS_COMMAND_START(c->sfd, c->rcurr, c->rbytes);
-    c->noreply = true;
+    c->resp->noreply = true;
 
     /* binprot supports 16bit keys, but internals are still 8bit */
     if (keylen > KEY_MAX_LENGTH) {
@@ -956,7 +962,7 @@ static void dispatch_bin_command(conn *c, char *extbuf) {
         c->cmd = PROTOCOL_BINARY_CMD_GATK;
         break;
     default:
-        c->noreply = false;
+        c->resp->noreply = false;
     }
 
     switch (c->cmd) {

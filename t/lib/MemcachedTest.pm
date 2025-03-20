@@ -311,6 +311,10 @@ sub new_memcached {
             $port = free_port();
         }
         $udpport = free_port("udp");
+        if ($use_external) {
+            $port = 31000;
+            $udpport = 31000;
+        }
         $args .= " -p $port";
         if (supports_udp() && $args !~ /-U (\S+)/) {
             $args .= " -U $udpport";

@@ -23,20 +23,6 @@ if (!supports_extstore()) {
 
 my $ext_path = "/tmp/proxyinternal.$$";
 
-# Set up some server sockets.
-sub mock_server {
-    my $port = shift;
-    my $srv = IO::Socket->new(
-        Domain => AF_INET,
-        Type => SOCK_STREAM,
-        Proto => 'tcp',
-        LocalHost => '127.0.0.1',
-        LocalPort => $port,
-        ReusePort => 1,
-        Listen => 5) || die "IO::Socket: $@";
-    return $srv;
-}
-
 # Put a version command down the pipe to ensure the socket is clear.
 # client version commands skip the proxy code
 sub check_version {
@@ -45,9 +31,13 @@ sub check_version {
     like(<$ps>, qr/VERSION /, "version received");
 }
 
+my $t = Memcached::ProxyTest->new(servers => []);
+
 my $p_srv = new_memcached("-R 500 -o proxy_config=./t/proxyinternal.lua,ext_item_size=500,ext_item_age=1,ext_path=$ext_path:64m,ext_max_sleep=100000 -t 1");
 my $ps = $p_srv->sock;
 $ps->autoflush(1);
+
+$t->set_c($ps);
 
 {
     test_basics();
@@ -57,15 +47,18 @@ $ps->autoflush(1);
 }
 
 sub test_basics {
-    {
-        print $ps "ms /b/a 2\r\nhi\r\n";
-        is(scalar <$ps>, "HD\r\n", "bare ms command works");
+    subtest 'ms/mg' => sub {
+        $t->c_send("ms /b/a 2\r\nhi\r\n");
+        $t->c_recv("HD\r\n", "bare ms command works");
 
-        print $ps "ms /b/a 2 T100\r\nhi\r\n";
-        is(scalar <$ps>, "HD\r\n", "set ms with a TTL");
-        print $ps "mg /b/a t\r\n";
+        $t->c_send("ms /b/a 2 T100\r\nhi\r\n");
+        $t->c_recv("HD\r\n", "ms with a TTL");
+
+        $t->c_send("mg /b/a t\r\n");
         isnt(scalar <$ps>, "HD t-1\r\n");
-    }
+
+        $t->clear();
+    };
 
     note "ascii multiget";
     {
@@ -93,17 +86,30 @@ sub test_basics {
         check_version($ps);
     }
 
-    note "ascii basic";
-    {
+    subtest 'ascii get basics' => sub {
         # Ensure all of that END removal we do in multiget doesn't apply to
         # non-multiget get mode.
-        print $ps "get /b/miss\r\n";
-        is(scalar <$ps>, "END\r\n", "basic miss");
-        print $ps "get /sub/miss\r\n";
-        is(scalar <$ps>, "END\r\n", "basic subrctx miss");
+        $t->c_send("get /b/miss\r\n");
+        $t->c_recv("END\r\n", "basic miss");
+        $t->c_send("get /sub/miss\r\n");
+        $t->c_recv("END\r\n", "basic subrctx miss");
 
-        check_version($ps);
-    }
+        $t->c_send("set /b/ttl 0 0 2\r\ntt\r\n");
+        $t->c_recv("STORED\r\n");
+
+        $t->c_send("mg /b/ttl t\r\n");
+        $t->c_recv("HD t-1\r\n");
+
+        $t->c_send("gat 100 /b/ttl\r\n");
+        $t->c_recv("VALUE /b/ttl 0 2\r\n");
+        $t->c_recv("tt\r\n");
+        $t->c_recv("END\r\n");
+
+        $t->c_send("mg /b/ttl t\r\n");
+        isnt(scalar <$ps>, "HD t-1\r\n");
+
+        $t->clear();
+    };
 
     #diag "object too large"
     {
