@@ -40,6 +40,24 @@ typedef struct token_s {
     size_t length;
 } token_t;
 
+// FIXME: use mcmc func!
+static int _process_token_len(mcp_parser_t *pr, size_t token) {
+  const char *s = pr->request + pr->tok.tokens[token];
+  const char *e = pr->request + pr->tok.tokens[token+1];
+  // start of next token is after any space delimiters, so back those out.
+  while (*(e-1) == ' ') {
+      e--;
+  }
+  return e - s;
+}
+
+// FIXME: use mcmc func!
+static int tokcmp(mcp_parser_t *pr, int token, const char *s) {
+    int len = 0;
+    const char *t = mcmc_token_get(pr->request, &pr->tok, token, &len);
+    return strncmp(t, s, len);
+}
+
 static void _finalize_mset(conn *c, int nbytes, enum store_item_type ret, uint64_t cas) {
     mc_resp *resp = c->resp;
     item *it = c->item;
@@ -575,59 +593,63 @@ static void process_get_command(conn *c, LIBEVENT_THREAD *t, mcp_parser_t *pr, p
     return;
 }
 
-inline static void process_stats_detail(conn *c, const char *command) {
+inline static void process_stats_detail(conn *c, mcp_parser_t *pr, int token) {
     assert(c != NULL);
+    int len = 0;
+    const char *command = mcmc_token_get(pr->request, &pr->tok, token, &len);
 
-    if (strcmp(command, "on") == 0) {
+    if (strncmp(command, "on", len) == 0) {
         settings.detail_enabled = 1;
         out_string(c, "OK");
     }
-    else if (strcmp(command, "off") == 0) {
+    else if (strncmp(command, "off", len) == 0) {
         settings.detail_enabled = 0;
         out_string(c, "OK");
     }
-    else if (strcmp(command, "dump") == 0) {
-        int len;
-        char *stats = stats_prefix_dump(&len);
-        write_and_free(c, stats, len);
+    else if (strncmp(command, "dump", len) == 0) {
+        int l;
+        char *stats = stats_prefix_dump(&l);
+        write_and_free(c, stats, l);
     }
     else {
         out_string(c, "CLIENT_ERROR usage: stats detail on|off|dump");
     }
 }
 
-static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
-    const char *subcommand = tokens[SUBCOMMAND_TOKEN].value;
+static void process_stat(conn *c, mcp_parser_t *pr) {
+    int len = 0;
+    int ntokens = pr->tok.ntokens;
+    const char *subcommand = mcmc_token_get(pr->request, &pr->tok, SUBCOMMAND_TOKEN, &len);
     assert(c != NULL);
 
-    if (ntokens < 2) {
+    if (ntokens < 1) {
         out_string(c, "CLIENT_ERROR bad command line");
         return;
     }
 
-    if (ntokens == 2) {
+    if (ntokens == 1) {
         server_stats(&append_stats, c);
         (void)get_stats(NULL, 0, &append_stats, c);
-    } else if (strcmp(subcommand, "reset") == 0) {
+    } else if (strncmp(subcommand, "reset", len) == 0) {
         stats_reset();
         out_string(c, "RESET");
         return;
-    } else if (strcmp(subcommand, "detail") == 0) {
+    } else if (strncmp(subcommand, "detail", len) == 0) {
         if (!settings.dump_enabled) {
             out_string(c, "CLIENT_ERROR stats detail not allowed");
             return;
         }
 
         /* NOTE: how to tackle detail with binary? */
-        if (ntokens < 4)
-            process_stats_detail(c, "");  /* outputs the error message */
+        if (ntokens < 3)
+            process_stats_detail(c, pr, 0);  /* outputs the error message */
         else
-            process_stats_detail(c, tokens[2].value);
+            process_stats_detail(c, pr, 2);
         /* Output already generated */
         return;
-    } else if (strcmp(subcommand, "settings") == 0) {
+    } else if (strncmp(subcommand, "settings", len) == 0) {
         process_stat_settings(&append_stats, c);
-    } else if (strcmp(subcommand, "cachedump") == 0) {
+    } else if (strncmp(subcommand, "cachedump", len) == 0) {
         char *buf;
         unsigned int bytes, id, limit = 0;
 
@@ -636,13 +658,13 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
             return;
         }
 
-        if (ntokens < 5) {
+        if (ntokens < 4) {
             out_string(c, "CLIENT_ERROR bad command line");
             return;
         }
 
-        if (!safe_strtoul(tokens[2].value, &id) ||
-            !safe_strtoul(tokens[3].value, &limit)) {
+        if ((mcmc_token_get_u32(pr->request, &pr->tok, 2, &id) != MCMC_OK) ||
+            (mcmc_token_get_u32(pr->request, &pr->tok, 3, &limit) != MCMC_OK)) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
@@ -655,24 +677,24 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         buf = item_cachedump(id, limit, &bytes);
         write_and_free(c, buf, bytes);
         return;
-    } else if (strcmp(subcommand, "conns") == 0) {
+    } else if (strncmp(subcommand, "conns", len) == 0) {
         process_stats_conns(&append_stats, c);
 #ifdef EXTSTORE
-    } else if (strcmp(subcommand, "extstore") == 0) {
+    } else if (strncmp(subcommand, "extstore", len) == 0) {
         process_extstore_stats(&append_stats, c);
 #endif
 #ifdef PROXY
-    } else if (strcmp(subcommand, "proxy") == 0) {
+    } else if (strncmp(subcommand, "proxy", len) == 0) {
         process_proxy_stats(settings.proxy_ctx, &append_stats, c);
-    } else if (strcmp(subcommand, "proxyfuncs") == 0) {
+    } else if (strncmp(subcommand, "proxyfuncs", len) == 0) {
         process_proxy_funcstats(settings.proxy_ctx, &append_stats, c);
-    } else if (strcmp(subcommand, "proxybe") == 0) {
+    } else if (strncmp(subcommand, "proxybe", len) == 0) {
         process_proxy_bestats(settings.proxy_ctx, &append_stats, c);
 #endif
     } else {
         /* getting here means that the subcommand is either engine specific or
            is invalid. query the engine and see. */
-        if (get_stats(subcommand, strlen(subcommand), &append_stats, c)) {
+        if (get_stats(subcommand, len, &append_stats, c)) {
             if (c->stats.buffer == NULL) {
                 out_of_memory(c, "SERVER_ERROR out of memory writing stats");
             } else {
@@ -697,18 +719,21 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 }
 
 // slow snprintf for debugging purposes.
-static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens) {
+static void process_meta_command(conn *c, mcp_parser_t *pr) {
     assert(c != NULL);
 
-    if (ntokens < 3 || tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+    int ntokens = pr->tok.ntokens;
+    if (ntokens < 2 || pr->klen > KEY_MAX_LENGTH) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
     }
 
-    char *key = tokens[KEY_TOKEN].value;
-    size_t nkey = tokens[KEY_TOKEN].length;
+    const char *key = MCP_PARSER_KEY(pr);
+    size_t nkey = pr->klen;
+    int tlen = 0;
+    const char *flag = mcmc_token_get(pr->request, &pr->tok, 2, &tlen);
 
-    if (ntokens >= 4 && tokens[2].length == 1 && tokens[2].value[0] == 'b') {
+    if (ntokens >= 4 && tlen == 1 && flag[0] == 'b') {
         size_t ret = base64_decode((unsigned char *)key, nkey,
                     (unsigned char *)key, nkey);
         if (ret == 0) {
@@ -759,17 +784,6 @@ static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens)
     pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.meta_cmds++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
-}
-
-// FIXME: use mcmc func!
-static int _process_token_len(mcp_parser_t *pr, size_t token) {
-  const char *s = pr->request + pr->tok.tokens[token];
-  const char *e = pr->request + pr->tok.tokens[token+1];
-  // start of next token is after any space delimiters, so back those out.
-  while (*(e-1) == ' ') {
-      e--;
-  }
-  return e - s;
 }
 
 // Text handler requires some custom code around the update code: we directly
@@ -1018,12 +1032,12 @@ static void process_slabs_automove_command(conn *c, token_t *tokens, const size_
 }
 
 /* TODO: decide on syntax for sampling? */
-static void process_watch_command(conn *c, token_t *tokens, const size_t ntokens) {
+static void process_watch_command(conn *c, mcp_parser_t *pr) {
     uint16_t f = 0;
     int x;
+    int ntokens = pr->tok.ntokens;
     assert(c != NULL);
 
-    set_noreply_maybe(c, tokens, ntokens);
     if (!settings.watch_enabled) {
         out_string(c, "CLIENT_ERROR watch commands not allowed");
         return;
@@ -1034,27 +1048,29 @@ static void process_watch_command(conn *c, token_t *tokens, const size_t ntokens
         return;
     }
 
-    if (ntokens > 2) {
-        for (x = COMMAND_TOKEN + 1; x < ntokens - 1; x++) {
-            if ((strcmp(tokens[x].value, "rawcmds") == 0)) {
+    if (ntokens > 1) {
+        for (x = COMMAND_TOKEN + 1; x < ntokens; x++) {
+            int len = 0;
+            const char *t = mcmc_token_get(pr->request, &pr->tok, x, &len);
+            if ((strncmp(t, "rawcmds", len) == 0)) {
                 f |= LOG_RAWCMDS;
-            } else if ((strcmp(tokens[x].value, "evictions") == 0)) {
+            } else if ((strncmp(t, "evictions", len) == 0)) {
                 f |= LOG_EVICTIONS;
-            } else if ((strcmp(tokens[x].value, "fetchers") == 0)) {
+            } else if ((strncmp(t, "fetchers", len) == 0)) {
                 f |= LOG_FETCHERS;
-            } else if ((strcmp(tokens[x].value, "mutations") == 0)) {
+            } else if ((strncmp(t, "mutations", len) == 0)) {
                 f |= LOG_MUTATIONS;
-            } else if ((strcmp(tokens[x].value, "sysevents") == 0)) {
+            } else if ((strncmp(t, "sysevents", len) == 0)) {
                 f |= LOG_SYSEVENTS;
-            } else if ((strcmp(tokens[x].value, "connevents") == 0)) {
+            } else if ((strncmp(t, "connevents", len) == 0)) {
                 f |= LOG_CONNEVENTS;
-            } else if ((strcmp(tokens[x].value, "proxyreqs") == 0)) {
+            } else if ((strncmp(t, "proxyreqs", len) == 0)) {
                 f |= LOG_PROXYREQS;
-            } else if ((strcmp(tokens[x].value, "proxyevents") == 0)) {
+            } else if ((strncmp(t, "proxyevents", len) == 0)) {
                 f |= LOG_PROXYEVENTS;
-            } else if ((strcmp(tokens[x].value, "proxyuser") == 0)) {
+            } else if ((strncmp(t, "proxyuser", len) == 0)) {
                 f |= LOG_PROXYUSER;
-            } else if ((strcmp(tokens[x].value, "deletions") == 0)) {
+            } else if ((strncmp(t, "deletions", len) == 0)) {
                 f |= LOG_DELETIONS;
             } else {
                 out_string(c, "ERROR");
@@ -1266,27 +1282,27 @@ static void process_flush_all_command(conn *c, token_t *tokens, const size_t nto
     out_string(c, "OK");
 }
 
-static void process_version_command(conn *c) {
+static void process_version_command(conn *c, mcp_parser_t *pr) {
     out_string(c, "VERSION " VERSION);
 }
 
-static void process_quit_command(conn *c) {
+static void process_quit_command(conn *c, mcp_parser_t *pr) {
     conn_set_state(c, conn_mwrite);
     c->close_after_write = true;
     c->close_reason = NORMAL_CLOSE;
 }
 
-static void process_shutdown_command(conn *c, token_t *tokens, const size_t ntokens) {
+static void process_shutdown_command(conn *c, mcp_parser_t *pr) {
     if (!settings.shutdown_command) {
-        out_string(c, "ERROR: shutdown not enabled");
+        out_string(c, "SERVER_ERROR: shutdown not enabled");
         return;
     }
 
-    if (ntokens == 2) {
+    if (pr->tok.ntokens == 1) {
         c->close_reason = SHUTDOWN_CLOSE;
         conn_set_state(c, conn_closing);
         raise(SIGINT);
-    } else if (ntokens == 3 && strcmp(tokens[SUBCOMMAND_TOKEN].value, "graceful") == 0) {
+    } else if (pr->tok.ntokens == 2 && tokcmp(pr, SUBCOMMAND_TOKEN, "graceful") == 0) {
         c->close_reason = SHUTDOWN_CLOSE;
         conn_set_state(c, conn_closing);
         raise(SIGUSR1);
@@ -1533,23 +1549,8 @@ static void _process_command_ascii(conn *c, char *command) {
 
     // Meta commands are all 2-char in length.
     char first = tokens[COMMAND_TOKEN].value[0];
-    if (first == 'm' && tokens[COMMAND_TOKEN].length == 2) {
-        switch (tokens[COMMAND_TOKEN].value[1]) {
-            case 'e':
-                process_meta_command(c, tokens, ntokens);
-                break;
-            default:
-                out_string(c, "ERROR");
-                break;
-        }
-    } else if (first == 's') {
-        if (strcmp(tokens[COMMAND_TOKEN].value, "stats") == 0) {
-
-            process_stat(c, tokens, ntokens);
-        } else if (strcmp(tokens[COMMAND_TOKEN].value, "shutdown") == 0) {
-
-            process_shutdown_command(c, tokens, ntokens);
-        } else if (strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0) {
+    if (first == 's') {
+        if (strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0) {
 
             process_slabs_command(c, tokens, ntokens);
         } else {
@@ -1582,21 +1583,9 @@ static void _process_command_ascii(conn *c, char *command) {
         WANT_TOKENS(ntokens, 2, 4);
         process_flush_all_command(c, tokens, ntokens);
 
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "version") == 0) {
-
-        process_version_command(c);
-
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "quit") == 0) {
-
-        process_quit_command(c);
-
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "lru_crawler") == 0) {
 
         process_lru_crawler_command(c, tokens, ntokens);
-
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "watch") == 0) {
-
-        process_watch_command(c, tokens, ntokens);
 
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0) {
         WANT_TOKENS_OR(ntokens, 3, 4);
@@ -1628,8 +1617,30 @@ static void _process_command_ascii(conn *c, char *command) {
     return;
 }
 
+// TODO: this isn't a performance sensitive section of the code (these
+// commands are all rare), but a hash table could speed things up.
+typedef void (*text_cmd_func)(conn *c, mcp_parser_t *pr);
+
+struct text_cmd_entry {
+    const char *s; // top level command
+    int min_tok; // minimum tokens
+    int max_tok; // maximum tokens
+    text_cmd_func func; // function to call
+};
+
+enum text_cmds {
+    text_cmd_shutdown = 0,
+    text_cmd_final,
+};
+
+static const struct text_cmd_entry text_cmd_entries[] = {
+    [text_cmd_shutdown] = {"shutdown", 0, 0, process_shutdown_command},
+    [text_cmd_final] = {NULL, 0, 0, NULL},
+};
+
 void process_command_ascii(conn *c, char *command, char *el) {
     mcp_parser_t pr = {0};
+    LIBEVENT_THREAD *t = c->thread;
     // Prep the response object for this query.
     if (!resp_start(c)) {
         conn_set_state(c, conn_closing);
@@ -1637,9 +1648,9 @@ void process_command_ascii(conn *c, char *command, char *el) {
     }
 
     size_t cmdlen = el - command + 1;
+    t->cur_sfd = c->sfd; // cuddle sfd for logging.
     int ret = process_request(&pr, command, cmdlen);
     if (ret == PROCESS_REQUEST_OK) {
-        LIBEVENT_THREAD *t = c->thread;
         mc_resp *resp = c->resp;
         bool handled = false;
         switch (pr.command) {
@@ -1669,8 +1680,12 @@ void process_command_ascii(conn *c, char *command, char *el) {
                 conn_set_state(c, conn_mwrite);
                 handled = true;
                 break;
-             case CMD_MS:
+            case CMD_MS:
                 process_mset_command(c, &pr, resp);
+                handled = true;
+                break;
+            case CMD_ME:
+                process_meta_command(c, &pr);
                 handled = true;
                 break;
             case CMD_GET:
@@ -1733,10 +1748,41 @@ void process_command_ascii(conn *c, char *command, char *el) {
                 process_update_command(c, &pr, resp, NREAD_CAS, true);
                 handled = true;
                 break;
+            case CMD_QUIT:
+                process_quit_command(c, &pr);
+                handled = true;
+                break;
+            case CMD_VERSION:
+                process_version_command(c, &pr);
+                handled = true;
+                break;
+            case CMD_STATS:
+                process_stat(c, &pr);
+                handled = true;
+                break;
+            case CMD_WATCH:
+                process_watch_command(c, &pr);
+                handled = true;
+                break;
+            default:
+                fprintf(stderr, "COMMAND: %s\n", command);
+                assert(true == false);
+                break;
         }
 
         if (handled)
             return;
+    } else if (ret == PROCESS_REQUEST_CMD_NOT_FOUND) {
+        int len = 0;
+        const char *cm = mcmc_token_get(pr.request, &pr.tok, 0, &len);
+        for (int x = 0; text_cmd_entries[x].s; x++) {
+            const struct text_cmd_entry *e = &text_cmd_entries[x];
+            if (strncmp(e->s, cm, len) == 0) {
+                // TODO: check min/max tokens
+                e->func(c, &pr);
+                return;
+            }
+        }
     } else if (ret == PROCESS_REQUEST_BAD_FORMAT) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;

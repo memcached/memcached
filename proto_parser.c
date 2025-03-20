@@ -154,6 +154,11 @@ static int _process_request_simple(mcp_parser_t *pr, const int min) {
     return _process_request_noreply(pr);
 }
 
+static int _process_request_unknown(mcp_parser_t *pr) {
+    mcmc_tokenize(pr->request, pr->reqlen, &pr->tok, 255);
+    return _process_request_noreply(pr);
+}
+
 // TODO: return code ENUM with error types.
 int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
     // we want to "parse in place" as much as possible, which allows us to
@@ -309,6 +314,7 @@ int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
 
     // TODO: log more specific error code.
     if (cmd == -1) {
+        _process_request_unknown(pr);
         return PROCESS_REQUEST_CMD_NOT_FOUND;
     }
 
