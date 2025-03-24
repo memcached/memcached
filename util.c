@@ -44,6 +44,23 @@ bool uriencode(const char *src, char *dst, const size_t srclen, const size_t dst
     return true;
 }
 
+// No null byte termination, no dst length check, _must_ be at least 3x the
+// size of srclen.
+char *uriencode_p(const char *src, char *dst, const size_t srclen) {
+    int x;
+    size_t d = 0;
+    for (x = 0; x < srclen; x++) {
+        if (uriencode_map[(unsigned char) src[x]] != NULL) {
+            memcpy(&dst[d], uriencode_map[(unsigned char) src[x]], 3);
+            d += 3;
+        } else {
+            dst[d] = src[x];
+            d++;
+        }
+    }
+    return dst+d;
+}
+
 /* Avoid warnings on solaris, where isspace() is an index into an array, and gcc uses signed chars */
 #define xisspace(c) isspace((unsigned char)c)
 

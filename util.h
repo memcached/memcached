@@ -3,6 +3,7 @@
 /* fast-enough functions for uriencoding strings. */
 void uriencode_init(void);
 bool uriencode(const char *src, char *dst, const size_t srclen, const size_t dstlen);
+char *uriencode_p(const char *src, char *dst, const size_t srclen);
 
 /*
  * Wrappers around strtoull/strtoll that are safer and easier to

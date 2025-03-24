@@ -15,7 +15,6 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <signal.h>
 #include <string.h>
 #include <time.h>
 #include <assert.h>
@@ -267,38 +266,109 @@ static int crawler_metadump_init(crawler_module_t *cm, void *data) {
     return 0;
 }
 
+#define KADD(p, s) { \
+    memcpy(p, s, sizeof(s)-1); \
+    p += sizeof(s)-1; \
+}
+#define KSP(p) { \
+    *p = ' '; \
+    p++; \
+}
+
 static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, int i) {
-    char keybuf[KEY_MAX_URI_ENCODED_LENGTH];
     int is_flushed = item_is_flushed(it);
+#ifdef EXTSTORE
+    bool is_valid = true;
+    if (it->it_flags & ITEM_HDR) {
+        is_valid = storage_validate_item(storage, it);
+    }
+#endif
     /* Ignore expired content. */
     if ((it->exptime != 0 && it->exptime < current_time)
-        || is_flushed) {
+        || is_flushed
+#ifdef EXTSTORE
+        || !is_valid
+#endif
+        ) {
         refcount_decr(it);
         return;
     }
     client_flags_t flags;
     FLAGS_CONV(it, flags);
-    // TODO: uriencode directly into the buffer.
-    uriencode(ITEM_key(it), keybuf, it->nkey, KEY_MAX_URI_ENCODED_LENGTH);
-    int total = snprintf(cm->c.buf + cm->c.bufused, 4096,
-            "key=%s exp=%ld la=%llu cas=%llu fetch=%s cls=%u size=%lu flags=%llu\n",
-            keybuf,
-            (it->exptime == 0) ? -1 : (long)(it->exptime + process_started),
-            (unsigned long long)(it->time + process_started),
-            (unsigned long long)ITEM_get_cas(it),
-            (it->it_flags & ITEM_FETCHED) ? "yes" : "no",
-            ITEM_clsid(it),
-            (unsigned long) ITEM_ntotal(it),
-            (unsigned long long)flags);
-    refcount_decr(it);
-    // TODO: some way of tracking the errors. these should be impossible given
-    // the space requirements.
-    if (total >= LRU_CRAWLER_MINBUFSPACE - 1 || total <= 0) {
-        // Failed to write, don't push it.
-        return;
+    assert(it->nkey * 3 < LRU_CRAWLER_MINBUFSPACE/2);
+    // unrolled snprintf for ~30% time improvement on fullspeed dump
+    // key=%s exp=%ld la=%llu cas=%llu fetch=%s cls=%u size=%lu flags=%llu\n
+    // + optional ext_page=%u and ext_offset=%u
+
+    char *p = cm->c.buf + cm->c.bufused;
+    char *start = p;
+    KADD(p, "key=");
+    p = uriencode_p(ITEM_key(it), p, it->nkey);
+    KSP(p);
+
+    KADD(p, "exp=");
+    if (it->exptime == 0) {
+        KADD(p, "-1 ");
+    } else {
+        p = itoa_64((long)(it->exptime + process_started), p);
+        KSP(p);
     }
-    cm->c.bufused += total;
+
+    KADD(p, "la=");
+    p = itoa_u64((unsigned long long)(it->time + process_started), p);
+    KSP(p);
+
+    KADD(p, "cas=");
+    p = itoa_u64(ITEM_get_cas(it), p);
+    KSP(p);
+
+    if (it->it_flags & ITEM_FETCHED) {
+        KADD(p, "fetch=yes ");
+    } else {
+        KADD(p, "fetch=no ");
+    }
+
+    KADD(p, "cls=");
+    p = itoa_u32(ITEM_clsid(it), p);
+    KSP(p);
+
+    KADD(p, "size=");
+    p = itoa_u64(ITEM_ntotal(it), p);
+    KSP(p);
+
+    KADD(p, "flags=");
+    p = itoa_u64(flags, p);
+    KSP(p);
+
+#ifdef EXTSTORE
+    if (it->it_flags & ITEM_HDR) {
+#ifdef NEED_ALIGN
+    item_hdr hdr_s;
+    memcpy(&hdr_s, ITEM_data(it), sizeof(hdr));
+    item_hdr *hdr = &hdr_s;
+#else
+    item_hdr *hdr = (item_hdr *)ITEM_data(it);
+#endif
+
+    KADD(p, "ext_page=");
+    p = itoa_u32(hdr->page_id, p);
+    KSP(p);
+
+    KADD(p, "ext_offset=");
+    p = itoa_u32(hdr->offset, p);
+    KSP(p);
+    }
+#endif
+
+    KADD(p, "\n");
+
+    refcount_decr(it);
+    assert(p - start < LRU_CRAWLER_MINBUFSPACE-1);
+    cm->c.bufused += p - start;
 }
+
+#undef KADD
+#undef KSP
 
 static void crawler_metadump_finalize(crawler_module_t *cm) {
     if (cm->c.c != NULL) {
