@@ -223,7 +223,7 @@ static int mcplib_schedule_config_reload(lua_State *L) {
 static int mcplib_time_real_millis(lua_State *L) {
     struct timespec now;
     clock_gettime(CLOCK_REALTIME, &now);
-    lua_Integer t = now.tv_nsec / 1000000 + now.tv_sec * 1000;
+    lua_Integer t = now.tv_nsec / 1000000 + (lua_Integer) now.tv_sec * 1000;
     lua_pushinteger(L, t);
     return 1;
 }
@@ -231,7 +231,7 @@ static int mcplib_time_real_millis(lua_State *L) {
 static int mcplib_time_mono_millis(lua_State *L) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
-    lua_Integer t = now.tv_nsec / 1000000 + now.tv_sec * 1000;
+    lua_Integer t = now.tv_nsec / 1000000 + (lua_Integer) now.tv_sec * 1000;
     lua_pushinteger(L, t);
     return 1;
 }
