@@ -344,7 +344,7 @@ static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, i
     if (it->it_flags & ITEM_HDR) {
 #ifdef NEED_ALIGN
     item_hdr hdr_s;
-    memcpy(&hdr_s, ITEM_data(it), sizeof(hdr));
+    memcpy(&hdr_s, ITEM_data(it), sizeof(hdr_s));
     item_hdr *hdr = &hdr_s;
 #else
     item_hdr *hdr = (item_hdr *)ITEM_data(it);
