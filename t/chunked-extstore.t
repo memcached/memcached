@@ -18,7 +18,7 @@ if (!supports_extstore()) {
 
 $ext_path = "/tmp/extstore.$$";
 
-my $server = new_memcached("-m 64 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=0,ext_max_frag=0,ext_path=$ext_path:64m,slab_chunk_max=16,slab_automove=0,ext_max_sleep=100000");
+my $server = new_memcached("-m 64 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=0,ext_recache_rate=0,ext_max_frag=0,ext_path=$ext_path:64m,slab_chunk_max=16,slab_automove=0,ext_max_sleep=100000");
 my $sock = $server->sock;
 
 # Only able to disable compaction at runtime.
@@ -40,6 +40,25 @@ sub wait_for_ext {
             }
         }
         sleep 1 if $sum != 0;
+    }
+}
+
+sub watch_compact {
+    my $watcher = $server->new_sock;
+
+    print $watcher "watch sysevents\n";
+    my $res = <$watcher>;
+    is($res, "OK\r\n", "watcher enabled");
+
+    my $fragcount = 20;
+    while (my $log = <$watcher>) {
+        chomp $log;
+        if ($log =~ m/type=compact_fraginfo/) {
+            $fragcount--;
+        } else {
+            $fragcount = 20;
+        }
+        last if $fragcount < 1;
     }
 }
 
@@ -102,9 +121,8 @@ wait_for_ext();
     my $keycount = 1250;
     for (1 .. $keycount) {
         print $sock "set mfoo$_ 0 0 $plen noreply\r\n$pattern\r\n";
-        wait_for_ext() if $_ % 500 == 0;
+        wait_for_ext() if $_ % 100 == 0;
     }
-    # because item_age is set to 2s.
     wait_for_ext();
 
     my $stats = mem_stats($sock);
@@ -151,20 +169,14 @@ wait_for_ext();
     print $sock "extstore max_frag 0.9\r\n";
     $res = <$sock>;
     is($res, "OK\r\n", 'set max_frag');
-
-    # Give compaction some time to run.
-    for (1 .. 30) {
-        my $stats = mem_stats($sock);
-        last if $stats->{extstore_pages_free} > 2;
-        sleep 1;
-    }
+    watch_compact();
 
     my $stats = mem_stats($sock);
     cmp_ok($stats->{extstore_pages_free}, '>', 2, 'some pages now free');
     cmp_ok($stats->{extstore_compact_rescues}, '>', 0, 'some compaction rescues happened');
 
     # Some of the early items got evicted
-    for (750..1250) {
+    for (1150..1250) {
         # everything should validate properly.
         mem_get_is($sock, "mfoo$_", $pattern) if $_ % 2 == 1;
     }

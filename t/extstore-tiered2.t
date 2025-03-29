@@ -22,7 +22,7 @@ $ext_path = "/tmp/extstore1.$$";
 $ext_path2 = "/tmp/extstore2.$$";
 $ext_path3 = "/tmp/extstore3.$$";
 
-my $server = new_memcached("-m 256 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path:64m:default,ext_path=$ext_path2:64m:coldcompact,ext_path=$ext_path3:64m:old,slab_automove=1,ext_max_sleep=100000");
+my $server = new_memcached("-m 256 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=0,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path:64m:default,ext_path=$ext_path2:64m:coldcompact,ext_path=$ext_path3:64m:old,slab_automove=1,ext_max_sleep=100000");
 my $sock = $server->sock;
 
 my $value;

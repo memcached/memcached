@@ -53,6 +53,25 @@ sub wait_for_ext {
     }
 }
 
+sub watch_compact {
+    my $watcher = $server->new_sock;
+
+    print $watcher "watch sysevents\n";
+    my $res = <$watcher>;
+    is($res, "OK\r\n", "watcher enabled");
+
+    my $fragcount = 20;
+    while (my $log = <$watcher>) {
+        chomp $log;
+        if ($log =~ m/type=compact_fraginfo/) {
+            $fragcount--;
+        } else {
+            $fragcount = 20;
+        }
+        last if $fragcount < 1;
+    }
+}
+
 my $value;
 {
     my @chars = ("C".."Z");
@@ -159,7 +178,8 @@ mem_get_is($sock, "foo", "hi");
         print $sock "delete mfoo$_ noreply\r\n";
     }
 
-    sleep 4;
+    watch_compact();
+
     $stats = mem_stats($sock);
     cmp_ok($stats->{extstore_pages_free}, '>', 0, 'some pages now free');
     cmp_ok($stats->{extstore_compact_rescues}, '>', 0, 'some compaction rescues happened');
