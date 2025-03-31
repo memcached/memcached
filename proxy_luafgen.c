@@ -1108,10 +1108,6 @@ int mcp_process_rqueue_return(mcp_rcontext_t *rctx, int handle, mcp_resp_t *res)
         flag = RQUEUE_R_ERROR;
     }
 
-    if (res->be && res->be->use_logging) {
-        mcplib_rqu_log(rqu->rq, res, flag, rctx->conn_fd);
-    }
-
     if (rqu->cb_ref) {
         lua_settop(rctx->Lc, 0);
         lua_rawgeti(rctx->Lc, LUA_REGISTRYINDEX, rqu->cb_ref);
@@ -1156,7 +1152,22 @@ static void proxy_return_rqu_cb(io_pending_t *pending) {
     mcp_rcontext_t *rctx = p->rctx;
 
     if (p->client_resp) {
-        mcp_process_rqueue_return(rctx, p->queue_handle, p->client_resp);
+        mcp_resp_t *res = p->client_resp;
+        mcp_process_rqueue_return(rctx, p->queue_handle, res);
+        if (res->be && res->be->use_logging) {
+            struct mcp_rqueue_s *rqu = &rctx->qslots[p->queue_handle];
+            int conn_fd = 0;
+            // TODO: would be nice to have fast-access to top level.
+            mcp_rcontext_t *n_rctx = rctx;
+            while (n_rctx) {
+                if (!n_rctx->parent) {
+                    conn_fd = n_rctx->conn_fd;
+                    break;
+                }
+                n_rctx = rctx->parent;
+            }
+            mcplib_rqu_log(rqu->rq, res, rqu->flags, conn_fd);
+        }
     }
     rctx->pending_reqs--;
     assert(rctx->pending_reqs > -1);

@@ -264,6 +264,24 @@ sub test_logging {
         $t->clear();
     };
 
+    subtest 'subrctx log error' => sub {
+        my $w = $p_srv->new_sock;
+        print $w "watch proxyreqs\n";
+        is(<$w>, "OK\r\n", 'watcher enabled');
+
+        $t->c_send("mg subfastlog/a t\r\n");
+        $t->be_recv_c([4]);
+        $t->be_send([4], "SERVER_ERROR busted\r\n");
+        $t->c_recv_be();
+
+        my $l2 = scalar <$w>;
+        like($l2, qr/detail=fastlog/, 'got logreq line');
+        like($l2, qr/cfd=/, 'client file descriptor present');
+        unlike($l2, qr/cfd=0/, 'client file descriptor is nonzero');
+
+        $t->clear();
+    };
+
     # test sampling when not error
     # test always log when slow/fast
 }

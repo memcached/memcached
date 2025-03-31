@@ -703,6 +703,7 @@ function mcp_config_routes(p)
     local blocker = new_blocker_factory({ blocker = b_pool, list = p, name = "blocker" })
     local logall = new_basic_factory({ list = p, name = "logall" }, logall_factory_gen)
     local fastlog = new_direct_factory({ p = pl, name = "fastlog" })
+    local subfastlog = new_direct_factory({ p = fastlog, name = "subfastlog" })
     local summary = new_basic_factory({ list = p, name = "summary" }, summary_factory_gen)
     local waitfor = new_basic_factory({ list = p, name = "waitfor" }, waitfor_factory_gen)
     local failover = new_basic_factory({ list = p, name = "failover" }, failover_factory_gen)
@@ -738,6 +739,7 @@ function mcp_config_routes(p)
         ["blocker"] = blocker,
         ["logall"] = logall,
         ["fastlog"] = fastlog,
+        ["subfastlog"] = subfastlog,
         ["summary"] = summary,
         ["waitfor"] = waitfor,
         ["failover"] = failover,

@@ -402,9 +402,9 @@ static int _logger_parse_prx_req(logentry *e, char *scratch) {
     int total;
     struct logentry_proxy_req *le = (void *)e->data;
     const char *rqu_res = "any";
-    if (le->flag == RQUEUE_R_GOOD) {
+    if (le->flag & RQUEUE_R_GOOD) {
         rqu_res = "good";
-    } else if (le->flag == RQUEUE_R_OK) {
+    } else if (le->flag & RQUEUE_R_OK) {
         rqu_res = "ok";
     }
 
