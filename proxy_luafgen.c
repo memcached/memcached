@@ -1105,7 +1105,7 @@ int mcp_process_rqueue_return(mcp_rcontext_t *rctx, int handle, mcp_resp_t *res)
             flag = RQUEUE_R_OK;
         }
     } else {
-        flag = RQUEUE_R_ERROR;
+        flag |= RQUEUE_R_ERROR;
     }
 
     if (rqu->cb_ref) {
