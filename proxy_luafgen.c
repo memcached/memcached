@@ -1164,7 +1164,7 @@ static void proxy_return_rqu_cb(io_pending_t *pending) {
                     conn_fd = n_rctx->conn_fd;
                     break;
                 }
-                n_rctx = rctx->parent;
+                n_rctx = n_rctx->parent;
             }
             mcplib_rqu_log(rqu->rq, res, rqu->flags, conn_fd);
         }
