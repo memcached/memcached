@@ -1335,7 +1335,6 @@ integers separated by a colon (treat this as a floating point number).
 | proxy_conn_oom        | 64u     | Number of out of memory errors while      |
 |                       |         | serving proxy requests                    |
 | proxy_req_active      | 64u     | Number of in-flight proxy requests        |
-| proxy_req_await       | 64u     | Number of in-flight proxy async requests  |
 | cmd_get               | 64u     | Cumulative number of retrieval reqs       |
 | cmd_set               | 64u     | Cumulative number of storage reqs         |
 | cmd_flush             | 64u     | Cumulative number of flush reqs           |
