@@ -1983,7 +1983,7 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("proxy_enabled", "%s", settings.proxy_enabled ? "yes" : "no");
     APPEND_STAT("proxy_uring_enabled", "%s", settings.proxy_uring ? "yes" : "no");
 #endif
-    APPEND_STAT("num_napi_ids", "%s", settings.num_napi_ids);
+    APPEND_STAT("num_napi_ids", "%d", settings.num_napi_ids);
     APPEND_STAT("memory_file", "%s", settings.memory_file);
     APPEND_STAT("client_flags_size", "%d", sizeof(client_flags_t));
 }
