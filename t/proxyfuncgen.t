@@ -162,6 +162,18 @@ sub test_best {
         $t->c_recv("EN O3\r\n", "client received best result");
         $t->clear();
     };
+
+    subtest 'rctx:best_result error over nil' => sub {
+        $t->c_send("mg bestresmutator/a t\r\n");
+        $t->c_recv("SERVER_ERROR borked mutator\r\n", "client received best result");
+        $t->clear();
+    };
+
+    subtest 'rctx:best_result error over nil (reversed order)' => sub {
+        $t->c_send("mg bestresmutator1/a t\r\n");
+        $t->c_recv("SERVER_ERROR borked mutator\r\n", "client received best result");
+        $t->clear();
+    };
 }
 
 sub test_worst {
@@ -696,3 +708,4 @@ sub check_func_counts {
         pass();
     }
 }
+

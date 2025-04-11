@@ -86,7 +86,7 @@ function new_basic_factory(arg, func)
         o.c = o.c + 1
     end
 
-    fgen:ready({ f = func, a = o, n = arg.name})
+    fgen:ready({ f = func, a = o, n = arg.name })
     return fgen
 end
 
@@ -516,7 +516,7 @@ end
 
 function new_error_factory(func, name)
     local fgen = mcp.funcgen_new()
-    fgen:ready({ f = func, n = name })
+    fgen:ready({ f = func, n = name, u = 1 })
     return fgen
 end
 
@@ -648,6 +648,15 @@ function worstres_factory_gen(rctx, arg)
     end
 end
 
+function mutatorerr_factory_gen(rctx)
+    local mutator = mcp.res_mutator_new({t = "reserr", code = "server", msg = "borked mutator" })
+    local err_res = rctx:response_new()
+    return function(r)
+        mutator(err_res)
+        return err_res
+    end
+end
+
 function timeout_factory_gen(rctx, arg)
     local handles = arg.t
     local wait = #handles
@@ -718,6 +727,10 @@ function mcp_config_routes(p)
     local bestrestime = new_basic_factory({ list = p, timeout = 0.5, name = "bestres" }, bestres_factory_gen)
     local worstres = new_basic_factory({ list = p, name = "worstres" }, worstres_factory_gen)
 
+    local mutatorerr = new_error_factory(mutatorerr_factory_gen, "mutatorerr")
+    local bestresmutator = new_basic_factory({ list = { mutatorerr, suberrors }, name = "bestresmutator"}, bestres_factory_gen)
+    local bestresmutator1 = new_basic_factory({ list = { suberrors, mutatorerr }, name = "bestresmutator1"}, bestres_factory_gen)
+
     -- for testing traffic splitting.
     local split = new_split_factory({ a = single, b = singletwo, name = "split" })
     local splitfailover = new_split_factory({ a = failover, b = singletwo, name = "splitfailover" })
@@ -751,6 +764,8 @@ function mcp_config_routes(p)
         ["badreturn"] = badreturn,
         ["bestres"] = bestres,
         ["bestrestime"] = bestrestime,
+        ["bestresmutator"] = bestresmutator,
+        ["bestresmutator1"] = bestresmutator1,
         ["worstres"] = worstres,
         ["timetop"] = timetop,
         ["timefgtop"] = timefgtop,
@@ -784,3 +799,4 @@ function mcp_config_routes(p)
     mcp.attach(mcp.CMD_MS, pfxfail)
     mcp.attach(mcp.CMD_MD, pfxfail)
 end
+
