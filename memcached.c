@@ -3988,10 +3988,13 @@ static void usage(void) {
             settings.access);
 #endif /* #ifndef DISABLE_UNIX_SOCKET */
     printf("-A, --enable-shutdown     enable ascii \"shutdown\" command\n");
-    printf("-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n");
+    printf("-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n"
+           "                          can specify multiple comma separated listeners configured with different protocols\n"
+           "                          format: proto[<protcol>]:tag[<name>]:ip:port\n"
+           "                          i.e -l proto[binary]:tag[services]:127.0.0.1:11211,proto[ascii]:tag_tools_:127.0.0.1:11212\n");
 #ifdef TLS
-    printf("                          if TLS/SSL is enabled, 'notls' prefix can be used to\n"
-           "                          disable for specific listeners (-l notls:<ip>:<port>) \n");
+    printf("                          if TLS/SSL is enabled, 'notls', 'btls', 'mtls' prefix can be used to\n"
+           "                          specify for specific listeners no tls, basic tls, or peer-auth tls (i.e -l mtls:proto[ascii]:tag_tools_:127.0.0.1:11212\n");
 #endif
     printf("-d, --daemon              run as a daemon\n"
            "-r, --enable-coredumps    maximize core file limit\n"
