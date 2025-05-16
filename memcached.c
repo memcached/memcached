@@ -1415,6 +1415,11 @@ static void reset_cmd_handler(conn *c) {
         conn_set_state(c, conn_parse_cmd);
     } else if (c->resp_head) {
         conn_set_state(c, conn_mwrite);
+    } else if (c->ssl_enabled && ssl_pending(c->ssl)) {
+        // We may have pending bytes in the TLS BIO because of a mismatch
+        // between TLS records and occasional direct reads from the network.
+        // Round-trip back through the read code instead of stopping.
+        conn_set_state(c, conn_read);
     } else {
         conn_set_state(c, conn_waiting);
     }

@@ -13,6 +13,7 @@ int ssl_init(void);
 void ssl_init_settings(void);
 void ssl_init_conn(conn *c, void *ssl);
 void ssl_conn_close(void *ssl_in);
+int ssl_pending(void *ssl_in);
 bool refresh_certs(char **errmsg);
 void ssl_help(void);
 bool ssl_set_verify_mode(int verify);
@@ -23,6 +24,7 @@ const char *ssl_proto_text(int version);
 #define ssl_init_conn(c, ssl)
 #define ssl_init_settings(void)
 #define ssl_conn_close(ssl)
+#define ssl_pending(ssl)
 #define ssl_accept(c, sfd, fail) NULL
 #define ssl_help()
 #endif

@@ -376,6 +376,11 @@ void ssl_conn_close(void *ssl_in) {
     SSL_free(ssl);
 }
 
+int ssl_pending(void *ssl_in) {
+    SSL *ssl = ssl_in;
+    return SSL_pending(ssl);
+}
+
 void ssl_init_conn(conn *c, void *ssl_in) {
     if (ssl_in) {
         SSL *ssl = ssl_in;
