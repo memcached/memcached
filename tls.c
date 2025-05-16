@@ -192,6 +192,10 @@ static ssize_t ssl_read(conn *c, void *buf, size_t count) {
             STATS_UNLOCK();
         }
         ERR_clear_error();
+    } else {
+        if (settings.verbose > 1) {
+            fprintf(stderr, "%d: SSL_read: read bytes [%d] pending: [%d]\n", c->sfd, (int) ret, SSL_pending(c->ssl));
+        }
     }
 
     return ret;
@@ -232,6 +236,10 @@ static ssize_t ssl_write(conn *c, void *buf, size_t count) {
             STATS_UNLOCK();
         }
         ERR_clear_error();
+    } else {
+        if (settings.verbose > 1) {
+            fprintf(stderr, "%d: SSL_write: wrote bytes [%d] pending: [%d]\n", c->sfd, (int) ret, SSL_pending(c->ssl));
+        }
     }
     return ret;
 }
