@@ -168,6 +168,10 @@ static ssize_t ssl_read(conn *c, void *buf, size_t count) {
     if (ret <= 0) {
         int err = SSL_get_error(c->ssl, ret);
         if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ) {
+            if (settings.verbose > 1) {
+                fprintf(stderr, "%d: SSL_read: returned %s\n", c->sfd,
+                        err == SSL_ERROR_WANT_WRITE ? "WANT_WRITE" : "WANT_READ");
+            }
             errno = EAGAIN;
         } else if (err == SSL_ERROR_ZERO_RETURN) {
             // TLS session is closed... let the caller move this along.
@@ -204,6 +208,10 @@ static ssize_t ssl_write(conn *c, void *buf, size_t count) {
     if (ret <= 0) {
         int err = SSL_get_error(c->ssl, ret);
         if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ) {
+            if (settings.verbose > 1) {
+                fprintf(stderr, "%d: SSL_write: returned %s\n", c->sfd,
+                        err == SSL_ERROR_WANT_WRITE ? "WANT_WRITE" : "WANT_READ");
+            }
             errno = EAGAIN;
         } else if (err == SSL_ERROR_ZERO_RETURN) {
             // TLS session is closed... let the caller move this along.
