@@ -169,8 +169,8 @@ static ssize_t ssl_read(conn *c, void *buf, size_t count) {
         int err = SSL_get_error(c->ssl, ret);
         if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ) {
             if (settings.verbose > 1) {
-                fprintf(stderr, "%d: SSL_read: returned %s\n", c->sfd,
-                        err == SSL_ERROR_WANT_WRITE ? "WANT_WRITE" : "WANT_READ");
+                fprintf(stderr, "%d: SSL_read: returned %s [pending: %d]\n", c->sfd,
+                        err == SSL_ERROR_WANT_WRITE ? "WANT_WRITE" : "WANT_READ", SSL_pending(c->ssl));
             }
             errno = EAGAIN;
         } else if (err == SSL_ERROR_ZERO_RETURN) {
@@ -213,8 +213,8 @@ static ssize_t ssl_write(conn *c, void *buf, size_t count) {
         int err = SSL_get_error(c->ssl, ret);
         if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ) {
             if (settings.verbose > 1) {
-                fprintf(stderr, "%d: SSL_write: returned %s\n", c->sfd,
-                        err == SSL_ERROR_WANT_WRITE ? "WANT_WRITE" : "WANT_READ");
+                fprintf(stderr, "%d: SSL_write: returned %s [pending: %d]\n", c->sfd,
+                        err == SSL_ERROR_WANT_WRITE ? "WANT_WRITE" : "WANT_READ", SSL_pending(c->ssl));
             }
             errno = EAGAIN;
         } else if (err == SSL_ERROR_ZERO_RETURN) {
