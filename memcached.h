@@ -359,8 +359,7 @@ struct slab_stats {
 #define PROXY_THREAD_STATS_FIELDS \
     X(proxy_conn_requests) \
     X(proxy_conn_errors) \
-    X(proxy_conn_oom) \
-    X(proxy_req_active)
+    X(proxy_conn_oom)
 #endif
 
 /**
@@ -375,6 +374,7 @@ struct thread_stats {
 #endif
 #ifdef PROXY
     PROXY_THREAD_STATS_FIELDS
+    int64_t proxy_req_active;
 #endif
 #undef X
     struct slab_stats slab_stats[MAX_NUMBER_OF_SLAB_CLASSES];
@@ -754,7 +754,7 @@ typedef struct {
     unsigned int proxy_vm_negative_delta;
     int proxy_vm_gcrunning;
     int proxy_vm_gcpokemem;
-    uint64_t proxy_active_req_limit;
+    int64_t proxy_active_req_limit;
     uint64_t proxy_buffer_memory_limit; // protected by limit_lock
     uint64_t proxy_buffer_memory_used; // protected by limit_lock
     uint32_t proxy_rng[4]; // fast per-thread rng for lua.

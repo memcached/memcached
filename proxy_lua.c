@@ -1266,10 +1266,10 @@ static int mcplib_stat_limit(lua_State *L) {
 
 static int mcplib_active_req_limit(lua_State *L) {
     proxy_ctx_t *ctx = PROXY_GET_CTX(L);
-    uint64_t limit = luaL_checkinteger(L, -1);
+    int64_t limit = luaL_checkinteger(L, -1);
 
     if (limit == 0) {
-        limit = UINT64_MAX;
+        limit = INT64_MAX;
     } else {
         // FIXME: global
         int tcount = settings.num_threads;

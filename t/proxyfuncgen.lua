@@ -551,6 +551,9 @@ function suberrors_factory_gen(rctx)
             return 5
         elseif key == "suberrors/none" then
             return
+        elseif key == "suberrors/resume" then
+            rctx:sleep(0.25)
+            error("error after resuming rctx")
         end
 
     end

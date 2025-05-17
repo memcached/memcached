@@ -404,6 +404,7 @@ void mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
         return;
     }
     WSTAT_DECR(rctx->fgen->thread, proxy_req_active, 1);
+    assert(rctx->fgen->thread->stats.proxy_req_active >= 0);
     _mcp_funcgen_return_rctx(rctx);
     _mcplib_funcgen_cache(fgen, rctx);
 }

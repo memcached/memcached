@@ -41,6 +41,7 @@ $t->accept_backends();
     test_waitfor();
     # Run test returns twice for extra leak checking.
     my $func_before = mem_stats($ps, "proxyfuncs");
+    test_proxycancel();
     test_returns();
     test_returns();
     subtest 'final func counts' => sub {
@@ -50,6 +51,17 @@ $t->accept_backends();
 }
 
 done_testing();
+
+sub test_proxycancel {
+    subtest 'close conn while uploading, ensure no asserts' => sub {
+        for (1 .. 10) {
+            my $s = $p_srv->new_sock;
+            print $s "ms cancelable 5\r\n";
+            $s->close;
+        }
+        $t->clear();
+    }
+}
 
 sub test_timesub {
     subtest 'rctx WAIT_GOOD with timed out subrctx' => sub {
@@ -443,6 +455,10 @@ sub test_returns {
 
         $t->c_send("mg suberrors/none t\r\n");
         $t->c_recv("SERVER_ERROR backend failure\r\n", "lua returned nothing");
+        $t->clear();
+
+        $t->c_send("mg suberrors/resume t\r\n");
+        $t->c_recv("SERVER_ERROR backend failure\r\n", "lua returned error");
         $t->clear();
     };
 }

@@ -238,7 +238,7 @@ typedef STAILQ_HEAD(globalobj_head_s, mcp_globalobj_s) globalobj_head_t;
 typedef struct {
     lua_State *proxy_state; // main configuration vm
     proxy_event_thread_t *proxy_io_thread;
-    uint64_t active_req_limit; // max total in-flight requests
+    int64_t active_req_limit; // max total in-flight requests
     uint64_t buffer_memory_limit; // max bytes for send/receive buffers.
 #ifdef PROXY_TLS
     void *tls_ctx;

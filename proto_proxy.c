@@ -172,7 +172,7 @@ void proxy_stats(void *arg, ADD_STAT add_stats, void *c) {
 void process_proxy_stats(void *arg, ADD_STAT add_stats, void *c) {
     char key_str[STAT_KEY_LEN];
     struct proxy_int_stats istats = {0};
-    uint64_t req_limit = 0;
+    int64_t req_limit = 0;
     uint64_t buffer_memory_limit = 0;
     uint64_t buffer_memory_used = 0;
 
@@ -249,14 +249,14 @@ void process_proxy_stats(void *arg, ADD_STAT add_stats, void *c) {
     } else {
         buffer_memory_limit *= settings.num_threads;
     }
-    if (req_limit == UINT64_MAX) {
+    if (req_limit == INT64_MAX) {
         req_limit = 0;
     } else {
         req_limit *= settings.num_threads;
     }
 
     // return proxy counters
-    APPEND_STAT("active_req_limit", "%llu", (unsigned long long)req_limit);
+    APPEND_STAT("active_req_limit", "%lld", (long long int)req_limit);
     APPEND_STAT("buffer_memory_limit", "%llu", (unsigned long long)buffer_memory_limit);
     APPEND_STAT("buffer_memory_used", "%llu", (unsigned long long)buffer_memory_used);
     APPEND_STAT("vm_gc_runs", "%llu", (unsigned long long)istats.vm_gc_runs);
@@ -364,7 +364,7 @@ void *proxy_init(bool use_uring, bool proxy_memprofile) {
     pthread_cond_init(&ctx->manager_cond, NULL);
     pthread_mutex_init(&ctx->stats_lock, NULL);
 
-    ctx->active_req_limit = UINT64_MAX;
+    ctx->active_req_limit = INT64_MAX;
     ctx->buffer_memory_limit = UINT64_MAX;
 
     // FIXME (v2): default defines.
@@ -1105,7 +1105,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     // Also batch the counts down this far so we can lock once for the active
     // counter instead of twice.
     struct proxy_int_stats *istats = c->thread->proxy_int_stats;
-    uint64_t active_reqs = 0;
+    int64_t active_reqs = 0;
     WSTAT_L(c->thread);
     istats->counters[pr.command]++;
     c->thread->stats.proxy_conn_requests++;
