@@ -24,7 +24,7 @@ const char *ssl_proto_text(int version);
 #define ssl_init_conn(c, ssl)
 #define ssl_init_settings(void)
 #define ssl_conn_close(ssl)
-#define ssl_pending(ssl)
+#define ssl_pending(ssl) 0
 #define ssl_accept(c, sfd, fail) NULL
 #define ssl_help()
 #endif
