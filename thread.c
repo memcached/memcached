@@ -1019,6 +1019,7 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
 #endif
 #ifdef PROXY
         PROXY_THREAD_STATS_FIELDS
+        stats->proxy_req_active += threads[ii].stats.proxy_req_active;
 #endif
 #undef X
 
