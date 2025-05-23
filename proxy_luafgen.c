@@ -801,7 +801,6 @@ static void _mcplib_rcontext_queue(lua_State *L, mcp_rcontext_t *rctx, mcp_reque
         lua_pushvalue(L, 2); // duplicate the request obj
         lua_rawgeti(subrctx->Lc, LUA_REGISTRYINDEX, subrctx->function_ref);
         lua_xmove(L, subrctx->Lc, 1); // move the requet object.
-        subrctx->pending_reqs++;
     }
 
     // hold the request reference.
@@ -1239,6 +1238,7 @@ void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
             // TODO: NULL the ->c post-return?
             mcp_rcontext_t *subrctx = rqu->obj;
             subrctx->c = rctx->c;
+            subrctx->pending_reqs++;
             rctx->pending_reqs++;
             mcp_start_subrctx(subrctx);
         } else {

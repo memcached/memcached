@@ -222,11 +222,14 @@ function all_factory_gen(rctx, arg)
     say("generating all factory function")
     local t = arg.t
     local count = arg.c
+    if arg.wait ~= nil then
+        count = arg.wait
+    end
     -- should be a minor speedup avoiding the table lookup.
     local mode = mcp.WAIT_ANY
 
     return function(r)
-        say("waiting on " .. count)
+        say("all_factory waiting on " .. count)
 
         rctx:enqueue(r, t)
         local done = rctx:wait_cond(count, mode)
@@ -298,6 +301,7 @@ function fastgoodint_factory_gen(rctx, arg)
 
     return function(r)
         rctx:enqueue(r, t)
+        say("enqueing fastgood:", wait)
         local done = rctx:wait_cond(wait, mcp.WAIT_FASTGOOD)
         say("fastgoodint done:", done)
 
@@ -514,6 +518,16 @@ function failover_factory_gen(rctx, arg)
     end
 end
 
+function new_msg_factory(msg, name)
+    local fgen = mcp.funcgen_new()
+    fgen:ready({ n = name, f = function(rctx)
+        return function(r)
+            return msg
+        end
+    end})
+    return fgen
+end
+
 function new_error_factory(func, name)
     local fgen = mcp.funcgen_new()
     fgen:ready({ f = func, n = name })
@@ -554,6 +568,9 @@ function suberrors_factory_gen(rctx)
         elseif key == "suberrors/resume" then
             rctx:sleep(0.25)
             error("error after resuming rctx")
+        elseif key == "suberrors/string" then
+            -- non error but immediate return scenario.
+            return "SERVER_ERROR suberror/string\r\n"
         end
 
     end
@@ -732,6 +749,22 @@ function mcp_config_routes(p)
     local timetop = new_basic_factory({ list = { timesubone, timesubtwo, timesubthr }, wait = 1, name = "timetop" }, timeout_factory_gen)
     local timefgtop = new_basic_factory({ list = { timesubone, timesubtwo, timesubthr }, wait = 2, mode = mcp.WAIT_FASTGOOD, name = "timefgtop" }, timeout_factory_gen)
 
+    -- complex stacking:
+    -- - parent
+    -- - sub with direct child
+    -- - child that splits requests, waits
+    -- - one sub-child with 3 subrctx children, each with a pool
+    -- - the sub-mid child throws fatal error after enqueueing requests.
+    -- bug was pending request refcount for final child increasing before
+    -- dispatching instead of after dispatching.
+    local complex_childa = new_direct_factory({ p = p[1], name = "cmpchilda" })
+    local complex_childb = new_direct_factory({ p = p[2], name = "cmpchildb" })
+    local complex_childc = new_direct_factory({ p = p[3], name = "cmpchildc" })
+    local complex_msg = new_msg_factory("SERVER_ERROR toast\r\n", "cmpmsg")
+    local complex_fastgoodint = new_basic_factory({ list = { complex_childa, complex_childb, complex_childc }, name = "cmpfastgoodint" }, fastgoodint_factory_gen)
+    local complex_mid = new_basic_factory({ list = { complex_childa, complex_childb, complex_fastgoodint }, wait = 0, name = "cmpmid" }, all_factory_gen)
+    local complex_top = new_direct_factory({ p = complex_mid, name = "complex" })
+
     local map = {
         ["single"] = single,
         ["first"] = first,
@@ -757,6 +790,7 @@ function mcp_config_routes(p)
         ["worstres"] = worstres,
         ["timetop"] = timetop,
         ["timefgtop"] = timefgtop,
+        ["complex"] = complex_top,
     }
 
     local parg = {

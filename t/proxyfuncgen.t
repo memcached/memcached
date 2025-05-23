@@ -31,6 +31,7 @@ $t->set_c($ps);
 $t->accept_backends();
 {
     # Comment out unused sections when debugging.
+    test_complex();
     test_timesub();
     test_best();
     test_worst();
@@ -61,6 +62,18 @@ sub test_proxycancel {
         }
         $t->clear();
     }
+}
+
+sub test_complex {
+    subtest 'complex with post-result asyncs' => sub {
+        $t->c_send("mg complex/a t\r\n");
+        #$t->be_recv_c([0, 1, 2], "received request");
+        $t->c_recv("SERVER_ERROR backend failure\r\n", "client received error");
+        $t->be_recv_c([0, 1], "received one request");
+        $t->be_send(0, "HD t30\r\n");
+        $t->be_send(1, "HD t31\r\n");
+        $t->clear();
+    };
 }
 
 sub test_timesub {
@@ -458,6 +471,10 @@ sub test_returns {
         $t->clear();
 
         $t->c_send("mg suberrors/resume t\r\n");
+        $t->c_recv("SERVER_ERROR backend failure\r\n", "lua returned error");
+        $t->clear();
+
+        $t->c_send("mg suberrors/stringt\r\n");
         $t->c_recv("SERVER_ERROR backend failure\r\n", "lua returned error");
         $t->clear();
     };
