@@ -132,16 +132,29 @@ function mcp_config_routes(p)
         end
     })
 
+    local mgintres_missing = mcp.res_inspector_new(
+        { t = "flagtoken", flag = "c" },
+        { t = "flagtoken", flag = "W" },
+        { t = "flagtoken", flag = "X" },
+        { t = "flagtoken", flag = "Z" }
+    )
+
     local mgintres = mcp.funcgen_new()
     -- no handle: using mcp.internal()
     mgintres:ready({
         n = "intres", f = function(rctx)
             return function(r)
-                --local key = r:key()
+                local key = r:key()
                 local res = mcp.internal(r)
-                local has_O, O, has_t, t = mgresflaga_ins(res)
-                return string.format("SERVER_ERROR O[%q]: %s t[%q]: %q\r\n",
-                    has_O, O, has_t, t)
+                if key == "intres/missing" then
+                    local has_c, flag_c, has_W, flag_W, has_X, flag_X, has_Z, flag_Z = mgintres_missing(res)
+                    return string.format("SERVER_ERROR W[%q]: %s X[%q]: %q\r\n",
+                        has_W, flag_W, has_X, flag_X)
+                else
+                    local has_O, O, has_t, t = mgresflaga_ins(res)
+                    return string.format("SERVER_ERROR O[%q]: %s t[%q]: %q\r\n",
+                        has_O, O, has_t, t)
+                end
             end
         end
     })

@@ -74,6 +74,19 @@ sub test_mgintres {
         $t->c_recv("SERVER_ERROR O[true]: moo t[true]: -1\r\n");
         $t->clear();
     };
+
+    subtest 'missing 5b init' => sub {
+        $t->c_send("ms intres/missing 5 F8\r\n");
+        $t->c_send("hellz\r\n");
+        $t->c_recv("HD\r\n");
+        $t->clear();
+    };
+
+    subtest 'missing flags' => sub {
+        $t->c_send("mg intres/missing c Omoo\r\n");
+        $t->c_recv("SERVER_ERROR W[false]: nil X[false]: nil\r\n");
+        $t->clear();
+    };
 }
 
 sub test_mgreq {
