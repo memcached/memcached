@@ -551,6 +551,8 @@ void conn_worker_readd(conn *c) {
             // any recursion here.
             event_active(&c->event, 0, 0);
             break;
+        case conn_nread:
+            // ran IO queue while waiting for set payload.
         case conn_write:
         case conn_mwrite:
         case conn_read:
@@ -3319,10 +3321,12 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_closing:
-            if (IS_UDP(c->transport))
-                conn_cleanup(c);
-            else
-                conn_close(c);
+            if (!c->resps_suspended) {
+                if (IS_UDP(c->transport))
+                    conn_cleanup(c);
+                else
+                    conn_close(c);
+            }
             stop = true;
             break;
 
