@@ -61,7 +61,17 @@ sub test_proxycancel {
             $s->close;
         }
         $t->clear();
-    }
+    };
+
+    subtest 'close conn after corrupt upload' => sub {
+        for (1 .. 10) {
+            my $s = $p_srv->new_sock;
+            print $s "ms badchunk 2\r\nfail";
+            $s->close;
+        }
+        $t->clear();
+        ok("didn't assert from corrupted uploads");
+    };
 }
 
 sub test_complex {
