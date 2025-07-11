@@ -689,6 +689,7 @@ void complete_nread_proxy(conn *c) {
 
     assert(c->proxy_rctx);
     mcp_rcontext_t *rctx = c->proxy_rctx;
+    c->proxy_rctx = NULL;
     mcp_request_t *rq = rctx->request;
 
     if (strncmp((char *)c->item + rq->pr.vlen - 2, "\r\n", 2) != 0) {
@@ -707,7 +708,6 @@ void complete_nread_proxy(conn *c) {
     rq->pr.vbuf = c->item;
     c->item = NULL;
     c->item_malloced = false;
-    c->proxy_rctx = NULL;
     pthread_mutex_lock(&thr->proxy_limit_lock);
     thr->proxy_buffer_memory_used += rq->pr.vlen;
     pthread_mutex_unlock(&thr->proxy_limit_lock);
