@@ -69,7 +69,7 @@ sub test_reflocked {
     my $count = 1;
     $stats = mem_stats($sock);
     for my $c (1 .. 10000) {
-        my $exp = $c % 2 == 1 ? "T0" : "T30";
+        my $exp = $c % 2 == 1 ? "T0" : "T240";
         print $sock "ms rfoo$c $size $exp\r\n", $bigdata, "\r\n";
         is(scalar <$sock>, "HD\r\n", "stored big key: $c [$exp]");
         my $s_after = mem_stats($sock);
@@ -94,7 +94,7 @@ sub test_reflocked {
         is(scalar <$sock>, "OK\r\n", "reflocked rfoo$_");
     }
 
-    mem_move_time($sock, 60);
+    mem_move_time($sock, 480);
 
     my $sid = find_largest_clsid($sock);
 
