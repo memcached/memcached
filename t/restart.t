@@ -21,7 +21,7 @@ my $mem_path = "/tmp/mc_restart.$$";
     ok($@, "Died with an empty metadata file");
 }
 
-my $server = new_memcached("-m 128 -e $mem_path -I 2m");
+my $server = new_memcached("-m 128 -e $mem_path -I 2m -o temporary_ttl=240");
 my $sock = $server->sock;
 
 diag "restart basic stats";
@@ -99,7 +99,7 @@ diag "Data that should expire while stopped.";
     print $sock "set low1 0 5 2\r\nbo\r\n";
     like(scalar <$sock>, qr/STORED/, "stored low ttl item");
     # This one should stay.
-    print $sock "set low2 0 20 2\r\nmo\r\n";
+    print $sock "set low2 0 200 2\r\nmo\r\n";
     like(scalar <$sock>, qr/STORED/, "stored low ttl item");
 }
 
