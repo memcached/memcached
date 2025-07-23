@@ -1229,7 +1229,16 @@ struct extstore_conf_file *storage_conf_parse(char *arg, unsigned int page_size)
         goto error;
     // First arg is the filepath.
     cf = calloc(1, sizeof(struct extstore_conf_file));
+    if (cf == NULL) {
+       fprintf(stderr, "Failed to allocate extstore config structure\n");
+       goto error;
+    }
+
     cf->file = strdup(p);
+    if (cf->file == NULL) {
+       fprintf(stderr, "Failed to allocate extstore path string\n");
+       goto error;
+    }
 
     p = strtok_r(NULL, ":", &b);
     if (p == NULL) {
