@@ -4455,7 +4455,7 @@ static int _mc_meta_save_cb(const char *tag, void *ctx, void *data) {
     {
         struct timeval tv;
         gettimeofday(&tv, NULL);
-        restart_set_kv(ctx, "stop_time", "%lu", tv.tv_sec);
+        restart_set_kv(ctx, "stop_time", "%llu", (unsigned long long) tv.tv_sec);
     }
 
     // Might as well just fetch the next CAS value to use than tightly
