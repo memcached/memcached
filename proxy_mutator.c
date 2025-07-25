@@ -47,7 +47,7 @@ struct mcp_mut_part;
 typedef int (*mcp_mut_c)(lua_State *L, int tidx);
 typedef int (*mcp_mut_i)(lua_State *L, int tidx, int sc, struct mcp_mutator *mut);
 typedef int (*mcp_mut_n)(struct mcp_mut_run *run, struct mcp_mut_step *s, struct mcp_mut_part *p);
-typedef void (*mcp_mut_r)(struct mcp_mut_run *run, struct mcp_mut_step *s, struct mcp_mut_part *p);
+typedef bool (*mcp_mut_r)(struct mcp_mut_run *run, struct mcp_mut_step *s, struct mcp_mut_part *p);
 
 struct mcp_mut_entry {
     const char *s; // string name
@@ -124,7 +124,7 @@ struct mcp_mut_run {
 
 #define mut_step_c(n) static int mcp_mutator_##n##_c(lua_State *L, int tidx)
 #define mut_step_i(n) static int mcp_mutator_##n##_i(lua_State *L, int tidx, int sc, struct mcp_mutator *mut)
-#define mut_step_r(n) static void mcp_mutator_##n##_r(struct mcp_mut_run *run, struct mcp_mut_step *s, struct mcp_mut_part *p)
+#define mut_step_r(n) static bool mcp_mutator_##n##_r(struct mcp_mut_run *run, struct mcp_mut_step *s, struct mcp_mut_part *p)
 #define mut_step_n(n) static int mcp_mutator_##n##_n(struct mcp_mut_run *run, struct mcp_mut_step *s, struct mcp_mut_part *p)
 
 // PRIVATE INTERFACE
@@ -257,6 +257,7 @@ mut_step_r(cmdset) {
 
     memcpy(run->d_pos, str, c->len);
     run->d_pos += c->len;
+    return true;
 }
 
 mut_step_c(cmdcopy) {
@@ -313,6 +314,7 @@ mut_step_n(cmdcopy) {
 mut_step_r(cmdcopy) {
     memcpy(run->d_pos, p->src, p->slen);
     run->d_pos += p->slen;
+    return true;
 }
 
 // TODO: validate a cmd is already slated to be set
@@ -364,6 +366,7 @@ mut_step_n(keycopy) {
 mut_step_r(keycopy) {
     memcpy(run->d_pos, p->src, p->slen);
     run->d_pos += p->slen;
+    return true;
 }
 
 mut_step_c(keyset) {
@@ -414,6 +417,7 @@ mut_step_r(keyset) {
 
     memcpy(run->d_pos, str, c->len);
     run->d_pos += c->len;
+    return true;
 }
 
 mut_step_c(resnull) {
@@ -490,6 +494,7 @@ mut_step_n(resnull) {
 mut_step_r(resnull) {
     memcpy(run->d_pos, p->src, p->slen);
     run->d_pos += p->slen;
+    return true;
 }
 
 // TODO: pre-validate that it's an accepted code?
@@ -528,6 +533,7 @@ mut_step_r(rescodeset) {
 
     memcpy(run->d_pos, str, c->len);
     run->d_pos += c->len;
+    return true;
 }
 
 mut_step_c(rescodecopy) {
@@ -587,6 +593,7 @@ mut_step_n(rescodecopy) {
 mut_step_r(rescodecopy) {
     memcpy(run->d_pos, p->src, p->slen);
     run->d_pos += p->slen;
+    return true;
 }
 
 // TODO: can be no other steps after an error is set.
@@ -692,6 +699,7 @@ mut_step_r(reserr) {
     // set error code first
     memcpy(run->d_pos, str, len);
     run->d_pos += len;
+    return true;
 }
 
 // TODO: track which flags we've already set and error on dupes
@@ -750,6 +758,7 @@ mut_step_r(flagset) {
         memcpy(run->d_pos, str, len);
         run->d_pos += len;
     }
+    return true;
 }
 
 mut_step_c(flagcopy) {
@@ -782,8 +791,13 @@ mut_step_n(flagcopy) {
     mcp_resp_t *srs = NULL;
 
     switch (lua_type(L, idx)) {
+        case LUA_TNIL:
+            p->src = NULL;
+            p->slen = 1;
+            break;
         case LUA_TSTRING:
             p->src = lua_tolstring(L, idx, &p->slen);
+            p->slen++;
             break;
         case LUA_TNUMBER:
             // TODO: unimplemented
@@ -799,11 +813,12 @@ mut_step_n(flagcopy) {
                 if (srq->pr.t.meta.flags & c->bit) {
                     const char *tok = NULL;
                     size_t tlen = 0;
+                    p->slen = 1;
                     mcp_request_find_flag_token(srq, c->f, &tok, &tlen);
 
                     if (tlen > 0) {
                         p->src = tok;
-                        p->slen = tlen;
+                        p->slen += tlen;
                     }
                 }
             } else if (srs) {
@@ -818,11 +833,12 @@ mut_step_n(flagcopy) {
                     // token, so we look for that too.
                     // could add an option to avoid checking for a token?
                     int len = 0;
+                    p->slen = 1;
                     const char *tok = mcmc_token_get_flag(srs->buf, &srs->tok, c->f, &len);
 
                     if (len > 0) {
                         p->src = tok;
-                        p->slen = len;
+                        p->slen += len;
                     }
                 }
             } else {
@@ -838,12 +854,17 @@ mut_step_n(flagcopy) {
 
 mut_step_r(flagcopy) {
     struct mcp_mut_flag *c = &s->c.flag;
-    *(run->d_pos) = c->f;
-    run->d_pos++;
+    // slen of 1 means the flag existed in source.
     if (p->slen) {
-        memcpy(run->d_pos, p->src, p->slen);
-        run->d_pos += p->slen;
+        *(run->d_pos) = c->f;
+        run->d_pos++;
+        if (p->src) {
+            memcpy(run->d_pos, p->src, p->slen-1);
+            run->d_pos += p->slen-1;
+        }
+        return true;
     }
+    return false;
 }
 
 // TODO: check that the value hasn't been set yet.
@@ -912,6 +933,7 @@ mut_step_n(valcopy) {
 // we remove the \r\n from the protocol length
 mut_step_r(valcopy) {
     run->d_pos = itoa_u64(run->vlen-2, run->d_pos);
+    return true;
 }
 
 // END STEPS
@@ -1045,10 +1067,10 @@ static inline int _mcp_mut_run_assemble(struct mcp_mut_run *run, struct mcp_mut_
         assert(s->type != mcp_mut_step_none);
         // Error handling is pushed to the totalling phase.
         // In this phase we should just be copying data and cannot fail.
-        s->r(run, s, &parts[x]);
-
-        *(run->d_pos) = ' ';
-        run->d_pos++;
+        if (s->r(run, s, &parts[x])) {
+            *(run->d_pos) = ' ';
+            run->d_pos++;
+        }
     }
 
     // TODO: any cases where we need to check if the final char is a space or

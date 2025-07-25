@@ -81,6 +81,12 @@ sub test_mg {
         $t->be_recv(0, "mg mgresflag\r\n");
         $t->be_send(0, "HD s2 Omgresflag f3\r\n");
         $t->c_recv("HD t37 Omgresflag\r\n");
+
+        $t->c_send("mg mgresflag\r\n");
+        $t->be_recv(0, "mg mgresflag\r\n");
+        $t->be_send(0, "HD s2 f3\r\n");
+        $t->c_recv("HD t37\r\n");
+
         $t->clear();
     };
 
