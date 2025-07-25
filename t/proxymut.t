@@ -98,6 +98,40 @@ sub test_mg {
         $t->clear();
     };
 
+    subtest 'mgresflag3' => sub {
+        $t->c_send("mg mgresflag3\r\n");
+        $t->be_recv(0, "mg mgresflag3\r\n");
+        $t->be_send(0, "HD s2 Omgresflag3 f3\r\n");
+        $t->c_recv("HD t37\r\n");
+        $t->clear();
+    };
+
+    subtest 'mgresflag4' => sub {
+        $t->c_send("mg mgresflag4\r\n");
+        $t->be_recv(0, "mg mgresflag4\r\n");
+        $t->be_send(0, "HD s2 Omgresflag4 f3\r\n");
+        $t->c_recv("HD t37 O\r\n");
+        $t->clear();
+    };
+
+    subtest 'mgresflagall' => sub {
+        $t->c_send("mg mgresflagall\r\n");
+        $t->be_recv(0, "mg mgresflagall\r\n");
+        # nonsense response for testing.
+        $t->be_send(0, "VA 2 t41 Oopaque s2 X W Z\r\nhi\r\n");
+        $t->c_recv("HD t41 Oopaque s2 X W Z\r\n");
+        $t->clear();
+    };
+
+    subtest 'mgresflagallint' => sub {
+        $t->c_send("ms mgresflagallint 2\r\nhi\r\n");
+        $t->c_recv("HD\r\n", "seeded item");
+
+        $t->c_send("mg mgresflagallint v t O123456 s h\r\n");
+        $t->c_recv("HD t-1 O123456 s2 h0\r\n");
+        $t->clear();
+    };
+
     subtest 'mgreserr' => sub {
         $t->c_send("mg mgresteapot\r\n");
         $t->c_recv("SERVER_ERROR teapot\r\n");

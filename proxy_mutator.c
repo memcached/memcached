@@ -32,6 +32,7 @@ enum mcp_mut_steptype {
     mcp_mut_step_reserr,
     mcp_mut_step_flagset,
     mcp_mut_step_flagcopy,
+    mcp_mut_step_flagcopyall,
     mcp_mut_step_valcopy,
     mcp_mut_step_final, // not used.
 };
@@ -128,6 +129,8 @@ struct mcp_mut_run {
 #define mut_step_n(n) static int mcp_mutator_##n##_n(struct mcp_mut_run *run, struct mcp_mut_step *s, struct mcp_mut_part *p)
 
 // PRIVATE INTERFACE
+
+#define res_buf(r) (r->cresp ? r->cresp->iov[0].iov_base : r->buf)
 
 // COMMON ARG HANDLERS
 
@@ -567,13 +570,13 @@ mut_step_n(rescodecopy) {
                 // can't recover the exact code from the mcmc resp object, so lets make
                 // sure it's tokenized and copy the first token.
                 if (srs->resp.type == MCMC_RESP_META) {
-                    mcmc_tokenize_res(srs->buf, srs->resp.reslen, &srs->tok);
+                    mcmc_tokenize_res(res_buf(srs), srs->resp.reslen, &srs->tok);
                 } else {
                     // FIXME: only supports meta responses
                     return -1;
                 }
                 int len = 0;
-                p->src = mcmc_token_get(srs->buf, &srs->tok, 0, &len);
+                p->src = mcmc_token_get(res_buf(srs), &srs->tok, 0, &len);
                 p->slen = len;
                 if (len < 2) {
                     return -1;
@@ -793,7 +796,15 @@ mut_step_n(flagcopy) {
     switch (lua_type(L, idx)) {
         case LUA_TNIL:
             p->src = NULL;
-            p->slen = 1;
+            p->slen = 0;
+            break;
+        case LUA_TBOOLEAN:
+            p->src = NULL;
+            if (lua_toboolean(L, idx)) {
+                p->slen = 1;
+            } else {
+                p->slen = 0;
+            }
             break;
         case LUA_TSTRING:
             p->src = lua_tolstring(L, idx, &p->slen);
@@ -826,7 +837,7 @@ mut_step_n(flagcopy) {
                     // FIXME: error, can't copy flag from non-meta res
                     return -1;
                 }
-                mcmc_tokenize_res(srs->buf, srs->resp.reslen, &srs->tok);
+                mcmc_tokenize_res(res_buf(srs), srs->resp.reslen, &srs->tok);
                 if (mcmc_token_has_flag_bit(&srs->tok, c->bit) == MCMC_OK) {
                     // flag exists, so copy that in.
                     // realistically this func is only used if we're also copying a
@@ -834,7 +845,7 @@ mut_step_n(flagcopy) {
                     // could add an option to avoid checking for a token?
                     int len = 0;
                     p->slen = 1;
-                    const char *tok = mcmc_token_get_flag(srs->buf, &srs->tok, c->f, &len);
+                    const char *tok = mcmc_token_get_flag(res_buf(srs), &srs->tok, c->f, &len);
 
                     if (len > 0) {
                         p->src = tok;
@@ -865,6 +876,75 @@ mut_step_r(flagcopy) {
         return true;
     }
     return false;
+}
+
+// TODO: except = "flags"
+// compile to bitflags and check when looping source flags
+// maybe: different command as copyallexcept so we don't have to branch as
+// much in this code.
+mut_step_c(flagcopyall) {
+    return 0;
+}
+
+mut_step_i(flagcopyall) {
+    struct mcp_mut_step *s = &mut->steps[sc];
+
+    if (lua_getfield(L, tidx, "idx") != LUA_TNIL) {
+        s->idx = lua_tointeger(L, -1);
+    }
+    lua_pop(L, 1);
+
+    return 0;
+}
+
+mut_step_n(flagcopyall) {
+    lua_State *L = run->L;
+    unsigned idx = s->idx;
+    mcp_request_t *srq = NULL;
+    mcp_resp_t *srs = NULL;
+
+    switch (lua_type(L, idx)) {
+        case LUA_TSTRING:
+            // FIXME: note that we're copying a pre-fabbed string?
+            p->src = lua_tolstring(L, idx, &p->slen);
+            break;
+        // TODO: allow a table of flags?
+        case LUA_TUSERDATA:
+            _mut_checkudata(L, idx, &srq, &srs);
+            if (srq) {
+                // TODO: doesn't support requests
+                return -1;
+            } else {
+                // TODO: srs->resp.rline srs->resp.rlen
+                // is this set from res = mcp.internal?
+                if (srs->resp.type == MCMC_RESP_META && srs->resp.rline) {
+                    /* TODO: mstart ends up indexing VA [len]
+                    mcmc_tokenizer_t *tok = &srs->tok;
+                    mcmc_tokenize_res(res_buf(srs), srs->resp.reslen, &srs->tok);
+                    p->src = res_buf(srs);
+                    p->src += tok->tokens[tok->mstart];
+                    p->slen = tok->tokens[tok->ntokens] - tok->tokens[tok->mstart];
+                    */
+                    p->src = srs->resp.rline;
+                    p->slen = srs->resp.rlen;
+                } else {
+                    return -1;
+                }
+            }
+            break;
+        default:
+            // ints/etc unsupported
+            return -1;
+    }
+
+    return p->slen;
+}
+
+mut_step_r(flagcopyall) {
+    memcpy(run->d_pos, p->src, p->slen);
+    run->d_pos += p->slen;
+
+    return true;
 }
 
 // TODO: check that the value hasn't been set yet.
@@ -950,6 +1030,7 @@ static const struct mcp_mut_entry mcp_mut_entries[] = {
     [mcp_mut_step_reserr] = {"reserr", mcp_mutator_reserr_c, mcp_mutator_reserr_i, mcp_mutator_reserr_n, mcp_mutator_reserr_r, MUT_RES, 0},
     [mcp_mut_step_flagset] = {"flagset", mcp_mutator_flagset_c, mcp_mutator_flagset_i, mcp_mutator_flagset_n, mcp_mutator_flagset_r, MUT_REQ|MUT_RES, 0},
     [mcp_mut_step_flagcopy] = {"flagcopy", mcp_mutator_flagcopy_c, mcp_mutator_flagcopy_i, mcp_mutator_flagcopy_n, mcp_mutator_flagcopy_r, MUT_REQ|MUT_RES, 0},
+    [mcp_mut_step_flagcopyall] = {"flagcopyall", mcp_mutator_flagcopyall_c, mcp_mutator_flagcopyall_i, mcp_mutator_flagcopyall_n, mcp_mutator_flagcopyall_r, MUT_REQ|MUT_RES, 0},
     [mcp_mut_step_valcopy] = {"valcopy", mcp_mutator_valcopy_c, mcp_mutator_valcopy_i, mcp_mutator_valcopy_n, mcp_mutator_valcopy_r, MUT_REQ|MUT_RES, 0},
     [mcp_mut_step_final] = {NULL, NULL, NULL, NULL, NULL, 0, 0},
 };

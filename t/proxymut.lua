@@ -11,6 +11,9 @@ function mcp_config_routes(p)
     local mgfgh = mgfg:new_handle(p)
     local msfg = mcp.funcgen_new()
     local msfgh = msfg:new_handle(p)
+    local mginth = mgfg:new_handle(mcp.internal_handler)
+    local msinth = msfg:new_handle(mcp.internal_handler)
+
     -- TODO: basic ascii handlers as well
     -- so we can test rewriting requests between command types
 
@@ -55,6 +58,11 @@ function mcp_config_routes(p)
         { t = "flagcopy", flag = "O", idx = 1 }
     )
 
+    local mut_mgresflagall = mcp.res_mutator_new(
+        { t = "rescodeset", val = "HD" },
+        { t = "flagcopyall", idx = 1 }
+    )
+
     -- error res.
     local mut_reserr = mcp.res_mutator_new(
         { t = "reserr", code = "server", msg = "teapot" }
@@ -97,6 +105,22 @@ function mcp_config_routes(p)
                     local res = rctx:enqueue_and_wait(r, mgfgh)
                     local ret = mut_mgresflag(nres, "toast")
                     return nres
+                elseif key == "mgresflag3" then
+                    local res = rctx:enqueue_and_wait(r, mgfgh)
+                    local ret = mut_mgresflag(nres, nil)
+                    return nres
+                elseif key == "mgresflag4" then
+                    local res = rctx:enqueue_and_wait(r, mgfgh)
+                    local ret = mut_mgresflag(nres, true)
+                    return nres
+                elseif key == "mgresflagall" then
+                    local res = rctx:enqueue_and_wait(r, mgfgh)
+                    local ret = mut_mgresflagall(nres, res)
+                    return nres
+                elseif key == "mgresflagallint" then
+                    local res = rctx:enqueue_and_wait(r, mginth)
+                    local ret = mut_mgresflagall(nres, res)
+                    return nres
                 elseif key == "mgresteapot" then
                     local res = mut_reserr(nres)
                     if nres:ok() or nres:hit() then
@@ -112,7 +136,9 @@ function mcp_config_routes(p)
         n = "mstest", u = 2, f = function(rctx)
             return function(r)
                 local key = r:key()
-                -- test tree
+                if key == "mgresflagallint" then
+                    return rctx:enqueue_and_wait(r, msinth)
+                end
             end
         end
     })
