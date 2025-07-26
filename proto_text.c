@@ -47,6 +47,8 @@
 typedef struct token_s {
     char *value;
     size_t length;
+    char opaque[KEY_MAX_LENGTH];
+    size_t opaque_length;
 } token_t;
 
 static void _finalize_mset(conn *c, int nbytes, enum store_item_type ret, uint64_t cas) {
@@ -287,12 +289,13 @@ void complete_nread_ascii(conn *c) {
  *      command  = tokens[ix].value;
  *   }
  */
-static size_t tokenize_command(char *command, token_t *tokens, const size_t max_tokens) {
+static size_t tokenize_command(conn *c, char *command, token_t *tokens, const size_t max_tokens) {
     char *s, *e;
     size_t ntokens = 0;
     assert(command != NULL && tokens != NULL && max_tokens > 1);
     size_t len = strlen(command);
     unsigned int i = 0;
+    uint64_t opaque = get_opaque_ipv6_namespace(c);
 
     s = e = command;
     for (i = 0; i < len; i++) {
@@ -300,6 +303,7 @@ static size_t tokenize_command(char *command, token_t *tokens, const size_t max_
             if (s != e) {
                 tokens[ntokens].value = s;
                 tokens[ntokens].length = e - s;
+                tokens[ntokens].opaque_length = 0;
                 ntokens++;
                 *e = '\0';
                 if (ntokens == max_tokens - 1) {
@@ -316,7 +320,14 @@ static size_t tokenize_command(char *command, token_t *tokens, const size_t max_
     if (s != e) {
         tokens[ntokens].value = s;
         tokens[ntokens].length = e - s;
+        tokens[ntokens].opaque_length = 0;
         ntokens++;
+    }
+
+    if (opaque) {
+        snprintf(tokens[KEY_TOKEN].opaque, sizeof(tokens[KEY_TOKEN].opaque),
+                 "%lu_%s", opaque, tokens[KEY_TOKEN].value);
+        tokens[KEY_TOKEN].opaque_length = strlen(tokens[KEY_TOKEN].opaque);
     }
 
     /*
@@ -325,6 +336,7 @@ static size_t tokenize_command(char *command, token_t *tokens, const size_t max_
      */
     tokens[ntokens].value =  *e == '\0' ? NULL : e;
     tokens[ntokens].length = 0;
+    tokens[ntokens].opaque_length = 0;
     ntokens++;
 
     return ntokens;
@@ -362,7 +374,7 @@ int try_read_command_asciiauth(conn *c) {
         // it's fine to leave the \r in, as strtoul will stop at it.
         *el = '\0';
 
-        ntokens = tokenize_command(c->rcurr, tokens, MAX_TOKENS);
+        ntokens = tokenize_command(c, c->rcurr, tokens, MAX_TOKENS);
         // ensure the buffer is consumed.
         c->rbytes -= (el - c->rcurr) + 1;
         c->rcurr += (el - c->rcurr) + 1;
@@ -417,7 +429,7 @@ int try_read_command_asciiauth(conn *c) {
 
     // payload should be "user pass", so we can use the tokenizer.
     cont[c->rlbytes - 2] = '\0';
-    ntokens = tokenize_command(cont, tokens, MAX_TOKENS);
+    ntokens = tokenize_command(c, cont, tokens, MAX_TOKENS);
 
     if (ntokens < 3) {
         out_string(c, "CLIENT_ERROR bad authentication token format");
@@ -568,8 +580,9 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
     do {
         while(key_token->length != 0) {
             bool overflow; // not used here.
-            key = key_token->value;
-            nkey = key_token->length;
+            key = key_token->opaque_length ? key_token->opaque : key_token->value;
+            nkey = key_token->opaque_length ? key_token->opaque_length
+                                            : key_token->length;
 
             if (nkey > KEY_MAX_LENGTH) {
                 fail_length = true;
@@ -596,8 +609,14 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                   char *p = resp->wbuf;
                   memcpy(p, "VALUE ", 6);
                   p += 6;
-                  memcpy(p, ITEM_key(it), it->nkey);
-                  p += it->nkey;
+                  /* Use original key, because it's changed using opaque value. */
+                  if (key_token->opaque_length) {
+                      memcpy(p, key_token->value, key_token->length);
+                      p += key_token->length;
+                  } else {
+                      memcpy(p, ITEM_key(it), it->nkey);
+                      p += it->nkey;
+                  }
                   p += make_ascii_get_suffix(p, it, return_cas, nbytes);
                   resp_add_iov(resp, resp->wbuf, p - resp->wbuf);
 
@@ -679,7 +698,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
          * of tokens.
          */
         if (key_token->value != NULL) {
-            ntokens = tokenize_command(key_token->value, tokens, MAX_TOKENS);
+            ntokens = tokenize_command(c, key_token->value, tokens, MAX_TOKENS);
             key_token = tokens;
             if (!resp_start(c)) {
                 goto stop;
@@ -773,10 +792,24 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     } else if (strcmp(subcommand, "cachedump") == 0) {
         char *buf;
         unsigned int bytes, id, limit = 0;
+        char *key;
+        char *namespace = NULL;
+        token_t *key_token = &tokens[KEY_TOKEN];
 
         if (!settings.dump_enabled) {
             out_string(c, "CLIENT_ERROR stats cachedump not allowed");
             return;
+        }
+
+        /* In order to get the namespace, we can take the KEY_TOKEN.
+         * opaque data is stored per-KEY_TOKEN.
+         * If opaque_length is not set, we should ignore.
+         */
+        if (key_token->opaque_length) {
+            key = key_token->opaque;
+            namespace = strtok(key, "_");
+            if (!namespace)
+                return;
         }
 
         if (ntokens < 5) {
@@ -795,7 +828,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
             return;
         }
 
-        buf = item_cachedump(id, limit, &bytes);
+        buf = item_cachedump(id, limit, &bytes, namespace);
         write_and_free(c, buf, bytes);
         return;
     } else if (strcmp(subcommand, "conns") == 0) {
@@ -2004,6 +2037,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     int vlen;
     uint64_t req_cas_id=0;
     item *it;
+    token_t *key_token = &tokens[KEY_TOKEN];
 
     assert(c != NULL);
 
@@ -2014,8 +2048,9 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         return;
     }
 
-    key = tokens[KEY_TOKEN].value;
-    nkey = tokens[KEY_TOKEN].length;
+    key = key_token->opaque_length ? key_token->opaque : key_token->value;
+    nkey =
+        key_token->opaque_length ? key_token->opaque_length : key_token->length;
 
     if (! (safe_strtoflags(tokens[2].value, &flags)
            && safe_strtol(tokens[3].value, &exptime_int)
@@ -2146,6 +2181,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
     uint64_t delta;
     char *key;
     size_t nkey;
+    token_t *key_token = &tokens[KEY_TOKEN];
 
     assert(c != NULL);
 
@@ -2156,8 +2192,9 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         return;
     }
 
-    key = tokens[KEY_TOKEN].value;
-    nkey = tokens[KEY_TOKEN].length;
+    key = key_token->opaque_length ? key_token->opaque : key_token->value;
+    nkey =
+        key_token->opaque_length ? key_token->opaque_length : key_token->length;
 
     if (!safe_strtoull(tokens[2].value, &delta)) {
         out_string(c, "CLIENT_ERROR invalid numeric delta argument");
@@ -2196,6 +2233,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
     size_t nkey;
     item *it;
     uint32_t hv;
+    token_t *key_token = &tokens[KEY_TOKEN];
 
     assert(c != NULL);
 
@@ -2212,8 +2250,9 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
     }
 
 
-    key = tokens[KEY_TOKEN].value;
-    nkey = tokens[KEY_TOKEN].length;
+    key = key_token->opaque_length ? key_token->opaque : key_token->value;
+    nkey =
+        key_token->opaque_length ? key_token->opaque_length : key_token->length;
 
     if(nkey > KEY_MAX_LENGTH) {
         out_string(c, "CLIENT_ERROR bad command line format");
@@ -2633,7 +2672,7 @@ static void process_flush_all_command(conn *c, token_t *tokens, const size_t nto
     }
 
     settings.oldest_live = new_oldest;
-    item_flush_expired();
+    item_flush_expired(c);
     out_string(c, "OK");
 }
 
@@ -2901,7 +2940,7 @@ void process_command_ascii(conn *c, char *command) {
     }
 
     c->thread->cur_sfd = c->sfd; // cuddle sfd for logging.
-    ntokens = tokenize_command(command, tokens, MAX_TOKENS);
+    ntokens = tokenize_command(c, command, tokens, MAX_TOKENS);
     // All commands need a minimum of two tokens: cmd and NULL finalizer
     // There are also no valid commands shorter than two bytes.
     if (ntokens < 2 || tokens[COMMAND_TOKEN].length < 2) {
