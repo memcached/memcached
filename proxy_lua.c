@@ -1996,6 +1996,8 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
     // definitions.
     proxy_register_defines(L);
 
+    mcplib_open_hash_farmhash(L);
+    lua_setfield(L, -2, "hash_farmhash");
     mcplib_open_hash_xxhash(L);
     lua_setfield(L, -2, "hash_xxhash");
     // hash function for selectors.
@@ -2003,6 +2005,8 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
     // pointer pointers :)
     mcplib_open_dist_jump_hash(L);
     lua_setfield(L, -2, "dist_jump_hash");
+    mcplib_open_dist_modulo(L);
+    lua_setfield(L, -2, "dist_modulo");
     mcplib_open_dist_ring_hash(L);
     lua_setfield(L, -2, "dist_ring_hash");
 

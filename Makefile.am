@@ -60,6 +60,8 @@ if ENABLE_PROXY
 memcached_SOURCES += proto_proxy.c proto_proxy.h vendor/mcmc/mcmc.h \
 					 vendor/mcmc/mcmc.c \
 					 proxy_xxhash.c proxy.h \
+					 proxy_farmhash.c \
+					 proxy_modulo_dist.c \
 					 proxy_ustats.c \
 					 proxy_ratelim.c \
 					 proxy_jump_hash.c proxy_request.c \
@@ -71,6 +73,7 @@ memcached_SOURCES += proto_proxy.c proto_proxy.h vendor/mcmc/mcmc.h \
 					 proxy_internal.c \
 					 proxy_tls.c proxy_tls.h \
 					 md5.c md5.h \
+					 farmhash.c farmhash.h \
 					 vendor/routelib/routelib.h
 endif
 
