@@ -34,6 +34,7 @@ my $sock = $server->sock;
 # - k: return key
 # - q: noreply semantics.
 # - u: don't bump the item in LRU
+# - C(token): if does not match, do never return value
 # updaters:
 # - N(token): vivify on miss, takes TTL as a argument
 # - R(token): if token is less than item TTL win for recache
@@ -613,6 +614,25 @@ subtest 'marith with CAS override' => sub {
     my $res = mget($sock, 'la_test', 's t l');
     ok(keys %$res, "not a miss");
     isnt(get_flag($res, 'l'), 0, "been over a second since most recently accessed");
+}
+
+# CAS to mask value flag
+{
+    print $sock "ms va_set 2 c\r\nva\r\n";
+    my $res = scalar <$sock>;
+    like($res, qr/^HD c/, "set va_set");
+    my $cas = 0;
+    if ($res =~ m/c(\d+)/) {
+        $cas = $1;
+        print $sock "mg va_set C$cas v c\r\n";
+        my $res = mget_res(scalar <$sock>);
+        ok($res->{hd}, "mg returned HD because CAS matched");
+    } else {
+        fail("CAS missing from va_set response");
+    }
+
+    mget_is({ sock => $sock, flags => 'C99999 v c', eflags => "c$cas" }, 'va_set', 'va',
+            "got value from mismatched CAS");
 }
 
 # high level tests:

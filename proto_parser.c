@@ -1048,6 +1048,10 @@ void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp,
     // don't have to check result of add_iov() since the iov size defaults are
     // enough.
     if (it) {
+        if (of.has_cas && ITEM_get_cas(it) == of.req_cas_id) {
+            of.value = false;
+        }
+
         if (of.value) {
             memcpy(p, "VA ", 3);
             p = itoa_u32(it->nbytes-2, p+3);
