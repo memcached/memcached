@@ -22,8 +22,27 @@ $ext_path = "/tmp/extstore1.$$";
 $ext_path2 = "/tmp/extstore2.$$";
 $ext_path3 = "/tmp/extstore3.$$";
 
-my $server = new_memcached("-m 256 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=0,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path:64m:default,ext_path=$ext_path2:64m:coldcompact,ext_path=$ext_path3:64m:old,slab_automove=1,ext_max_sleep=100000");
+my $server = new_memcached("-m 256 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=0,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path:64m:default,ext_path=$ext_path2:64m:coldcompact,ext_path=$ext_path3:64m:old,slab_automove=1,ext_max_sleep=100000,hot_lru_pct=40,warm_lru_pct=40");
 my $sock = $server->sock;
+
+sub watch_compact {
+    my $watcher = $server->new_sock;
+
+    print $watcher "watch sysevents\n";
+    my $res = <$watcher>;
+    is($res, "OK\r\n", "watcher enabled");
+
+    my $fragcount = 20;
+    while (my $log = <$watcher>) {
+        chomp $log;
+        if ($log =~ m/type=compact_fraginfo/) {
+            $fragcount--;
+        } else {
+            $fragcount = 20;
+        }
+        last if $fragcount < 1;
+    }
+}
 
 my $value;
 my $lvalue;
@@ -80,15 +99,15 @@ my $OLD = 5;
         print $sock "set kfoo$_ 0 0 20000 noreply\r\n$value\r\n";
     }
     wait_ext_flush($sock);
-    # sleep workaround for slow systems as compaction gets behind.
-    # TODO: need some counters for when compaction runs and loop/monitor here
-    # instead of straight sleeping.
-    sleep(5);
+    # Wait for compaction to run before we try to load more data.
+    watch_compact();
     $keycount = 6000;
     for (1 .. $keycount) {
         print $sock "set zfoo$_ 0 0 20000 noreply\r\n$value\r\n";
     }
     wait_ext_flush($sock);
+    # Wait for compaction to settle again: important on slow systems.
+    watch_compact();
 
     my $free_after = summarize_buckets(mem_stats($sock, ' extstore'));
     my $stats = mem_stats($sock);
