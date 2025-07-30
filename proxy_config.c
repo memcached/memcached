@@ -19,6 +19,22 @@ struct _mcp_luafile {
     struct _mcp_luafile *next;
 };
 
+static int _msghandler(lua_State *L) {
+    const char *msg = lua_tostring(L, 1);
+    luaL_traceback(L, L, msg, 1);
+    return 1;
+}
+
+static int _run_pcall(lua_State *L, int narg, int nres) {
+    int msgi = lua_gettop(L) - narg;
+    lua_pushcfunction(L, _msghandler);
+    lua_insert(L, msgi);
+    int res = lua_pcall(L, narg, nres, msgi);
+    lua_remove(L, msgi); // need to drop the msg handler func.
+
+    return res;
+}
+
 static int _dump_helper(lua_State *L, const void *p, size_t sz, void *ud) {
     (void)L;
     struct _mcp_luafile *db = ud;
@@ -473,7 +489,7 @@ static int proxy_load_files(proxy_ctx_t *ctx) {
         // 0 means no error.
 
         // now we complete the data load by calling the function.
-        res = lua_pcall(L, 0, LUA_MULTRET, 0);
+        res = _run_pcall(L, 0, LUA_MULTRET);
         if (res != LUA_OK) {
             fprintf(stderr, "ERROR: Failed to load data into lua config state: %s\n", lua_tostring(L, -1));
             exit(EXIT_FAILURE);
@@ -508,7 +524,7 @@ int proxy_load_config(void *arg) {
         exit(EXIT_FAILURE);
     }
     lua_pushnil(L); // no "old" config yet.
-    if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+    if (_run_pcall(L, 1, 1) != LUA_OK) {
         fprintf(stderr, "ERROR: Failed to execute mcp_config_pools: %s\n", lua_tostring(L, -1));
         exit(EXIT_FAILURE);
     }
@@ -655,7 +671,7 @@ int proxy_thread_loadconf(proxy_ctx_t *ctx, LIBEVENT_THREAD *thr) {
             return -1;
         }
 
-        res = lua_pcall(L, 0, LUA_MULTRET, 0);
+        res = _run_pcall(L, 0, LUA_MULTRET);
         if (res != LUA_OK) {
             // FIXME (v2): don't exit here!
             fprintf(stderr, "Failed to load data into worker thread: %s\n", lua_tostring(L, -1));
@@ -685,7 +701,7 @@ int proxy_thread_loadconf(proxy_ctx_t *ctx, LIBEVENT_THREAD *thr) {
     _copy_config_table(ctx->proxy_state, L, thr);
 
     // copied value is in front of route function, now call it.
-    if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+    if (_run_pcall(L, 1, 0) != LUA_OK) {
         fprintf(stderr, "Failed to execute mcp_config_routes: %s\n", lua_tostring(L, -1));
         return -1;
     }
