@@ -280,6 +280,22 @@ int mcplib_request_rtrimkey(lua_State *L) {
     return 1;
 }
 
+int mcplib_request_get_rline(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    lua_pushlstring(L, rq->pr.request, rq->pr.reqlen-2);
+    return 1;
+}
+
+int mcplib_request_get_value(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    if (rq->pr.vbuf) {
+        lua_pushlstring(L, rq->pr.vbuf, rq->pr.vlen);
+    } else {
+        lua_pushnil(L);
+    }
+    return 1;
+}
+
 // Virtual table operations on the request.
 int mcplib_request_token(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");

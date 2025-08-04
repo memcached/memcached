@@ -8,6 +8,21 @@ int mcplib_response_elapsed(lua_State *L) {
     return 1;
 }
 
+#define res_buf(r) (r->cresp ? r->cresp->iov[0].iov_base : r->buf)
+
+// TODO: won't always get the full buffer. need to refactor the result object
+// one more time.
+int mcplib_response_get_raw(lua_State *L) {
+    mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
+    const char *buf = res_buf(r);
+    if (buf) {
+        lua_pushlstring(L, buf, r->blen);
+    } else {
+        lua_pushnil(L);
+    }
+    return 1;
+}
+
 // resp:ok()
 int mcplib_response_ok(lua_State *L) {
     mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
