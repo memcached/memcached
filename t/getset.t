@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
 use strict;
-use Test::More tests => 37991;
+use Test::More tests => 37992;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -10,6 +10,16 @@ use MemcachedTest;
 my $server = new_memcached('-m 128');
 my $sock = $server->sock;
 
+subtest 'close if no get found in 2k' => sub {
+    my $ns = $server->new_sock;
+
+    my $spaces = ' ' x 16384;
+    print $ns "get $spaces manyspaces\r\n";
+    is(scalar <$ns>, "END\r\n", "long ascii get was fine");
+
+    print $ns "incr $spaces manyspaces 1\r\n";
+    is(scalar <$ns>, undef, "long ascii incr was not fine");
+};
 
 # set foo (and should get it)
 print $sock "set foo 0 0 6\r\nfooval\r\n";
@@ -117,3 +127,4 @@ while ($len < 1024*1028) {
     }
     is(scalar <$sock>, "END\r\n", "foo END seen");
 }
+
