@@ -33,7 +33,7 @@ void storage_compact_pause(void);
 void storage_compact_resume(void);
 
 // Init functions.
-struct extstore_conf_file *storage_conf_parse(char *arg, unsigned int page_size);
+struct extstore_conf_file *storage_conf_parse(char *arg);
 void *storage_init_config(struct settings *s);
 int storage_read_config(void *conf, char **subopt);
 int storage_check_config(void *conf);

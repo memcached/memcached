@@ -58,6 +58,7 @@ struct extstore_conf_file {
     char *file;
     int fd; // internal usage
     uint64_t offset; // internal usage
+    uint64_t total_size; // size in bytes, before page_count slicing
     unsigned int bucket; // free page bucket
     unsigned int free_bucket; // specialized free bucket
     struct extstore_conf_file *next;

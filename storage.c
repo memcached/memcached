@@ -1215,7 +1215,7 @@ int start_storage_compact_thread(void *arg) {
 /*** UTILITY ***/
 // /path/to/file:100G:bucket1
 // FIXME: Modifies argument. copy instead?
-struct extstore_conf_file *storage_conf_parse(char *arg, unsigned int page_size) {
+struct extstore_conf_file *storage_conf_parse(char *arg) {
     struct extstore_conf_file *cf = NULL;
     char *b = NULL;
     char *p = strtok_r(arg, ":", &b);
@@ -1252,18 +1252,11 @@ struct extstore_conf_file *storage_conf_parse(char *arg, unsigned int page_size)
             multiplier *= 1024 * 1024 * 1024;
             break;
         default:
-            fprintf(stderr, "must supply size to ext_path, ie: ext_path=/f/e:64m (M|G|T|P supported)\n");
+            fprintf(stderr, "must supply size to ext_path, ie: ext_path=/f/e:64m (m|g|t|p supported)\n");
             goto error;
     }
     base_size = atoi(p);
-    multiplier *= base_size;
-    // page_count is nearest-but-not-larger-than pages * psize
-    cf->page_count = multiplier / page_size;
-    assert(page_size * cf->page_count <= multiplier);
-    if (cf->page_count == 0) {
-        fprintf(stderr, "supplied ext_path has zero size, cannot use\n");
-        goto error;
-    }
+    cf->total_size = multiplier * base_size;
 
     // final token would be a default free bucket
     p = strtok_r(NULL, ":", &b);
@@ -1377,10 +1370,6 @@ int storage_read_config(void *conf, char **subopt) {
 
     switch (getsubopt(subopt, subopts_tokens, &subopts_value)) {
         case EXT_PAGE_SIZE:
-            if (cf->storage_file) {
-                fprintf(stderr, "Must specify ext_page_size before any ext_path arguments\n");
-                return 1;
-            }
             if (subopts_value == NULL) {
                 fprintf(stderr, "Missing ext_page_size argument\n");
                 return 1;
@@ -1518,7 +1507,7 @@ int storage_read_config(void *conf, char **subopt) {
             break;
         case EXT_PATH:
             if (subopts_value) {
-                struct extstore_conf_file *tmp = storage_conf_parse(subopts_value, ext_cf->page_size);
+                struct extstore_conf_file *tmp = storage_conf_parse(subopts_value);
                 if (tmp == NULL) {
                     fprintf(stderr, "failed to parse ext_path argument\n");
                     return 1;
@@ -1554,6 +1543,18 @@ int storage_check_config(void *conf) {
         if (settings.udpport) {
             fprintf(stderr, "Cannot use UDP with extstore enabled (-U 0 to disable)\n");
             return 1;
+        }
+
+        struct extstore_conf_file *fh = cf->storage_file;
+        while (fh != NULL) {
+            // page_count is nearest-but-not-larger-than pages * psize
+            fh->page_count = fh->total_size / cf->ext_cf.page_size;
+            assert(cf->ext_cf.page_size * fh->page_count <= fh->total_size);
+            if (fh->page_count == 0) {
+                fprintf(stderr, "supplied ext_path has zero size, cannot use\n");
+                return 1;
+            }
+            fh = fh->next;
         }
 
         return 0;
