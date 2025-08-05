@@ -280,13 +280,13 @@ int mcplib_request_rtrimkey(lua_State *L) {
     return 1;
 }
 
-int mcplib_request_get_rline(lua_State *L) {
+int mcplib_request_raw_line(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
     lua_pushlstring(L, rq->pr.request, rq->pr.reqlen-2);
     return 1;
 }
 
-int mcplib_request_get_value(lua_State *L) {
+int mcplib_request_raw_value(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
     if (rq->pr.vbuf) {
         lua_pushlstring(L, rq->pr.vbuf, rq->pr.vlen);

@@ -715,8 +715,8 @@ int mcplib_request_command(lua_State *L);
 int mcplib_request_key(lua_State *L);
 int mcplib_request_ltrimkey(lua_State *L);
 int mcplib_request_rtrimkey(lua_State *L);
-int mcplib_request_get_rline(lua_State *L);
-int mcplib_request_get_value(lua_State *L);
+int mcplib_request_raw_line(lua_State *L);
+int mcplib_request_raw_value(lua_State *L);
 int mcplib_request_token(lua_State *L);
 int mcplib_request_token_int(lua_State *L);
 int mcplib_request_ntokens(lua_State *L);
@@ -739,7 +739,7 @@ int mcplib_response_vlen(lua_State *L);
 int mcplib_response_code(lua_State *L);
 int mcplib_response_line(lua_State *L);
 int mcplib_response_flag_blank(lua_State *L);
-int mcplib_response_get_raw(lua_State *L);
+int mcplib_response_raw_string(lua_State *L);
 
 // inspector interface
 int mcplib_req_inspector_new(lua_State *L);
