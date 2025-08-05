@@ -12,7 +12,7 @@ int mcplib_response_elapsed(lua_State *L) {
 
 // TODO: won't always get the full buffer. need to refactor the result object
 // one more time.
-int mcplib_response_get_raw(lua_State *L) {
+int mcplib_response_raw_string(lua_State *L) {
     mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
     const char *buf = res_buf(r);
     if (buf) {
