@@ -978,18 +978,6 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, LIBEVEN
     }
     int was_found = 0;
 
-    if (settings.verbose > 2) {
-        int ii;
-        if (it == NULL) {
-            fprintf(stderr, "> NOT FOUND ");
-        } else if (was_found) {
-            fprintf(stderr, "> FOUND KEY ");
-        }
-        for (ii = 0; ii < nkey; ++ii) {
-            fprintf(stderr, "%c", key[ii]);
-        }
-    }
-
     if (it != NULL) {
         was_found = 1;
         if (item_is_flushed(it)) {
@@ -1000,9 +988,6 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, LIBEVEN
             pthread_mutex_lock(&t->stats.mutex);
             t->stats.get_flushed++;
             pthread_mutex_unlock(&t->stats.mutex);
-            if (settings.verbose > 2) {
-                fprintf(stderr, " -nuked by flush");
-            }
             was_found = 2;
         } else if (it->exptime != 0 && it->exptime <= current_time) {
             do_item_unlink(it, hv);
@@ -1012,9 +997,6 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, LIBEVEN
             pthread_mutex_lock(&t->stats.mutex);
             t->stats.get_expired++;
             pthread_mutex_unlock(&t->stats.mutex);
-            if (settings.verbose > 2) {
-                fprintf(stderr, " -nuked by expire");
-            }
             was_found = 3;
         } else {
             if (do_update) {
@@ -1024,8 +1006,19 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, LIBEVEN
         }
     }
 
-    if (settings.verbose > 2)
+    if (settings.verbose > 2) {
+        fprintf(stderr, "> %s ", was_found ? "FOUND KEY" : "NOT FOUND");
+        for (int ii = 0; ii < nkey; ++ii) {
+            fprintf(stderr, "%c", key[ii]);
+        }
+        if (was_found == 2) {
+            fprintf(stderr, " -removed by flush");
+        } else if (was_found == 3) {
+            fprintf(stderr, " -removed by expire");
+        }
+
         fprintf(stderr, "\n");
+    }
     /* For now this is in addition to the above verbose logging. */
     LOGGER_LOG(t->l, LOG_FETCHERS, LOGGER_ITEM_GET, NULL, was_found, key,
                nkey, (it) ? it->nbytes : 0, (it) ? ITEM_clsid(it) : 0, t->cur_sfd);
