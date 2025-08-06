@@ -13,11 +13,13 @@ my $sock = $server->sock;
 subtest 'close if no get found in 2k' => sub {
     my $ns = $server->new_sock;
 
-    my $spaces = ' ' x 16384;
-    print $ns "get $spaces manyspaces\r\n";
+    my $spaces = ' ' x 2048;
+    print $ns "get $spaces manyspaces";
+    sleep 1;
+    print $ns "\r\n";
     is(scalar <$ns>, "END\r\n", "long ascii get was fine");
 
-    print $ns "incr $spaces manyspaces 1\r\n";
+    print $ns "incr $spaces manyspaces 1";
     is(scalar <$ns>, undef, "long ascii incr was not fine");
 };
 
