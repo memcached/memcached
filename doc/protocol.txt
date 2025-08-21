@@ -1444,7 +1444,10 @@ integers separated by a colon (treat this as a floating point number).
 | slab_reassign_busy_nomem                                                    |
 |                       | 64u     | Times waiting for free slab memory before |
 |                       |         | being able to rescue valid items during   |
-                        |         | a page move.                              |
+|                       |         | a page move.                              |
+| slab_reassign_last_busy_status                                              |
+|                       | string  | Reason why an item was busy, causing the  |
+|                       |         | page mover to wait and retry later        |
 | slab_reassign_busy_deletes                                                  |
 |                       | 64u     | Items busy during page move, requiring    |
 |                       |         | deletion before page can be moved.        |

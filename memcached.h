@@ -400,6 +400,7 @@ struct stats {
     uint64_t      slab_reassign_busy_items; /* valid temporarily unmovable */
     uint64_t      slab_reassign_busy_deletes; /* refcounted items killed */
     uint64_t      slab_reassign_busy_nomem; /* valid items lost during slab move */
+    const char *  slab_reassign_last_busy_status; /* text of last busy item status */
     uint64_t      lru_crawler_starts; /* Number of item crawlers kicked off */
     uint64_t      lru_maintainer_juggles; /* number of LRU bg pokes */
     uint64_t      time_in_listen_disabled_us;  /* elapsed time in microseconds while server unable to process new connections */

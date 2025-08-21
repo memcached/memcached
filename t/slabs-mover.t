@@ -104,6 +104,7 @@ sub test_reflocked {
     my $stats_a = wait_for_stat_incr($stats, "slab_reassign_busy_items", 500);
 
     cmp_ok($stats_a->{slab_reassign_busy_items}, '>', $stats->{slab_reassign_busy_items}+500, "page mover busy");
+    is($stats_a->{slab_reassign_last_busy_status}, "busy_floating", "recorded busy status correctly");
     # TODO: rescue counter is only updated after a page completes moving.
     #cmp_ok($stats_a->{slab_reassign_rescues}, '>', $stats->{slab_reassign_rescues}+50, "page mover rescued data");
     cmp_ok($stats_a->{slabs_moved}, '==', $stats->{slabs_moved}, "no page moved");

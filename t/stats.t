@@ -28,9 +28,9 @@ if (MemcachedTest::enabled_tls_testing()) {
     # when TLS is enabled, stats contains additional keys:
     #   - ssl_handshake_errors
     #   - time_since_server_cert_refresh
-    is(scalar(keys(%$stats)), 85, "expected count of stats values");
+    is(scalar(keys(%$stats)), 86, "expected count of stats values");
 } else {
-    is(scalar(keys(%$stats)), 83, "expected count of stats values");
+    is(scalar(keys(%$stats)), 84, "expected count of stats values");
 }
 
 # Test initial state

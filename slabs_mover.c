@@ -32,6 +32,7 @@ struct slab_rebalance {
     uint32_t busy_nomem;
     uint32_t busy_deletes;
     uint32_t busy_loops;
+    int last_busy_status;
     uint8_t done;
     uint8_t *completed;
 };
@@ -54,8 +55,20 @@ struct slab_rebal_thread {
 };
 
 enum move_status {
-    MOVE_PASS=0, MOVE_FROM_SLAB, MOVE_FROM_LRU, MOVE_BUSY,
+    MOVE_NONE=0, MOVE_PASS, MOVE_FROM_SLAB, MOVE_FROM_LRU, MOVE_BUSY,
     MOVE_BUSY_UPLOADING, MOVE_BUSY_ACTIVE, MOVE_BUSY_FLOATING, MOVE_LOCKED
+};
+
+char *const move_status_text[] = {
+    [MOVE_NONE] = "none",
+    [MOVE_PASS] = "pass",
+    [MOVE_FROM_SLAB] = "from_slab",
+    [MOVE_FROM_LRU] = "from_lru",
+    [MOVE_BUSY] = "busy",
+    [MOVE_BUSY_UPLOADING] = "busy_uploading",
+    [MOVE_BUSY_ACTIVE] = "busy_active",
+    [MOVE_BUSY_FLOATING] = "busy_floating",
+    [MOVE_LOCKED] = "locked",
 };
 
 static slab_automove_reg_t slab_automove_default = {
@@ -382,7 +395,6 @@ static int slab_rebalance_active_rescue(struct slab_rebal_thread *t, struct _loc
 // we still attempt to move data even if no memory is available for a rescue,
 // in case the item is already free, expired, busy, etc.
 static int slab_rebalance_move(struct slab_rebal_thread *t) {
-    uint32_t was_busy = t->rebal.busy_items;
     struct _locked_st cbarg;
     memset(&cbarg, 0, sizeof(cbarg));
 
@@ -488,6 +500,7 @@ static int slab_rebalance_move(struct slab_rebal_thread *t) {
                 break;
         }
 
+        t->rebal.last_busy_status = status;
     }
 
     t->rebal.slab_pos = (char *)t->rebal.slab_pos + t->rebal.cls_size;
@@ -498,15 +511,18 @@ static int slab_rebalance_move(struct slab_rebal_thread *t) {
             t->rebal.slab_pos = t->rebal.slab_start;
             STATS_LOCK();
             stats.slab_reassign_busy_items += t->rebal.busy_items;
+            stats.slab_reassign_last_busy_status = move_status_text[t->rebal.last_busy_status];
             STATS_UNLOCK();
             t->rebal.busy_items = 0;
             t->rebal.busy_loops++;
+            return 1;
         } else {
             t->rebal.done++;
+            return 2;
         }
     }
 
-    return (t->rebal.busy_items != was_busy) ? 1 : 0;
+    return 0;
 }
 
 static void slab_rebalance_finish(struct slab_rebal_thread *t) {
@@ -602,7 +618,7 @@ static void *slab_rebalance_thread(void *arg) {
     struct slab_rebal_thread *t = arg;
     struct slab_rebalance *r = &t->rebal;
     int backoff_timer = 1;
-    int backoff_max = 1000;
+    int backoff_max = 5000;
     int algo_backoff = 0;
     // create logger in thread for setspecific
     t->l = logger_create();
@@ -628,16 +644,18 @@ static void *slab_rebalance_thread(void *arg) {
                 // attempt to get some prepared memory
                 slab_rebalance_prep(t);
                 // attempt to free up memory in a page
-                if (slab_rebalance_move(t)) {
-                    /* Stuck waiting for some items to unlock, so slow down a bit
-                     * to give them a chance to free up */
+                int res = slab_rebalance_move(t);
+                if (res == 1) {
+                    // ran through a page but had busy items; sleep.
                     usleep(backoff_timer);
                     backoff_timer = backoff_timer * 2;
                     if (backoff_timer > backoff_max)
                         backoff_timer = backoff_max;
-                } else {
+                } else if (res == 2) {
+                    // ran through a page successfully. reset any sleep.
                     backoff_timer = 1;
                 }
+                // else we're working through a page and shouldn't sleep.
             }
         } else {
             struct timespec now;
