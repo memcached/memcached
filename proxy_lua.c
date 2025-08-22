@@ -569,7 +569,8 @@ static mcp_backend_wrap_t *_mcplib_backend_checkcache(lua_State *L, mcp_backend_
         if (strncmp(be_orig->be->name, bel->name, MAX_NAMELEN) == 0
                 && strncmp(be_orig->be->port, bel->port, MAX_PORTLEN) == 0
                 && be_orig->be->conncount == bel->conncount
-                && memcmp(&be_orig->be->tunables, &bel->tunables, sizeof(bel->tunables)) == 0) {
+                && memcmp(&be_orig->be->tunables, &bel->tunables, sizeof(bel->tunables)) == 0
+                && memcmp(&be_orig->be->logging, &bel->logging, sizeof(bel->logging)) == 0) {
             // backend is the same, return it.
             return be_orig;
         } else {
