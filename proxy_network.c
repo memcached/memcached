@@ -570,28 +570,25 @@ static int proxy_backend_drive_machine(struct mcp_backendconn_s *be) {
             // for now we simply malloc, but reusable buffers should be used
 
             r->blen = r->resp.reslen + r->resp.vlen;
-            {
-                bool oom = proxy_bufmem_checkadd(r->thread, r->blen + extra_space);
-
-                if (oom) {
-                    flags = P_BE_FAIL_OOM;
-                    // need to zero out blen so we don't over-decrement later
-                    r->blen = 0;
-                    stop = true;
-                    break;
-                }
-            }
             r->buf = malloc(r->blen + extra_space);
             if (r->buf == NULL) {
-                // Enforce accounting.
-                pthread_mutex_lock(&r->thread->proxy_limit_lock);
-                r->thread->proxy_buffer_memory_used -= r->blen + extra_space;
-                pthread_mutex_unlock(&r->thread->proxy_limit_lock);
-
                 flags = P_BE_FAIL_OOM;
                 r->blen = 0;
                 stop = true;
                 break;
+            }
+
+            // Only do an inline check of the memory limit if we're not on an
+            // IO thread. Avoids having to wrap the memory limit with a mutex
+            if (!be->be_parent->use_io_thread) {
+                if (r->thread->proxy_buffer_memory_used > r->thread->proxy_buffer_memory_limit) {
+                    free(r->buf);
+                    flags = P_BE_FAIL_OOM;
+                    r->buf = NULL;
+                    r->blen = 0;
+                    stop = true;
+                    break;
+                }
             }
 
             P_DEBUG("%s: r->status: %d, r->bread: %d, r->vlen: %lu\n", __func__, r->status, r->bread, r->resp.vlen);

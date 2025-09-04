@@ -747,9 +747,7 @@ int proxy_thread_loadconf(proxy_ctx_t *ctx, LIBEVENT_THREAD *thr) {
     STAT_UL(ctx);
 
     // update limit counter(s)
-    pthread_mutex_lock(&thr->proxy_limit_lock);
     thr->proxy_buffer_memory_limit = ctx->buffer_memory_limit;
-    pthread_mutex_unlock(&thr->proxy_limit_lock);
 
     return 0;
 }

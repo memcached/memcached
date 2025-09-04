@@ -749,15 +749,14 @@ typedef struct {
     void *proxy_int_stats;
     void *proxy_event_thread; // worker threads can also be proxy IO threads
     struct event *proxy_gc_timer; // periodic GC pushing.
-    pthread_mutex_t proxy_limit_lock;
     int proxy_vm_extra_kb;
     int proxy_vm_last_kb;
     unsigned int proxy_vm_negative_delta;
     int proxy_vm_gcrunning;
     int proxy_vm_gcpokemem;
     int64_t proxy_active_req_limit;
-    uint64_t proxy_buffer_memory_limit; // protected by limit_lock
-    uint64_t proxy_buffer_memory_used; // protected by limit_lock
+    uint64_t proxy_buffer_memory_limit;
+    uint64_t proxy_buffer_memory_used;
     uint32_t proxy_rng[4]; // fast per-thread rng for lua.
     // TODO: add ctx object so we can attach to queue.
 #endif

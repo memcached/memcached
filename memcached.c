@@ -971,9 +971,7 @@ void resp_reset(mc_resp *resp) {
 #ifdef PROXY
         if (resp->proxy_res) {
             LIBEVENT_THREAD *t = resp->bundle->thread;
-            pthread_mutex_lock(&t->proxy_limit_lock);
             t->proxy_buffer_memory_used -= resp->wbytes;
-            pthread_mutex_unlock(&t->proxy_limit_lock);
         }
 #endif
         free(resp->write_and_free);
@@ -1188,9 +1186,7 @@ mc_resp* resp_finish(conn *c, mc_resp *resp) {
 #ifdef PROXY
         if (resp->proxy_res) {
             LIBEVENT_THREAD *t = resp->bundle->thread;
-            pthread_mutex_lock(&t->proxy_limit_lock);
             t->proxy_buffer_memory_used -= resp->wbytes;
-            pthread_mutex_unlock(&t->proxy_limit_lock);
         }
 #endif
         free(resp->write_and_free);

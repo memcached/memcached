@@ -138,9 +138,7 @@ void mcp_response_cleanup(LIBEVENT_THREAD *t, mcp_resp_t *r) {
     // On error/similar we might be holding the read buffer.
     // If the buf is handed off to mc_resp for return, this pointer is NULL
     if (r->buf != NULL) {
-        pthread_mutex_lock(&t->proxy_limit_lock);
-        t->proxy_buffer_memory_used -= r->blen + r->extra;
-        pthread_mutex_unlock(&t->proxy_limit_lock);
+        t->proxy_buffer_memory_used -= r->blen;
 
         free(r->buf);
         r->buf = NULL;

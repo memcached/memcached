@@ -1209,9 +1209,7 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
                 proxy_lua_error(run->L, "mutator: failed to allocate value buffer");
                 return 0;
             }
-            pthread_mutex_lock(&t->proxy_limit_lock);
             t->proxy_buffer_memory_used += rq->pr.vlen;
-            pthread_mutex_unlock(&t->proxy_limit_lock);
 
             rq->pr.vlen = run->vlen;
             memcpy(rq->pr.vbuf, run->vbuf, run->vlen);
@@ -1253,9 +1251,7 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
         // limits, and just doing an increment here removes some potential
         // error handling. Requests that are already started should be allowed
         // to complete to minimize impact of hitting memory limits.
-        pthread_mutex_lock(&t->proxy_limit_lock);
         t->proxy_buffer_memory_used += rs->blen;
-        pthread_mutex_unlock(&t->proxy_limit_lock);
     }
 
     return ret;

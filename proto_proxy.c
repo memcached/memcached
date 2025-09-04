@@ -140,13 +140,11 @@ static void proxy_gc_timerpoke(evutil_socket_t fd, short event, void *arg) {
 
 bool proxy_bufmem_checkadd(LIBEVENT_THREAD *t, int len) {
     bool oom = false;
-    pthread_mutex_lock(&t->proxy_limit_lock);
     if (t->proxy_buffer_memory_used > t->proxy_buffer_memory_limit) {
         oom = true;
     } else {
         t->proxy_buffer_memory_used += len;
     }
-    pthread_mutex_unlock(&t->proxy_limit_lock);
     return oom;
 }
 
@@ -208,9 +206,7 @@ void process_proxy_stats(void *arg, ADD_STAT add_stats, void *c) {
             }
         }
         WSTAT_UL(t);
-        pthread_mutex_lock(&t->proxy_limit_lock);
         buffer_memory_used += t->proxy_buffer_memory_used;
-        pthread_mutex_unlock(&t->proxy_limit_lock);
     }
 
     // return all of the user generated stats
@@ -439,7 +435,6 @@ void proxy_thread_init(void *ctx, LIBEVENT_THREAD *thr) {
         fprintf(stderr, "Failed to allocate proxy thread stats\n");
         exit(EXIT_FAILURE);
     }
-    pthread_mutex_init(&thr->proxy_limit_lock, NULL);
     thr->proxy_ctx = ctx;
 
     // Initialize the lua state.
@@ -708,9 +703,7 @@ void complete_nread_proxy(conn *c) {
     rq->pr.vbuf = c->item;
     c->item = NULL;
     c->item_malloced = false;
-    pthread_mutex_lock(&thr->proxy_limit_lock);
     thr->proxy_buffer_memory_used += rq->pr.vlen;
-    pthread_mutex_unlock(&thr->proxy_limit_lock);
 
     conn_resp_suspend(rctx->c, rctx->resp);
     proxy_run_rcontext(rctx);
@@ -857,7 +850,7 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
                     resp->write_and_free = r->buf;
                     resp_add_iov(resp, r->buf, r->blen);
                     // stash the length to later remove from memory tracking
-                    resp->wbytes = r->blen + r->extra;
+                    resp->wbytes = r->blen;
                     resp->proxy_res = true;
                     r->buf = NULL;
                 } else {

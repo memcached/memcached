@@ -421,7 +421,6 @@ typedef struct {
     int status; // status code from mcmc_read()
     int bread; // amount of bytes read into value so far.
     uint8_t cmd; // from parser (pr.command)
-    uint8_t extra; // ascii multiget hack for memory accounting. extra blen.
 } mcp_resp_t;
 
 // re-cast an io_pending_t into this more descriptive structure.

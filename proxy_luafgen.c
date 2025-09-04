@@ -1154,6 +1154,9 @@ static void proxy_return_rqu_cb(io_pending_t *pending) {
 
     if (p->client_resp) {
         mcp_resp_t *res = p->client_resp;
+        if (res->blen) {
+            res->thread->proxy_buffer_memory_used += res->blen;
+        }
         mcp_process_rqueue_return(rctx, p->queue_handle, res);
         if (res->be && res->be->use_logging) {
             struct mcp_rqueue_s *rqu = &rctx->qslots[p->queue_handle];
