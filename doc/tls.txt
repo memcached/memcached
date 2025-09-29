@@ -126,7 +126,8 @@ When this happens we want server to use the new certificate without restarting t
 Memcached is a cache and restarting servers affects the latency of applications. We implement
 the automatic certificate refresh through a command. Upon receiving the "refresh_certs" command,
 the server reloads the certificates and key to the SSL Context object. Existing connection won't be
-interrupted but new connections will use the new certificate.
+interrupted but new connections will use the new certificate. Additionally to the "refresh_certs"
+command, memcached also refreshes its certificates upon receiving the SIGHUP signal.
 
 We understand not all users want to use TLS or have the OpenSSL dependency. Therefore
 it's an optional module at the compile time. We can build a TLS capable Memcached server with

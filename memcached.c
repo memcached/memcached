@@ -3918,11 +3918,23 @@ static void clock_handler(const evutil_socket_t fd, const short which, void *arg
     // This function should be quick to avoid delaying the timer.
     assoc_start_expand(stats_state.curr_items);
     // also, if HUP'ed we need to do some maintenance.
-    // for now that's just the authfile reload.
+    // for now that's just the authfile and TLS certificates reload.
     if (settings.sig_hup) {
         settings.sig_hup = false;
 
         authfile_load(settings.auth_file);
+
+#ifdef TLS
+        if (settings.ssl_ctx != NULL) {
+            char *errmsg = NULL;
+            refresh_certs(&errmsg);
+            if (errmsg != NULL) {
+                vperror("Could not reload TLS certificates on SIGHUP: %s", errmsg);
+                free(errmsg);
+            }
+        }
+#endif
+
 #ifdef PROXY
         if (settings.proxy_ctx) {
             proxy_start_reload(settings.proxy_ctx);
