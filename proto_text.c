@@ -160,7 +160,7 @@ void complete_nread_ascii(conn *c) {
     } else {
       uint64_t cas = 0;
       c->thread->cur_sfd = c->sfd; // cuddle sfd for logging.
-      ret = store_item(it, comm, c->thread, &nbytes, &cas, c->cas ? c->cas : get_cas_id(), c->resp->set_stale);
+      ret = store_item(it, comm, c->thread, &nbytes, &cas, c->cas ? c->cas : get_cas_id(), c->resp->set_stale, c->resp->set_lww);
       c->cas = 0;
 
 #ifdef ENABLE_DTRACE

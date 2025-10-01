@@ -789,7 +789,8 @@ typedef struct _mc_resp {
     bool noreply; // TODO: remove if we can rely on skip-only
     bool binary_prot; // let main ascii prot know if we're binary or not
     bool mset_res; // whether we're completing an mset across a netread
-    bool set_stale; // mset flag
+    unsigned int set_stale :1;
+    unsigned int set_lww :1;
 #ifdef PROXY
     bool proxy_res; // we're handling a proxied response buffer.
 #endif
@@ -935,7 +936,7 @@ enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key,
                                     const int64_t delta, char *buf,
                                     uint64_t *cas, const uint32_t hv,
                                     item **it_ret);
-enum store_item_type do_store_item(item *item, int comm, LIBEVENT_THREAD *t, const uint32_t hv, int *nbytes, uint64_t *cas, const uint64_t cas_in, bool cas_stale);
+enum store_item_type do_store_item(item *item, int comm, LIBEVENT_THREAD *t, const uint32_t hv, int *nbytes, uint64_t *cas, const uint64_t cas_in, bool cas_stale, bool cas_lww);
 void thread_io_queue_add(LIBEVENT_THREAD *t, int type, void *ctx, io_queue_stack_cb cb);
 io_queue_t *thread_io_queue_get(LIBEVENT_THREAD *t, int type);
 void thread_io_queue_submit(LIBEVENT_THREAD *t);
@@ -1032,7 +1033,7 @@ LIBEVENT_THREAD *get_worker_thread(int id);
 void append_stat(const char *name, ADD_STAT add_stats, conn *c,
                  const char *fmt, ...);
 
-enum store_item_type store_item(item *item, int comm, LIBEVENT_THREAD *t, int *nbytes, uint64_t *cas, const uint64_t cas_in, bool cas_stale);
+enum store_item_type store_item(item *item, int comm, LIBEVENT_THREAD *t, int *nbytes, uint64_t *cas, const uint64_t cas_in, bool cas_stale, bool cas_lww);
 
 /* Protocol related code */
 void out_string(conn *c, const char *str);
