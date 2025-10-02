@@ -5380,6 +5380,7 @@ int main (int argc, char **argv) {
                     goto error;
                 }
                 settings.logger_buf_size *= 1024; /* kilobytes */
+                break;
             case SLAB_SIZES:
                 slab_sizes_unparsed = strdup(subopts_value);
                 break;
