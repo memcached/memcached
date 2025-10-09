@@ -18,7 +18,7 @@ if (!supports_extstore()) {
 
 $ext_path = "/tmp/extstore1.$$";
 
-my $server = new_memcached("-m 256 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=100,ext_recache_rate=100,ext_max_frag=0.9,ext_path=$ext_path:64m,slab_automove=1,ext_max_sleep=100000");
+my $server = new_memcached("-m 256 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=100,ext_recache_rate=0,ext_max_frag=0.9,ext_path=$ext_path:64m,slab_automove=1,ext_max_sleep=100000");
 my $sock = $server->sock;
 
 my $value;

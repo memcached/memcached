@@ -589,6 +589,8 @@ extern struct settings settings;
 /* if item key was sent in binary */
 #define ITEM_KEY_BINARY 4096
 
+#define ITEM_PRESERVE_FLAGS (ITEM_FETCHED|ITEM_TOKEN_SENT|ITEM_STALE|ITEM_KEY_BINARY)
+
 /**
  * Structure for storing items within memcached.
  */

@@ -133,6 +133,21 @@ mem_get_is($sock, "foo", "hi");
     }
 }
 
+# check item flag survival after write to disk
+{
+    print $sock "ms itflagtest 20000\r\n$value\r\n";
+    is(scalar <$sock>, "HD\r\n", "prepped flag test value");
+    print $sock "mg itflagtest\r\n";
+    is(scalar <$sock>, "HD\r\n", "fetch once to seed FETCHED");
+    print $sock "md itflagtest I\r\n";
+    is(scalar <$sock>, "HD\r\n", "invalidated item to set STALE");
+
+    wait_for_ext();
+
+    print $sock "mg itflagtest h\r\n";
+    is(scalar <$sock>, "HD h1 X W\r\n", "flags came back as expected");
+}
+
 # fill to eviction
 {
     my $keycount = 4000;
