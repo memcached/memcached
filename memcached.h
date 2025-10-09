@@ -291,7 +291,13 @@ enum store_item_type {
 };
 
 enum delta_result_type {
-    OK, NON_NUMERIC, EOM, DELTA_ITEM_NOT_FOUND, DELTA_ITEM_CAS_MISMATCH
+    OK, NON_NUMERIC, EOM, DELTA_ITEM_NOT_FOUND, DELTA_ITEM_CAS_MISMATCH, MULT_OVERFLOW
+};
+
+enum arithmetic_cmd_op {
+    ARITHMETIC_DECR = 0,
+    ARITHMETIC_INCR = 1,
+    ARITHMETIC_MULT = 2,
 };
 
 /** Time relative to server start. Smaller than time_t on 64-bit systems. */
@@ -310,7 +316,8 @@ enum delta_result_type {
     X(cas_hits) \
     X(cas_badval) \
     X(incr_hits) \
-    X(decr_hits)
+    X(decr_hits) \
+    X(mult_hits)
 
 /** Stats stored per slab (and per thread). */
 struct slab_stats {
@@ -329,6 +336,7 @@ struct slab_stats {
     X(delete_misses) \
     X(incr_misses) \
     X(decr_misses) \
+    X(mult_misses) \
     X(cas_misses) \
     X(meta_cmds) \
     X(bytes_read) \
@@ -930,7 +938,7 @@ extern void *ext_storage;
 void verify_default(const char* param, bool condition);
 void do_accept_new_conns(const bool do_accept);
 enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key,
-                                    const size_t nkey, const bool incr,
+                                    const size_t nkey, const enum arithmetic_cmd_op op,
                                     const int64_t delta, char *buf,
                                     uint64_t *cas, const uint32_t hv,
                                     item **it_ret);
@@ -991,7 +999,7 @@ void sidethread_conn_close(conn *c);
 
 /* Lock wrappers for cache functions that are called from main loop. */
 enum delta_result_type add_delta(LIBEVENT_THREAD *t, const char *key,
-                                 const size_t nkey, bool incr,
+                                 const size_t nkey, const enum arithmetic_cmd_op op,
                                  const int64_t delta, char *buf,
                                  uint64_t *cas);
 void accept_new_conns(const bool do_accept);

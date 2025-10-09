@@ -308,6 +308,9 @@ static void complete_incr_bin(conn *c, char *extbuf) {
     case EOM:
         out_of_memory(c, "SERVER_ERROR Out of memory incrementing value");
         break;
+    case MULT_OVERFLOW:
+        fprintf(stderr, "WARNING: unexpected error encountered during an arithmetic operation.\n");
+        break;
     case DELTA_ITEM_NOT_FOUND:
         if (req->message.body.expiration != 0xffffffff) {
             /* Save some room for the response */

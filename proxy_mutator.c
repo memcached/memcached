@@ -482,8 +482,9 @@ mut_step_n(resnull) {
         case CMD_PREPEND:
             p->src = "NOT_STORED";
             break;
-        case CMD_INCR:
+        case OCMD_INCR:
         case CMD_DECR:
+        case CMD_MULT:
         case CMD_TOUCH:
         case CMD_DELETE:
             p->src = "NOT_FOUND";

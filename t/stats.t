@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
 use strict;
-use Test::More tests => 113;
+use Test::More tests => 116;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -36,8 +36,8 @@ if (MemcachedTest::enabled_tls_testing()) {
 # Test initial state
 foreach my $key (qw(curr_items total_items bytes cmd_get cmd_set get_hits evictions get_misses get_expired
                  bytes_written delete_hits delete_misses incr_hits incr_misses decr_hits get_flushed
-                 decr_misses listen_disabled_num lrutail_reflocked time_in_listen_disabled_us
-                 store_too_large store_no_memory)) {
+                 decr_misses mult_hits mult_misses listen_disabled_num lrutail_reflocked
+                 time_in_listen_disabled_usstore_too_large store_no_memory mult_hits mult_misses)) {
     is($stats->{$key}, 0, "initial $key is zero");
 }
 is($stats->{accepting_conns}, 1, "initial accepting_conns is one");

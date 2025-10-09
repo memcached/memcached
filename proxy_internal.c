@@ -418,7 +418,9 @@ static void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
     item_remove(it);
 }
 
-static void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, const bool incr) {
+static void process_arithmetic_cmd(LIBEVENT_THREAD *t,
+                                   mcp_parser_t *pr, mc_resp *resp,
+                                   const enum arithmetic_cmd_op op) {
     char temp[INCR_MAX_STORAGE_LEN];
     uint64_t delta;
     const char *key = &pr->request[pr->tokens[pr->keytoken]];
@@ -436,22 +438,37 @@ static void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp
         return;
     }
 
-    switch(add_delta(t, key, nkey, incr, delta, temp, NULL)) {
+    switch(add_delta(t, key, nkey, op, delta, temp, NULL)) {
     case OK:
         pout_string(resp, temp);
         break;
     case NON_NUMERIC:
-        pout_string(resp, "CLIENT_ERROR cannot increment or decrement non-numeric value");
+        switch (op) {
+            case ARITHMETIC_INCR:
+            case ARITHMETIC_DECR:
+                pout_string(resp, "CLIENT_ERROR cannot increment or decrement non-numeric value");
+                break;
+            case ARITHMETIC_MULT:
+                pout_string(resp, "CLIENT_ERROR cannot multiply non-numeric value");
+                break;
+        }
+        break;
+    case MULT_OVERFLOW:
+         pout_string(resp, "CLIENT_ERROR multiply would overflow");
         break;
     case EOM:
         pout_string(resp, "SERVER_ERROR out of memory");
         break;
     case DELTA_ITEM_NOT_FOUND:
         pthread_mutex_lock(&t->stats.mutex);
-        if (incr) {
-            t->stats.incr_misses++;
-        } else {
+        switch (op) {
+        case ARITHMETIC_DECR:
             t->stats.decr_misses++;
+            break;
+        case ARITHMETIC_INCR:
+            t->stats.incr_misses++;
+            break;
+        // case MULT.
         }
         pthread_mutex_unlock(&t->stats.mutex);
 
@@ -1422,7 +1439,7 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
     // If no argument supplied, incr or decr by one.
     of.delta = 1;
     of.initial = 0; // redundant, for clarity.
-    bool incr = true; // default mode is to increment.
+    enum arithmetic_cmd_op op = ARITHMETIC_INCR; // default mode is to increment.
     bool locked = false;
     uint32_t hv = 0;
     item *it = NULL; // item returned by do_add_delta.
@@ -1454,12 +1471,15 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
             break;
         case 'I': // Incr (default)
         case '+':
-            incr = true;
+            op = ARITHMETIC_INCR;
             break;
         case 'D': // Decr.
         case '-':
-            incr = false;
+            op = ARITHMETIC_DECR;
             break;
+        case 'M':
+        case '*':
+            op = ARITHMETIC_MULT;
         default:
             errstr = "CLIENT_ERROR invalid mode for ma M token";
             goto error;
@@ -1490,7 +1510,19 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
         cas = ITEM_get_cas(it);
         break;
     case NON_NUMERIC:
-        errstr = "CLIENT_ERROR cannot increment or decrement non-numeric value";
+        switch (op) {
+        case ARITHMETIC_INCR:
+        case ARITHMETIC_DECR:
+            errstr = "CLIENT_ERROR cannot increment or decrement non-numeric value";
+            goto error;
+            break;
+        case ARITHMETIC_MULT:
+            errstr = "CLIENT_ERROR cannot multiply non-numeric value";
+            goto error;
+            break;
+        }
+    case MULT_OVERFLOW:
+        errstr = "CLIENT_ERROR multiply would overflow";
         goto error;
         break;
     case EOM:
@@ -1685,10 +1717,13 @@ static inline int _mcplib_internal_run(LIBEVENT_THREAD *t, mcp_request_t *rq, mc
             process_update_cmd(t, pr, resp, NREAD_REPLACE, _DO_CAS);
             break;
         case CMD_INCR:
-            process_arithmetic_cmd(t, pr, resp, true);
+            process_arithmetic_cmd(t, pr, resp, ARITHMETIC_INCR);
             break;
         case CMD_DECR:
-            process_arithmetic_cmd(t, pr, resp, false);
+            process_arithmetic_cmd(t, pr, resp, ARITHMETIC_DECR);
+            break;
+        case CMD_MULT:
+            process_arithmetic_cmd(t, pr, resp, ARITHMETIC_MULT);
             break;
         case CMD_DELETE:
             process_delete_cmd(t, pr, resp);
