@@ -452,6 +452,7 @@ static void recache_or_free(io_pending_t *pending) {
                 // In case it's been updated.
                 it->exptime = h_it->exptime;
                 it->it_flags &= ~ITEM_LINKED;
+                it->it_flags |= (h_it->it_flags & (ITEM_PRESERVE_FLAGS));
                 it->refcount = 0;
                 it->h_next = NULL; // might not be necessary.
                 STORAGE_delete(c->thread->storage, h_it);
@@ -573,6 +574,7 @@ static int storage_write(void *storage, const int clsid, const int item_age) {
                 hdr->offset  = io.offset;
                 // overload nbytes for the header it
                 hdr_it->nbytes = it->nbytes;
+                hdr_it->it_flags |= (it->it_flags & (ITEM_PRESERVE_FLAGS));
                 /* success! Now we need to fill relevant data into the new
                  * header and replace. Most of this requires the item lock
                  */
