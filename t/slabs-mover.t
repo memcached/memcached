@@ -23,8 +23,26 @@ my $sock = $server->sock;
     # Need clean memory for the reflock tests
     print $sock "flush_all\r\n";
     is(scalar <$sock>, "OK\r\n", "flushed items before reflock test");
+    wait_for_stat("curr_items", 0);
     subtest 'reflocked items' => \&test_reflocked;
     # test reflocked chunked items (ensure busy_deletes)
+}
+
+# If I still remembered perl I'd do that dynamic comparator thing
+sub wait_for_stat {
+    my $stat = shift;
+    my $amt = shift; # 0 is valid
+
+    my $stats_a;
+    my $to_sleep = 0.01;
+    for my $cnt (1 .. 500) {
+        $stats_a = mem_stats($sock);
+        last if ($stats_a->{$stat} == $amt);
+        sleep $to_sleep;
+        $to_sleep += $cnt / 100;
+        #print STDERR "SLEEPING: $to_sleep STAT: ", $stats_a->{$stat}, " LAST BUSY: ", $stats_a->{slab_reassign_last_busy_status}, "\n";
+    }
+    return $stats_a;
 }
 
 sub wait_for_stat_incr {
@@ -39,6 +57,7 @@ sub wait_for_stat_incr {
         last if ($stats_a->{$stat} > $stats->{$stat}+$amt);
         sleep $to_sleep;
         $to_sleep += $cnt / 100;
+        #print STDERR "SLEEPING: $to_sleep STAT: ", $stats_a->{$stat}, " LAST BUSY: ", $stats_a->{slab_reassign_last_busy_status}, "\n";
         #print STDERR Dumper(map { $_ => $stats_a->{$_} } sort keys %$stats_a), "\n";
     }
     return $stats_a;
