@@ -434,6 +434,7 @@ static int proxy_init_startfiles(proxy_ctx_t *ctx, const char *files) {
         struct _mcp_luafile *db = calloc(sizeof(struct _mcp_luafile), 1);
         if (db == NULL) {
             fprintf(stderr, "ERROR: failed to allocate memory for parsing proxy_startfile\n");
+            free(flist);
             return -1;
         }
         db->size = MCP_LUAFILE_SIZE;
@@ -441,6 +442,10 @@ static int proxy_init_startfiles(proxy_ctx_t *ctx, const char *files) {
         db->fname = strdup(p);
         if (db->buf == NULL || db->fname == NULL) {
             fprintf(stderr, "ERROR: failed to allocate memory while parsing proxy_startfile\n");
+            free(flist);
+            free(db->buf);
+            free(db->fname);
+            free(db);
             return -1;
         }
 
