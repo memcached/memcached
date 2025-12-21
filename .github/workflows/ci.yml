@@ -10,12 +10,13 @@ jobs:
     - name: Install deps
       run: |
         sudo apt-get update -y
-        sudo apt-get install -y libevent-dev libseccomp-dev git libsasl2-dev libio-socket-ssl-perl
+        sudo apt-get install -y libevent-dev libseccomp-dev git libsasl2-dev libio-socket-ssl-perl wget
+        cd vendor && ./fetch.sh
     - name: Build
       run: |
         gcc --version
         ./autogen.sh
-        ./configure --enable-seccomp --enable-tls --enable-sasl --enable-sasl-pwdb
+        ./configure --enable-seccomp --enable-tls --enable-sasl --enable-sasl-pwdb --enable-proxy
         make -j
     - name: Test
       run: PARALLEL=5 make test
