@@ -33,6 +33,10 @@ enum authfile_ret authfile_load(const char *file) {
     char *auth_data = NULL;
     auth_t auth_entries[MAX_ENTRIES];
 
+    if (!file || strlen(file) == 0) {
+        return AUTHFILE_OPENFAIL;
+    }
+
     FILE *pwfile = fopen(file, "r");
     if (pwfile == NULL) {
         return AUTHFILE_OPENFAIL;
