@@ -164,7 +164,8 @@ sub proxy_test {
     print $ps "get /dead/foo\r\n";
     is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "Backend failed");
     my $end = int(time());
-    cmp_ok($end - $start, '<', 3, "backend failed immediately");
+    # Check if backend fail in proper even timeout setup in proxyunits.lua as mcp.backend_connect_timeout()
+    cmp_ok($end - $start, '<', 6, "backend failed immediately");
 
     print $ps "get /deadrespcode/foo\r\n";
     is(scalar <$ps>, "ERROR code_correct\r\n", "Backend had correct response code on failure");
