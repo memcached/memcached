@@ -293,3 +293,63 @@ void mc_timespec_add(struct timespec *ts1,
     }
 }
 
+void name_list_append(LIST_STR **ptr, char *str) {
+    while(*ptr) /* find the null pointer */
+        ptr=&(*ptr)->next;
+    *ptr=malloc(sizeof(LIST_STR));
+    (*ptr)->str=strdup(str);
+    (*ptr)->next=NULL;
+}
+
+void name_list_dup(LIST_STR **dst, LIST_STR *src) {
+    for(; src; src=src->next)
+        name_list_append(dst, src->str);
+}
+
+void *name_list_free(LIST_STR *ptr) {
+    while(ptr) {
+        LIST_STR *next=ptr->next;
+        free(ptr->str);
+        free(ptr);
+        ptr=next;
+    }
+    return NULL;
+}
+
+void name_list_append_option(LIST_STR **ptr, char *str) {
+    char *b;
+    for (char *p = strtok_r(str, ":", &b);
+         p != NULL;
+         p = strtok_r(NULL, ":", &b)) {
+        name_list_append(ptr, p);
+    }
+}
+
+char *name_list_to_string(LIST_STR *ptr, char *separator) {
+    LIST_STR *p = ptr;
+    int len = 0, len_sep = strlen(separator);
+
+    while(p) {
+        len += strlen(p->str) + len_sep;
+        p = p->next;
+    }
+
+    if (!len) {
+        return NULL;
+    }
+
+    char *str = malloc(len+1);
+    bzero(str, len+1);
+    len = 0;
+    while(ptr) {
+        if (len) {
+            strcat(str, separator);
+        }
+        strcat(str, ptr->str);
+        ptr = ptr->next;
+        len++;
+    }
+
+    return str;
+}
+

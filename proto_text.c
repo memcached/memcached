@@ -1422,7 +1422,8 @@ static void process_lru_crawler_command(conn *c, mcp_parser_t *pr) {
 #ifdef TLS
 static void process_refresh_certs_command(conn *c, mcp_parser_t *pr) {
     char *errmsg = NULL;
-    if (refresh_certs(&errmsg)) {
+    if (refresh_certs(&c->tls_settings, &errmsg)) {
+        settings.tls_settings.ssl_last_cert_refresh_time = c->tls_settings.ssl_last_cert_refresh_time;
         out_string(c, "OK");
     } else {
         write_and_free(c, errmsg, strlen(errmsg));

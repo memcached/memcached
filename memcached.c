@@ -218,7 +218,8 @@ static void settings_init(void) {
     settings.access = 0700;
     settings.port = 11211;
     settings.udpport = 0;
-    ssl_init_settings();
+    settings.ssl_enabled = false;
+    settings.tls_settings = ssl_init_settings();
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
     settings.maxbytes = 64 * 1024 * 1024; /* default is 64MB */
@@ -723,6 +724,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->ssl = NULL;
 #ifdef TLS
     c->ssl_wbuf = NULL;
+    memcpy(&c->tls_settings, &settings.tls_settings, sizeof(struct tls_settings));
 #endif
 
     if (ssl) {
@@ -1880,12 +1882,12 @@ void server_stats(ADD_STAT add_stats, void *c) {
 #endif
 #ifdef TLS
     if (settings.ssl_enabled) {
-        if (settings.ssl_session_cache) {
+        if (settings.tls_settings.ssl_session_cache) {
             APPEND_STAT("ssl_new_sessions", "%llu", (unsigned long long)stats.ssl_new_sessions);
         }
         APPEND_STAT("ssl_handshake_errors", "%llu", (unsigned long long)stats.ssl_handshake_errors);
         APPEND_STAT("ssl_proto_errors", "%llu", (unsigned long long)stats.ssl_proto_errors);
-        APPEND_STAT("time_since_server_cert_refresh", "%u", now - settings.ssl_last_cert_refresh_time);
+        APPEND_STAT("time_since_server_cert_refresh", "%u", now - settings.tls_settings.ssl_last_cert_refresh_time);
     }
 #endif
     APPEND_STAT("unexpected_napi_ids", "%llu", (unsigned long long)stats.unexpected_napi_ids);
@@ -1968,16 +1970,21 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
 #endif
 #ifdef TLS
     APPEND_STAT("ssl_enabled", "%s", settings.ssl_enabled ? "yes" : "no");
-    APPEND_STAT("ssl_chain_cert", "%s", settings.ssl_chain_cert);
-    APPEND_STAT("ssl_key", "%s", settings.ssl_key);
-    APPEND_STAT("ssl_verify_mode", "%d", settings.ssl_verify_mode);
-    APPEND_STAT("ssl_keyformat", "%d", settings.ssl_keyformat);
-    APPEND_STAT("ssl_ciphers", "%s", settings.ssl_ciphers ? settings.ssl_ciphers : "NULL");
-    APPEND_STAT("ssl_ca_cert", "%s", settings.ssl_ca_cert ? settings.ssl_ca_cert : "NULL");
-    APPEND_STAT("ssl_wbuf_size", "%u", settings.ssl_wbuf_size);
-    APPEND_STAT("ssl_session_cache", "%s", settings.ssl_session_cache ? "yes" : "no");
-    APPEND_STAT("ssl_kernel_tls", "%s", settings.ssl_kernel_tls ? "yes" : "no");
-    APPEND_STAT("ssl_min_version", "%s", ssl_proto_text(settings.ssl_min_version));
+    APPEND_STAT("ssl_chain_cert", "%s", settings.tls_settings.ssl_chain_cert);
+    APPEND_STAT("ssl_key", "%s", settings.tls_settings.ssl_key);
+    APPEND_STAT("ssl_verify_mode", "%d", settings.tls_settings.ssl_verify_mode);
+    APPEND_STAT("ssl_keyformat", "%d", settings.tls_settings.ssl_keyformat);
+    APPEND_STAT("ssl_ciphers", "%s", settings.tls_settings.ssl_ciphers ? settings.tls_settings.ssl_ciphers : "NULL");
+    APPEND_STAT("ssl_ca_cert", "%s", settings.tls_settings.ssl_ca_cert ? settings.tls_settings.ssl_ca_cert : "NULL");
+    APPEND_STAT("ssl_wbuf_size", "%u", settings.tls_settings.ssl_wbuf_size);
+    APPEND_STAT("ssl_session_cache", "%s", settings.tls_settings.ssl_session_cache ? "yes" : "no");
+    APPEND_STAT("ssl_kernel_tls", "%s", settings.tls_settings.ssl_kernel_tls ? "yes" : "no");
+    APPEND_STAT("ssl_min_version", "%s", ssl_proto_text(settings.tls_settings.ssl_min_version));
+
+    char *str = name_list_to_string(settings.tls_settings.ssl_verify_name, ", ");
+    APPEND_STAT("ssl_verify_name", "%s", str ? str : "");
+    if (str)
+        free(str);
 #endif
 #ifdef PROXY
     APPEND_STAT("proxy_enabled", "%s", settings.proxy_enabled ? "yes" : "no");
@@ -3622,6 +3629,7 @@ static int server_sockets(int port, enum network_transport transport,
     const char *notls = "notls";
     const char *btls = "btls";
     const char *mtls = "mtls";
+    const char *mtls2 = "mtls2";
     if (settings.ssl_enabled) {
         ssl_enabled = MC_SSL_ENABLED_DEFAULT;
     }
@@ -3665,9 +3673,17 @@ static int server_sockets(int port, enum network_transport transport,
                 }
                 ssl_enabled = MC_SSL_ENABLED_NOPEER;
                 p += strlen(btls) + 1;
+            } else if (strncmp(p, mtls2, strlen(mtls2)) == 0) {
+                if (!settings.ssl_enabled) {
+                    fprintf(stderr, "'mtls2' option is valid only when SSL is enabled\n");
+                    free(list);
+                    return 1;
+                }
+                ssl_enabled = MC_SSL_VERIFY_PEER;
+                p += strlen(mtls2) + 1;
             } else if (strncmp(p, mtls, strlen(mtls)) == 0) {
                 if (!settings.ssl_enabled) {
-                    fprintf(stderr, "'otls' option is valid only when SSL is enabled\n");
+                    fprintf(stderr, "'mtls' option is valid only when SSL is enabled\n");
                     free(list);
                     return 1;
                 }
@@ -3925,9 +3941,9 @@ static void clock_handler(const evutil_socket_t fd, const short which, void *arg
         authfile_load(settings.auth_file);
 
 #ifdef TLS
-        if (settings.ssl_ctx != NULL) {
+        if (settings.tls_settings.ssl_ctx != NULL) {
             char *errmsg = NULL;
-            refresh_certs(&errmsg);
+            refresh_certs(&settings.tls_settings, &errmsg);
             if (errmsg != NULL) {
                 vperror("Could not reload TLS certificates on SIGHUP: %s", errmsg);
                 free(errmsg);
@@ -3997,14 +4013,58 @@ static void usage(void) {
             settings.access);
 #endif /* #ifndef DISABLE_UNIX_SOCKET */
     printf("-A, --enable-shutdown     enable ascii \"shutdown\" command\n");
-    printf("-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n"
-           "                          can specify multiple comma separated listeners configured with different protocols\n"
-           "                          format: proto[<protcol>]:tag[<name>]:ip:port\n"
-           "                          i.e -l proto[binary]:tag[services]:127.0.0.1:11211,proto[ascii]:tag_tools_:127.0.0.1:11212\n");
+    printf("-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n");
+    printf("                          can specify multiple comma separated listeners configured with different protocols\n");
+    printf("                          multiple entries can be also separatted by colon\n");
+    printf("                          i.e -l proto[binary]:tag[services]:127.0.0.1:11211,proto[ascii]:tag_tools_:127.0.0.1:11212\n");
+    printf("                          %sPROTO:TAG:IPV6|IPV4:PORT\n",
 #ifdef TLS
-    printf("                          if TLS/SSL is enabled, 'notls', 'btls', 'mtls' prefix can be used to\n"
-           "                          specify for specific listeners no tls, basic tls, or peer-auth tls (i.e -l mtls:proto[ascii]:tag_tools_:127.0.0.1:11212\n");
+            "TLS:"
+#else
+            ""
 #endif
+            );
+    printf("\n");
+#ifdef TLS
+    printf("                          TLS settings if TLS/SSL(-Z or --enable-ssl) is enabled 'notls', 'btls', 'mtls' or 'mtls2' prefix can be used to:\n"
+           "                          specify for specific listeners no tls, basic tls, or peer-auth tls (i.e -l mtls:proto[ascii]:tag_tools_:127.0.0.1:11212\n"
+           "                          'notls' - disable TSL/SSL (-l notls:<ip>:<port>)\n"
+           "                          'btls'  - not enforce peer certificate (-l btls:<ip>:<port>)\n"
+           "                          'mtls'  - force peer certificate (-l mtls:<ip>:<port>)\n"
+           "                          'mtls2' - force peer certificate with verification (-l mtls2:<ip>:<port>)\n");
+    printf("\n");
+#endif
+    printf("                          PROTO settings for specified protocol:\n"
+           "                          'ascii'  - asci protocol (-l proto[ascii]:<ip>:<port>)\n"
+           "                          'binary' - binary protocol (-l proto[binary]:<ip>:<port>)\n"
+           "                          'negotiating' - negotiating protocol (-l proto[negotiating]:<ip>:<port>)\n"
+           "                          'proxy' - proxy protocol (-l proto[proxy]:<ip>:<port>)\n"
+          );
+    printf("\n");
+    printf("                          TAG settings for specified tag name:\n"
+           "                          'tag[name]' - tag name (-l tag[name]:<ip>:<port>)\n"
+           "                          'tag_name_' - tag name (-l tag_name_:<ip>:<port>)\n"
+          );
+    printf("\n");
+    printf("                          IPV6 address:\n"
+           "                          '[00:0f:...]' - IPv6 addres (-l [00:0f:...]:<ip>:<port>)\n");
+    printf("\n");
+    printf("                          Full example:\n"
+           "                          IPv4 - (-l %sproto[ascii]:tag[name]:127.0.0.1:11211\n",
+#ifdef TLS
+            "notls:"
+#else
+            ""
+#endif
+           );
+    printf("                          IPv6 - (-l %sproto[ascii]:tag_name_:[00:0f:f2]:11211\n",
+#ifdef TLS
+            "notls:"
+#else
+            ""
+#endif
+           );
+    printf("\n");
     printf("-d, --daemon              run as a daemon\n"
            "-r, --enable-coredumps    maximize core file limit\n"
            "-u, --user=<user>         assume identity of <username> (only when run as root)\n"
@@ -4150,6 +4210,9 @@ static void usage(void) {
     printf("   - proxy_config:        path to lua library file. separate with ':' for multiple files\n"
            "                          use proxy_config=routelib to use built-in library\n"
            "                          see https://memcached.org/proxy for information\n"
+#if PROXY_TLS
+           "                          TLS enabled in proxy\n"
+#endif
             );
     printf("   - proxy_arg:           argument string (file path) to pass to proxy config\n"
             );
@@ -4769,6 +4832,7 @@ int main (int argc, char **argv) {
         SSL_SESSION_CACHE,
         SSL_KERNEL_TLS,
         SSL_MIN_VERSION,
+        SSL_VERIFY_NAME,
 #endif
 #ifdef PROXY
         PROXY_CONFIG,
@@ -4833,6 +4897,7 @@ int main (int argc, char **argv) {
         [SSL_SESSION_CACHE] = "ssl_session_cache",
         [SSL_KERNEL_TLS] = "ssl_kernel_tls",
         [SSL_MIN_VERSION] = "ssl_min_version",
+        [SSL_VERIFY_NAME] = "ssl_verify_name",
 #endif
 #ifdef PROXY
         [PROXY_CONFIG] = "proxy_config",
@@ -5449,14 +5514,14 @@ int main (int argc, char **argv) {
                     fprintf(stderr, "Missing ssl_chain_cert argument\n");
                     goto error;
                 }
-                settings.ssl_chain_cert = strdup(subopts_value);
+                settings.tls_settings.ssl_chain_cert = strdup(subopts_value);
                 break;
             case SSL_KEY:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing ssl_key argument\n");
                     goto error;
                 }
-                settings.ssl_key = strdup(subopts_value);
+                settings.tls_settings.ssl_key = strdup(subopts_value);
                 break;
             case SSL_VERIFY_MODE:
             {
@@ -5480,7 +5545,7 @@ int main (int argc, char **argv) {
                     fprintf(stderr, "Missing ssl_keyformat argument\n");
                     goto error;
                 }
-                if (!safe_strtol(subopts_value, &settings.ssl_keyformat)) {
+                if (!safe_strtol(subopts_value, &settings.tls_settings.ssl_keyformat)) {
                     fprintf(stderr, "could not parse argument to ssl_keyformat\n");
                     goto error;
                 }
@@ -5490,31 +5555,31 @@ int main (int argc, char **argv) {
                     fprintf(stderr, "Missing ssl_ciphers argument\n");
                     goto error;
                 }
-                settings.ssl_ciphers = strdup(subopts_value);
+                settings.tls_settings.ssl_ciphers = strdup(subopts_value);
                 break;
             case SSL_CA_CERT:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing ssl_ca_cert argument\n");
                     goto error;
                 }
-                settings.ssl_ca_cert = strdup(subopts_value);
+                settings.tls_settings.ssl_ca_cert = strdup(subopts_value);
                 break;
             case SSL_WBUF_SIZE:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing ssl_wbuf_size argument\n");
                     goto error;
                 }
-                if (!safe_strtoul(subopts_value, &settings.ssl_wbuf_size)) {
+                if (!safe_strtoul(subopts_value, &settings.tls_settings.ssl_wbuf_size)) {
                     fprintf(stderr, "could not parse argument to ssl_wbuf_size\n");
                     goto error;
                 }
-                settings.ssl_wbuf_size *= 1024; /* kilobytes */
+                settings.tls_settings.ssl_wbuf_size *= 1024; /* kilobytes */
                 break;
             case SSL_SESSION_CACHE:
-                settings.ssl_session_cache = true;
+                settings.tls_settings.ssl_session_cache = true;
                 break;
             case SSL_KERNEL_TLS:
-                settings.ssl_kernel_tls = true;
+                settings.tls_settings.ssl_kernel_tls = true;
                 break;
             case SSL_MIN_VERSION: {
                 int min_version;
@@ -5530,6 +5595,13 @@ int main (int argc, char **argv) {
                     fprintf(stderr, "Invalid ssl_min_version. Use help to see valid options.\n");
                     goto error;
                 }
+                break;
+            case SSL_VERIFY_NAME:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_verify_name argument\n");
+                    goto error;
+                }
+                name_list_append_option(&settings.tls_settings.ssl_verify_name, subopts_value);
                 break;
             }
 #endif
@@ -5774,7 +5846,10 @@ int main (int argc, char **argv) {
             exit(EX_USAGE);
         }
         // Initiate the SSL context.
-        ssl_init();
+        settings.tls_settings.TLS_method = TLS_server_method();
+        if (ssl_init(settings.ssl_enabled, &settings.tls_settings)) {
+            exit(EX_USAGE);
+        }
     }
 
     if (maxcore != 0) {
@@ -6214,6 +6289,9 @@ int main (int argc, char **argv) {
     /* Clean up strdup() call for bind() address */
     if (settings.inter)
       free(settings.inter);
+
+    /* ToDo: .... Clean up settings */
+
 
     /* cleanup base */
     event_base_free(main_base);

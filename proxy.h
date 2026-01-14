@@ -307,6 +307,9 @@ struct mcp_backend_label_s {
     bool use_logging;
     struct proxy_tunables tunables;
     struct proxy_logging logging;
+#ifdef PROXY_TLS
+    struct tls_settings tls_settings;
+#endif
 };
 
 // lua object wrapper meant to own a malloc'ed conn structure
@@ -368,6 +371,9 @@ struct mcp_backend_s {
     char name[MAX_NAMELEN+1];
     char port[MAX_PORTLEN+1];
     char label[MAX_LABELLEN+1];
+#ifdef PROXY_TLS
+    struct tls_settings tls_settings;
+#endif
     struct mcp_backendconn_s be[];
 };
 typedef STAILQ_HEAD(be_head_s, mcp_backend_s) be_head_t;

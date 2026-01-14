@@ -47,3 +47,17 @@ void vperror(const char *fmt, ...)
  */
 
 void mc_timespec_add(struct timespec *ts1, struct timespec *ts2);
+
+#define safe_free(p) if (p) { free(p); p = NULL; }
+
+/* name list functionality */
+typedef struct list_str {
+    char *str;
+    struct list_str *next;
+} LIST_STR;
+
+void name_list_append(LIST_STR **ptr, char *str);
+void name_list_dup(LIST_STR **dst, LIST_STR *src);
+void *name_list_free(LIST_STR *ptr);
+void name_list_append_option(LIST_STR **ptr, char *str);
+char *name_list_to_string(LIST_STR *ptr, char *separator);

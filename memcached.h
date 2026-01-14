@@ -447,6 +447,31 @@ struct stats_state {
 
 #define MAX_VERBOSITY_LEVEL 2
 
+#ifdef TLS
+#include <openssl/ssl.h>
+/**
+ * TLS/SSL settings
+ */
+struct tls_settings {
+    void *ssl_ctx; /* holds the SSL server context which has the server certificate */
+    char *ssl_chain_cert; /* path to the server SSL chain certificate */
+    char *ssl_key; /* path to the server key */
+    int ssl_verify_mode; /* client certificate verify mode */
+    int ssl_keyformat; /* key format , default is PEM */
+    char *ssl_ciphers; /* list of SSL ciphers */
+    char *ssl_ca_cert; /* certificate with CAs. */
+    rel_time_t ssl_last_cert_refresh_time; /* time of the last server certificate refresh */
+    unsigned int ssl_wbuf_size; /* size of the write buffer used by ssl_sendmsg method */
+    bool ssl_session_cache; /* enable SSL server session caching */
+    bool ssl_kernel_tls; /* enable server kTLS */
+    int ssl_min_version; /* minimum SSL protocol version to accept */
+    uint8_t ssl_enabled; /* type SSL connection => definition of MC_SSL_* */
+    LIST_STR *ssl_verify_name; /* host name for checking */
+
+    const SSL_METHOD *TLS_method;
+};
+#endif
+
 /* When adding a setting, be sure to update process_stat_settings */
 /**
  * Globally accessible settings as derived from the commandline.
@@ -530,18 +555,7 @@ struct settings {
     unsigned int ext_global_pool_min;
 #endif
 #ifdef TLS
-    void *ssl_ctx; /* holds the SSL server context which has the server certificate */
-    char *ssl_chain_cert; /* path to the server SSL chain certificate */
-    char *ssl_key; /* path to the server key */
-    int ssl_verify_mode; /* client certificate verify mode */
-    int ssl_keyformat; /* key format , default is PEM */
-    char *ssl_ciphers; /* list of SSL ciphers */
-    char *ssl_ca_cert; /* certificate with CAs. */
-    rel_time_t ssl_last_cert_refresh_time; /* time of the last server certificate refresh */
-    unsigned int ssl_wbuf_size; /* size of the write buffer used by ssl_sendmsg method */
-    bool ssl_session_cache; /* enable SSL server session caching */
-    bool ssl_kernel_tls; /* enable server kTLS */
-    int ssl_min_version; /* minimum SSL protocol version to accept */
+    struct tls_settings tls_settings;
 #endif
     int num_napi_ids;   /* maximum number of NAPI IDs */
     char *memory_file;  /* warm restart memory file path */
@@ -845,6 +859,7 @@ struct conn {
     void    *ssl;
 #ifdef TLS
     char   *ssl_wbuf;
+    struct tls_settings tls_settings;
 #endif
     enum conn_states  state;
     enum bin_substates substate;
