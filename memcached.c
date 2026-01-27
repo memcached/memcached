@@ -3922,9 +3922,7 @@ static void clock_handler(const evutil_socket_t fd, const short which, void *arg
     if (settings.sig_hup) {
         settings.sig_hup = false;
 
-        if (settings.auth_file) {
-            authfile_load(settings.auth_file);
-        }
+        authfile_load(settings.auth_file);
 
 #ifdef TLS
         if (settings.ssl_ctx != NULL) {
