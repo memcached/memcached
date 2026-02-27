@@ -1000,7 +1000,7 @@ static void storage_compact_readback(void *storage, logger *l,
 
                 if (do_update) {
                     bool rescued = false;
-                    if (it->refcount == 2) {
+                    if (hdr_it->refcount == 2) {
                         hdr->page_version = io.page_version;
                         hdr->page_id = io.page_id;
                         hdr->offset = io.offset;
