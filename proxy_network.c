@@ -1368,7 +1368,7 @@ static void proxy_backend_tls_handler(const int fd, const short which, void *arg
         }
 
 #ifdef PROXY_DEBUG
-        if (!STAILQ_EMPTY(&be->iop_head)) {
+        if (!STAILQ_EMPTY(&be->iop_read)) {
             P_DEBUG("backend has leftover IOs: %d\n", be->depth);
         }
 #endif
@@ -1430,7 +1430,7 @@ static void proxy_backend_handler(const int fd, const short which, void *arg) {
         }
 
 #ifdef PROXY_DEBUG
-        if (!STAILQ_EMPTY(&be->iop_head)) {
+        if (!STAILQ_EMPTY(&be->iop_read)) {
             P_DEBUG("backend has leftover IOs: %d\n", be->depth);
         }
 #endif
