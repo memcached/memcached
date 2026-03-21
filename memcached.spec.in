@@ -7,8 +7,6 @@
 %bcond_without option_checking
 %bcond_without coverage
 %bcond_without docs
-%bcond_with tls
-%bcond_with proxy
 
 # Set with_systemd on distros that use it, so we can install the service
 # file, otherwise the sysvinit script will be installed
@@ -75,12 +73,7 @@ web applications by alleviating database load.
   %{?with_64bit:--enable-64bit} \
   %{!?with_option_checking:--disable-option-checking}
   %{!?with_coverage:--disable-coverage} \
-  %{!?with_docs:--disable-docs} \
-  %{?with_tls:--enable-tls} \
-%if %{with_tls}
-  %{?with_proxy:--enable-proxy-tls} \
-%endif
-  %{?with_proxy:--enable-proxy}
+  %{!?with_docs:--disable-docs}
 
 make %{?_smp_mflags}
 
