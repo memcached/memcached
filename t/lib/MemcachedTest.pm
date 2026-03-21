@@ -360,7 +360,7 @@ sub new_memcached {
                 $valgrind .= " $ENV{VALGRIND_EXTRA_ARGS}";
             }
             my $cmd = "$builddir/timedrun 600 $valgrind $exe $args";
-            #print STDERR "RUN: $cmd\n\n";
+            print STDERR "RUN: $cmd\n\n" if $ENV{TEST_CMD};
             exec $cmd;
             exit; # never gets here.
         }
