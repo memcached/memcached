@@ -8,14 +8,26 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-my $server = new_memcached();
+my $max_conn = 1024 ;
+# Raise open files limit (RLIMIT_NOFILE) for better compatibility
+#
+# macOS has a very low default soft limit (256) on open file descriptors,
+# causing EMFILE errors after ~270 connections. Increase it programmatically
+# (or via system config) to support higher concurrency, matching Linux defaults.
+my $soft_limit = `ulimit -n`;
+if ($soft_limit && $soft_limit < $max_conn) {
+    $max_conn = $soft_limit - 1;
+}
+
+my $server = new_memcached("-o maxconns_fast -c $max_conn");
+
 test_maxconns($server);
 
 my $ext_path;
 if (supports_extstore()) {
     $ext_path = "/tmp/extstore.$$";
 
-    my $server = new_memcached("-m 64 -U 0 -o ext_path=$ext_path:64m");
+    my $server = new_memcached("-m 64 -U 0 -o maxconns_fast,ext_path=$ext_path:64m -c $max_conn");
     test_maxconns($server);
 }
 
@@ -27,7 +39,7 @@ sub test_maxconns {
     my $num_sockets;
     my $rejected_conns = 0;
     my $stats;
-    for (1 .. 1024) {
+    for (1 .. $max_conn) {
       my $sock = $server->new_sock;
       if (defined($sock)) {
         push(@sockets, $sock);
