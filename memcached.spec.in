@@ -79,9 +79,6 @@ make %{?_smp_mflags}
 
 
 %check
-%if %{with_tls}
-export SSL_TEST=1
-%endif
 %if %{defined _smp_mflags}
 export PARALLEL=%{_smp_mflags}
 %endif
