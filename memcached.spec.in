@@ -86,6 +86,9 @@ make %{?_smp_mflags}
 
 
 %check
+%if %{with_tls}
+export SSL_TEST=1
+%endif
 make test
 
 
