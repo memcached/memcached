@@ -130,6 +130,9 @@ AC_ARG_ENABLE(proxy,
 AC_ARG_ENABLE(proxy-uring,
   [AS_HELP_STRING([--enable-proxy-uring], [Enable proxy io_uring code EXPERIMENTAL])])
 
+AC_ARG_ENABLE(proxy-builtin-lua,
+  [AS_HELP_STRING([--disable-proxy-builtin-lua], [Do not use Lua shipped with memcached for proxy code])])
+
 AC_ARG_ENABLE(proxy-tls,
   [AS_HELP_STRING([--enable-proxy-tls], [Enable proxy io_uring code EXPERIMENTAL])])
 
@@ -248,9 +251,11 @@ fi
 
 if test "x$enable_proxy" = "xyes"; then
     AC_DEFINE([PROXY],1,[Set to nonzero if you want to enable proxy code])
-    CPPFLAGS="-Ivendor/lua/src -Ivendor/liburing/src/include $CPPFLAGS"
-    dnl lua needs math lib.
-    LIBS="$LIBS -lm -ldl"
+    if test "x$enable_proxy_builtin_lua" != "xno"; then
+      CPPFLAGS="-Ivendor/lua/src -Ivendor/liburing/src/include $CPPFLAGS"
+      dnl lua needs math lib.
+      LIBS="$LIBS -lm -ldl"
+    fi
 fi
 
 if test "x$enable_proxy_uring" = "xyes"; then
@@ -282,8 +287,14 @@ AM_CONDITIONAL([DISABLE_UNIX_SOCKET],[test "$enable_unix_socket" = "no"])
 AM_CONDITIONAL([ENABLE_PROXY],[test "$enable_proxy" = "yes"])
 AM_CONDITIONAL([ENABLE_PROXY_URING],[test "$enable_proxy_uring" = "yes"])
 AM_CONDITIONAL([ENABLE_PROXY_TLS],[test "$enable_proxy_tls" = "yes"])
+AM_CONDITIONAL([DISABLE_PROXY_BUILTIN_LUA],[test "$enable_proxy_builtin_lua" = "no"])
 AM_CONDITIONAL([LARGE_CLIENT_FLAGS],[test "$enable_large_client_flags" = "yes"])
 
+if test "x$enable_proxy" = "xyes" -a "x$enable_proxy_builtin_lua" = "xno"; then
+  AC_SEARCH_LIBS([luaL_newstate], [lua], [], [
+    AC_MSG_ERROR([unable to find the luaL_newstate function when looking for lua libraries.])
+  ])
+fi
 
 AC_SUBST(DTRACE)
 AC_SUBST(DTRACEFLAGS)

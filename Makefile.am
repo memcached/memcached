@@ -119,10 +119,12 @@ CLEANFILES += memcached_dtrace.o memcached_debug_dtrace.o
 endif
 
 if ENABLE_PROXY
+if ! DISABLE_PROXY_BUILTIN_LUA
 memcached_LDADD += vendor/lua/src/liblua.a
 memcached_debug_LDADD += vendor/lua/src/liblua.a
 memcached_LDFLAGS += -rdynamic
 memcached_debug_LDFLAGS += -rdynamic
+endif
 endif
 
 if ENABLE_PROXY_URING
@@ -160,7 +162,9 @@ EXTRA_DIST += vendor/mcmc/LICENSE vendor/mcmc/Makefile vendor/mcmc/README.md ven
 EXTRA_DIST += vendor/routelib/*.h vendor/routelib/*.lua
 
 if ENABLE_PROXY
+if ! DISABLE_PROXY_BUILTIN_LUA
 SUBDIRS += vendor
+endif
 endif
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
