@@ -2326,8 +2326,7 @@ enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const s
         if (settings.verbose) {
             fprintf(stderr, "Tried to do incr/decr on invalid item\n");
         }
-        if (it->refcount == 1)
-            do_item_remove(it);
+        do_item_remove(it);
         return DELTA_ITEM_NOT_FOUND;
     }
 
