@@ -76,7 +76,7 @@ int mcp_request_render(mcp_request_t *rq, int idx, const char flag, const char *
         p += pr->tok.tokens[pr->tok.ntokens] - pr->tok.tokens[idx+1];
     } else {
         // If we removed something from the end we might've left some spaces.
-        while (*(p-1) == ' ') {
+        while (p > temp && *(p-1) == ' ') {
             p--;
         }
     }

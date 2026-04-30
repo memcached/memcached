@@ -109,6 +109,16 @@ function mcp_config_routes(p)
                     end
                 end
             end
+
+            if k == "nullrequest" then
+                -- test reducing a request from 1 token to 0 tokens. Since
+                -- this is normally impossible due to 1 token requests being
+                -- invalid protocol, we must create a single token request and
+                -- then nuke it.
+                local nreq = mcp.request("version\r\n")
+                nreq:token(1, "")
+                return "HD\r\n"
+            end
         end
     end})
 
