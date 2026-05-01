@@ -1139,7 +1139,7 @@ static void process_bin_update(conn *c, char *extbuf) {
         /* FIXME: losing c->cmd since it's translated below. refactor? */
         LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
                 NULL, status, 0, key, nkey, req->message.body.expiration,
-                ITEM_clsid(it), c->sfd);
+                0, c->sfd);
 
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
