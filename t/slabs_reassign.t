@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 131;
+use Test::More;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -14,7 +14,7 @@ is($stats->{slab_reassign}, "yes");
 
 my $sock = $server->sock;
 
-# Fill a largeish slab until it evicts (honors the -m 6)
+# Fill a largeish slab until it evicts
 my $bigdata = 'x' x 70000; # slab 31
 for (1 .. 60) {
     print $sock "set bfoo$_ 0 0 70000\r\n", $bigdata, "\r\n";
@@ -27,6 +27,20 @@ for (1 .. 60) {
     print $sock "set sfoo$_ 0 0 20000\r\n", $smalldata, "\r\n";
     is(scalar <$sock>, "STORED\r\n", "stored key");
 }
+
+# Reassign page to invalid class.
+print $sock "slabs reassign 31 64\r\n";
+like(scalar <$sock>, qr/^BADCLASS/, "Class 64 invalid");
+
+# Reassign page to uninitialized class.
+print $sock "slabs reassign 31 60\r\n";
+like(scalar <$sock>, qr/^BADCLASS/, "Class 60 invalid");
+
+# Ensure the largest available class works.
+# FIXME: need to pull the max class from stats/settings, but I don't think
+# that's actually exposed there.
+print $sock "slabs reassign 31 39\r\n";
+like(scalar <$sock>, qr/^OK/, "Class 39 (power_largest) valid");
 
 my $items_before = mem_stats($sock, "items");
 isnt($items_before->{"items:31:evicted"}, 0, "slab 31 evicted is nonzero");
@@ -75,4 +89,4 @@ is(scalar <$sock>, "STORED\r\n", "stored key");
 print $sock "set sfoo51 0 0 20000\r\n", $smalldata, "\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored key");
 
-# Do need to come up with better automated tests for this.
+done_testing();

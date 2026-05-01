@@ -727,9 +727,9 @@ static enum reassign_result_type do_slabs_reassign(struct slab_rebal_thread *t, 
         /* TODO: If we end up back at -1, return a new error type */
     }
 
-    if (src < SLAB_GLOBAL_PAGE_POOL || src > MAX_NUMBER_OF_SLAB_CLASSES||
-        dst < SLAB_GLOBAL_PAGE_POOL || dst > MAX_NUMBER_OF_SLAB_CLASSES)
+    if (!slabs_class_check(src) || !slabs_class_check(dst)) {
         return REASSIGN_BADCLASS;
+    }
 
     if (slabs_page_count(src) < 2) {
         return REASSIGN_NOSPARE;

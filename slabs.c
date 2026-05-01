@@ -85,6 +85,13 @@ unsigned int slabs_clsid(const size_t size) {
     return res;
 }
 
+bool slabs_class_check(const int id) {
+    if (id < SLAB_GLOBAL_PAGE_POOL || id > power_largest) {
+        return false;
+    }
+    return true;
+}
+
 unsigned int slabs_size(const int clsid) {
     return slabclass[clsid].size;
 }
@@ -759,6 +766,7 @@ void slabs_finalize_page_move(const unsigned int sid, const unsigned int did, vo
     // For now we won't handle the error, and a subsequent commit should
     // remove the need to resize the slab list.
     do_grow_slab_list(did);
+    assert(d_cls->slab_list != NULL);
     d_cls->slab_list[d_cls->slabs++] = page;
     /* Don't need to split the page into chunks if we're just storing it */
     if (did > SLAB_GLOBAL_PAGE_POOL) {
