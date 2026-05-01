@@ -222,6 +222,7 @@ void complete_nread_ascii(conn *c) {
 #define COMMAND_TOKEN 0
 #define SUBCOMMAND_TOKEN 1
 #define KEY_TOKEN 1
+#define MAX_AUTH_REQ_LEN 16384
 
 int try_read_command_asciiauth(conn *c) {
     mcmc_tokenizer_t tok;
@@ -272,6 +273,17 @@ int try_read_command_asciiauth(conn *c) {
                 }
             }
             out_string(c, "CLIENT_ERROR unauthenticated");
+            return 1;
+        }
+
+        if (size > MAX_AUTH_REQ_LEN) {
+            if (!c->resp) {
+                if (!resp_start(c)) {
+                    conn_set_state(c, conn_closing);
+                    return 1;
+                }
+            }
+            out_string(c, "CLIENT_ERROR auth token too long");
             return 1;
         }
 

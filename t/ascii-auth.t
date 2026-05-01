@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
 use strict;
-use Test::More tests => 9;
+use Test::More tests => 10;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -19,6 +19,10 @@ like(scalar <$sock>, qr/CLIENT_ERROR/, "failed to do a read");
 
 # Fail to authenticate.
 print $sock "set foo 0 0 7\r\nfoo bab\r\n";
+like(scalar <$sock>, qr/CLIENT_ERROR/, "failed to authenticate");
+
+# Super long tokens are invalid.
+print $sock "set foo 0 0 2147483646\r\nasfd\r\n";
 like(scalar <$sock>, qr/CLIENT_ERROR/, "failed to authenticate");
 
 # Try for real.
