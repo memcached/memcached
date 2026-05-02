@@ -996,6 +996,10 @@ mut_step_n(valcopy) {
             return -1;
     }
 
+    if (run->vlen < 2 || memcmp(run->vbuf+run->vlen-2, "\r\n", 2) != 0) {
+        return -1;
+    }
+
     // count the number of digits in vlen to reserve space.
     //
     // oddly algorithms to count digits and write digits are similar (outside
@@ -1011,6 +1015,7 @@ mut_step_n(valcopy) {
 // print the vlen into the buffer
 // we remove the \r\n from the protocol length
 mut_step_r(valcopy) {
+    // Note: vlen must not be < 2 during the _n stage to avoid underflowing.
     run->d_pos = itoa_u64(run->vlen-2, run->d_pos);
     return true;
 }

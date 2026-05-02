@@ -137,6 +137,15 @@ sub test_mg {
         $t->c_recv("SERVER_ERROR teapot\r\n");
         $t->clear();
     };
+
+    subtest 'mgresvalshort' => sub {
+        $t->c_send("mg mgresvalshort\r\n");
+        $t->c_recv("SERVER_ERROR teapot\r\n");
+        # Ensure no protocol corruption ensued.
+        $t->c_send("mg mgres\r\n");
+        $t->c_recv("HD\r\n");
+        $t->clear();
+    };
 }
 
 done_testing();

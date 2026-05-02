@@ -121,6 +121,11 @@ function mcp_config_routes(p)
                     local res = rctx:enqueue_and_wait(r, mginth)
                     local ret = mut_mgresflagall(nres, res)
                     return nres
+                elseif key == "mgresvalshort" then
+                    if mut_mgresval(nres, "VA", "x") == false then
+                        mut_reserr(nres)
+                    end
+                    return nres
                 elseif key == "mgresteapot" then
                     local res = mut_reserr(nres)
                     if nres:ok() or nres:hit() then
