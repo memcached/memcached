@@ -903,6 +903,12 @@ static void dispatch_bin_command(conn *c, char *extbuf) {
         return;
     }
 
+    if (bodylen > (uint32_t)INT_MAX) {
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, NULL, 0);
+        c->close_after_write = true;
+        return;
+    }
+
     if (settings.sasl && !authenticated(c)) {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, NULL, 0);
         c->close_after_write = true;

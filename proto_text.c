@@ -277,6 +277,16 @@ int try_read_command_asciiauth(conn *c) {
 
         // we don't actually care about the key at all; it can be anything.
         // we do care about the size of the remaining read.
+        if (size > INT_MAX - 2) {
+            if (!c->resp) {
+                if (!resp_start(c)) {
+                    conn_set_state(c, conn_closing);
+                    return 1;
+                }
+            }
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return 1;
+        }
         c->rlbytes = size + 2;
 
         c->sasl_started = true; // reuse from binprot sasl, but not sasl :)
