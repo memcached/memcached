@@ -713,9 +713,8 @@ After this line, the client sends the data block:
 
 <data block>\r\n
 
-- <data block> is a chunk of arbitrary 8-bit data of length supplied by an 'S'
-  flag and token from the request line. If no 'S' flag is supplied the data
-  is assumed to be 0 length.
+- <data block> is a chunk of arbitrary 8-bit data of length <datalen>
+  from the previous line.
 
 After sending the command line and the data block the client awaits
 the reply, which is of the format:
