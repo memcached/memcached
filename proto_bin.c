@@ -903,6 +903,14 @@ static void dispatch_bin_command(conn *c, char *extbuf) {
         return;
     }
 
+    // This upper limit macro is deliberately lower than the signed int max,
+    // enough to also allow the vlen+2 adjustment without overflowing.
+    if (bodylen > ITEM_SIZE_MAX_UPPER_LIMIT) {
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, NULL, 0);
+        c->close_after_write = true;
+        return;
+    }
+
     if (settings.sasl && !authenticated(c)) {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, NULL, 0);
         c->close_after_write = true;
