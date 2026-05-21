@@ -4071,7 +4071,12 @@ static void usage(void) {
            "                          forcefully killing LRU tail item.\n"
            "                          disabled by default; very dangerous option.\n"
            "   - hash_algorithm:      the hash table algorithm\n"
-           "                          default is murmur3 hash. options: jenkins, murmur3, xxh3\n"
+#ifdef NEED_ALIGN
+           "                          default is xxh3 hash on NEED_ALIGN builds.\n"
+#else
+           "                          default is murmur3 hash.\n"
+#endif
+           "                          options: jenkins, murmur3, xxh3\n"
            "   - no_lru_crawler:      disable LRU Crawler background thread.\n"
            "   - lru_crawler_sleep:   microseconds to sleep between items\n"
            "                          default is %d.\n"
@@ -4712,7 +4717,11 @@ int main (int argc, char **argv) {
     bool start_lru_maintainer = true;
     bool start_lru_crawler = true;
     bool start_assoc_maint = true;
+#ifdef NEED_ALIGN
+    enum hashfunc_type hash_type = XXH3_HASH;
+#else
     enum hashfunc_type hash_type = MURMUR3_HASH;
+#endif
     uint32_t tocrawl;
     uint32_t slab_sizes[MAX_NUMBER_OF_SLAB_CLASSES];
     bool use_slab_sizes = false;
@@ -4867,7 +4876,11 @@ int main (int argc, char **argv) {
 
     /* init settings */
     settings_init();
+#ifdef NEED_ALIGN
+    verify_default("hash_algorithm", hash_type == XXH3_HASH);
+#else
     verify_default("hash_algorithm", hash_type == MURMUR3_HASH);
+#endif
     void *storage = NULL;
 #ifdef EXTSTORE
     void *storage_cf = storage_init_config(&settings);
