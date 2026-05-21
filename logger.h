@@ -164,6 +164,9 @@ struct _logentry {
     struct timeval tv; /* not monotonic! */
     int size;
     union {
+#ifdef NEED_ALIGN
+        uint64_t align;
+#endif
         char end;
     } data[];
 };

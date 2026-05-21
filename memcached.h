@@ -20,6 +20,9 @@
 #include <assert.h>
 #include <grp.h>
 #include <signal.h>
+#ifdef NEED_ALIGN
+#include <string.h>
+#endif
 /* need this to get IOV_MAX on some platforms. */
 #ifndef __need_IOV_MAX
 #define __need_IOV_MAX
@@ -169,6 +172,18 @@ typedef uint32_t client_flags_t;
 #define APPEND_NUM_STAT(num, name, fmt, val) \
     APPEND_NUM_FMT_STAT("%d:%s", num, name, fmt, val)
 
+#ifdef NEED_ALIGN
+/** Item client flag conversion */
+#define FLAGS_CONV(it, flag) { \
+    if ((it)->it_flags & ITEM_CFLAGS) { \
+        client_flags_t _flags_conv; \
+        memcpy(&_flags_conv, ITEM_suffix((it)), sizeof(_flags_conv)); \
+        flag = _flags_conv; \
+    } else { \
+        flag = 0; \
+    } \
+}
+#else
 /** Item client flag conversion */
 #define FLAGS_CONV(it, flag) { \
     if ((it)->it_flags & ITEM_CFLAGS) { \
@@ -177,6 +192,7 @@ typedef uint32_t client_flags_t;
         flag = 0; \
     } \
 }
+#endif
 
 #define FLAGS_SIZE(item) (((item)->it_flags & ITEM_CFLAGS) ? sizeof(client_flags_t) : 0)
 
