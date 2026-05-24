@@ -74,6 +74,7 @@ while (1) {
     my $count = 0;
     while (<$sock>) {
         last if /^(\.|END)/;
+        next if /^OK/;
         /^(key=) (\S+).*([^\r\n]+)/;
         $count++;
     }
@@ -113,6 +114,7 @@ for (1 .. 70000) {
     my $count = 0;
     while (<$sock>) {
         last if /^(\.|END)/;
+        next if /^OK/;
         if (/^key=bfoo(\S+)/) {
             ok(exists $bfoo{$1}, "found bfoo key $1 is still in test hash");
             delete $bfoo{$1};
