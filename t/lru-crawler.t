@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 70257;
+use Test::More tests => 70259;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -71,6 +71,7 @@ while (1) {
 # Check that crawler metadump works correctly.
 {
     print $sock "lru_crawler metadump all\r\n";
+    is(scalar <$sock>, "OK\r\n");
     my $count = 0;
     while (<$sock>) {
         last if /^(\.|END)/;
@@ -110,6 +111,7 @@ for (1 .. 70000) {
 # Check metadump hash table walk returns correct number of items.
 {
     print $sock "lru_crawler metadump hash\r\n";
+    is(scalar <$sock>, "OK\r\n");
     my $count = 0;
     while (<$sock>) {
         last if /^(\.|END)/;

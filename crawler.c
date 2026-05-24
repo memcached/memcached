@@ -263,6 +263,10 @@ static void crawler_expired_eval(crawler_module_t *cm, item *search, uint32_t hv
 
 static int crawler_metadump_init(crawler_module_t *cm, void *data) {
     cm->status = 0;
+    if (cm->c.buf != NULL) {
+        memcpy(cm->c.buf, "OK\r\n", 4);
+        cm->c.bufused += 4;
+    }
     return 0;
 }
 
@@ -390,6 +394,10 @@ static void crawler_metadump_finalize(crawler_module_t *cm) {
 
 static int crawler_mgdump_init(crawler_module_t *cm, void *data) {
     cm->status = 0;
+    if (cm->c.buf != NULL) {
+        memcpy(cm->c.buf, "OK\r\n", 4);
+        cm->c.bufused += 4;
+    }
     return 0;
 }
 
@@ -862,9 +870,7 @@ int lru_crawler_start(uint8_t *ids, uint32_t remaining,
         assert(crawler_mod_regs[type] != NULL);
         active_crawler_mod.mod = crawler_mod_regs[type];
         active_crawler_type = type;
-        if (active_crawler_mod.mod->init != NULL) {
-            active_crawler_mod.mod->init(&active_crawler_mod, data);
-        }
+        /* set client, then call init to be able to send OK */
         if (active_crawler_mod.mod->needs_client) {
             if (c == NULL || sfd == 0) {
                 pthread_mutex_unlock(&lru_crawler_lock);
@@ -874,6 +880,9 @@ int lru_crawler_start(uint8_t *ids, uint32_t remaining,
                 pthread_mutex_unlock(&lru_crawler_lock);
                 return -2;
             }
+        }
+        if (active_crawler_mod.mod->init != NULL) {
+            active_crawler_mod.mod->init(&active_crawler_mod, data);
         }
     }
 
