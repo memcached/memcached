@@ -40,6 +40,7 @@ sub wait_for_stat {
         last if ($stats_a->{$stat} == $amt);
         sleep $to_sleep;
         $to_sleep += $cnt / 100;
+        $to_sleep = 0.2 if $to_sleep > 0.2;
         #print STDERR "SLEEPING: $to_sleep STAT: ", $stats_a->{$stat}, " LAST BUSY: ", $stats_a->{slab_reassign_last_busy_status}, "\n";
     }
     return $stats_a;
@@ -57,6 +58,7 @@ sub wait_for_stat_incr {
         last if ($stats_a->{$stat} > $stats->{$stat}+$amt);
         sleep $to_sleep;
         $to_sleep += $cnt / 100;
+        $to_sleep = 0.2 if $to_sleep > 0.2;
         #print STDERR "SLEEPING: $to_sleep STAT: ", $stats_a->{$stat}, " LAST BUSY: ", $stats_a->{slab_reassign_last_busy_status}, "\n";
         #print STDERR Dumper(map { $_ => $stats_a->{$_} } sort keys %$stats_a), "\n";
     }
