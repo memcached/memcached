@@ -3701,9 +3701,19 @@ static int server_sockets(int port, enum network_transport transport,
                     if (strncmp(st, "ascii", len) == 0) {
                         bproto = ascii_prot;
                     } else if (strncmp(st, "binary", len) == 0) {
+                        if (settings.auth_file) {
+                            fprintf(stderr, "Cannot use binary protocol when ascii authentication enabled\n");
+                            free(list);
+                            return 1;
+                        }
                         bproto = binary_prot;
                     } else if (strncmp(st, "negotiating", len) == 0) {
-                        bproto = negotiating_prot;
+                        if (settings.auth_file) {
+                            fprintf(stderr, "WARNING: negotiating ports are ascii only when ascii authentication enabled\n");
+                            bproto = ascii_prot;
+                        } else {
+                            bproto = negotiating_prot;
+                        }
                     } else if (strncmp(st, "proxy", len) == 0) {
 #ifdef PROXY
                         if (settings.proxy_enabled) {
