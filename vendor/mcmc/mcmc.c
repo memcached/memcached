@@ -193,7 +193,7 @@ static int _mcmc_parse_value_line(const char *buf, size_t read, mcmc_resp_t *r) 
 
     errno = 0;
     uint32_t bytes = strtoul(p, &n, 10);
-    if ((errno == ERANGE) || (p == n)) {
+    if ((errno == ERANGE) || (p == n) || (bytes >= UINT32_MAX-2)) {
         return -MCMC_ERR_VALUE;
     }
     p = n;
@@ -350,7 +350,7 @@ static int _mcmc_parse_response(const char *buf, size_t read, mcmc_resp_t *r) {
                         errno = 0;
                         char *n = NULL;
                         uint32_t vsize = strtoul(cur, &n, 10);
-                        if ((errno == ERANGE) || (cur == n)) {
+                        if ((errno == ERANGE) || (cur == n) || (vsize >= UINT32_MAX-2)) {
                             r->type = MCMC_RESP_FAIL;
                             code = -MCMC_ERR_PARSE;
                         } else {
@@ -635,6 +635,8 @@ const char *mcmc_token_get(const char *l, mcmc_tokenizer_t *t, int idx, int *len
     }
 }
 
+// In these cases where we are converting tokens to numerics we want to
+// exclude the command and the key; index 1 is the first valid.
 #define X(n, p, c) \
     int n(const char *l, mcmc_tokenizer_t *t, int idx, p *val) { \
         if (idx > 0 && idx < t->ntokens) { \
