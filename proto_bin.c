@@ -466,6 +466,7 @@ static void process_bin_get_or_touch(conn *c, char *extbuf) {
                              c->cmd == PROTOCOL_BINARY_CMD_GATK);
     int should_return_value = (c->cmd != PROTOCOL_BINARY_CMD_TOUCH);
     bool failed = false;
+    bool overflow = false;
 
     if (settings.verbose > 1) {
         fprintf(stderr, "<%d %s ", c->sfd, should_touch ? "TOUCH" : "GET");
@@ -477,9 +478,9 @@ static void process_bin_get_or_touch(conn *c, char *extbuf) {
         protocol_binary_request_touch *t = (void *)extbuf;
         time_t exptime = ntohl(t->message.body.expiration);
 
-        it = item_touch(key, nkey, realtime(exptime), c->thread);
+        it = limited_get(key, nkey, c->thread, realtime(exptime), true, DO_UPDATE, &overflow);
     } else {
-        it = item_get(key, nkey, c->thread, DO_UPDATE);
+        it = limited_get(key, nkey, c->thread, 0, false, DO_UPDATE, &overflow);
     }
 
     if (it) {
