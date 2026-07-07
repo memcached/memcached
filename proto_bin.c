@@ -633,6 +633,10 @@ static void process_bin_stat(conn *c) {
         process_stat_settings(&append_stats, c);
     } else if (strncmp(subcommand, "detail", 6) == 0) {
         char *subcmd_pos = subcommand + 6;
+        if (!settings.dump_enabled) {
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
+            return;
+        }
         if (strncmp(subcmd_pos, " dump", 5) == 0) {
             int len;
             char *dump_buf = stats_prefix_dump(&len);
