@@ -640,11 +640,15 @@ static void *item_crawler_thread(void *arg) {
                 if (c->buflen - c->bufused < LRU_CRAWLER_MINBUFSPACE) {
                     int ret = lru_crawler_write(c);
                     if (ret != 0) {
+                        // Must be locked to unlink crawler.
+                        pthread_mutex_lock(&lru_locks[i]);
                         lru_crawler_class_done(i);
                         continue;
                     }
                 }
             } else if (active_crawler_mod.mod->needs_client) {
+                // Must be locked to unlink crawler.
+                pthread_mutex_lock(&lru_locks[i]);
                 lru_crawler_class_done(i);
                 continue;
             }
