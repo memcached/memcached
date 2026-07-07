@@ -458,6 +458,10 @@ static int lru_crawler_write(crawler_client_t *c) {
 
     if (c->c == NULL) return -1;
     if (data_size == 0) return 0;
+    // a long backstop so clients can't hang forever.
+    // continually timed out stuff used to blow up memory and crash so this is
+    // just to avoid replacing one problem with another.
+    int tries = 1800;
 
     while (sent < data_size) {
         int ret = poll(to_poll, 1, 1000);
@@ -468,7 +472,14 @@ static int lru_crawler_write(crawler_client_t *c) {
             return -1;
         }
 
-        if (ret == 0) return 0;
+        // Timed out, retry for a while.
+        if (ret == 0) {
+            if (--tries == 0) {
+                lru_crawler_close_client(c);
+                return -1;
+            }
+            continue;
+        }
 
         // check if socket was closed on us.
         if (to_poll[0].revents & POLLIN) {
@@ -495,8 +506,9 @@ static int lru_crawler_write(crawler_client_t *c) {
             } else if (total == 0) {
                 lru_crawler_close_client(c);
                 return -1;
+            } else {
+                sent += total;
             }
-            sent += total;
         }
     } // while
 
