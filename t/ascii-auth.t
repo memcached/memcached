@@ -22,7 +22,7 @@ print $sock "set foo 0 0 7\r\nfoo bab\r\n";
 like(scalar <$sock>, qr/CLIENT_ERROR/, "failed to authenticate");
 
 # Super long tokens are invalid.
-print $sock "set foo 0 0 2147483646\r\nasfd\r\n";
+print $sock "set foo 0 0 2147483646\r\n";
 like(scalar <$sock>, qr/CLIENT_ERROR/, "failed to authenticate");
 
 # Try for real.
