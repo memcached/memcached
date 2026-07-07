@@ -568,6 +568,16 @@ static int proxy_backend_drive_machine(struct mcp_backendconn_s *be) {
             // r->resp.reslen + r->resp.vlen is the total length of the response.
             // TODO (v2): need to associate a buffer with this response...
             // for now we simply malloc, but reusable buffers should be used
+            if (r->resp.vlen > INT32_MAX/2) {
+                // In a real memcached the value can't be over 1G. I made a
+                // huge mess out of the various places blen gets used, so
+                // instead of trying to fix all those paths without breaking
+                // something else, we can instead clamp the value length.
+                flags = P_BE_FAIL_OOM;
+                r->blen = 0;
+                stop = true;
+                break;
+            }
 
             r->blen = r->resp.reslen + r->resp.vlen;
             r->buf = malloc(r->blen + extra_space);
