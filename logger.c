@@ -690,10 +690,14 @@ static void logger_thread_write_entry(logentry *e, struct logger_stats *ls,
                 L_DEBUG("LOGGER: Watcher had no free space for line of size (%d)\n", scratch_len + 128);
                 // Oddity; poll_watchers can free *w, recheck it.
                 if (watchers[x] == NULL) {
-                    continue;
+                    break;
                 }
                 w->failed_flush = true;
             }
+        }
+        // See oddity note above.
+        if (watchers[x] == NULL) {
+            continue;
         }
 
         if (w->failed_flush) {
