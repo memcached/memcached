@@ -687,7 +687,10 @@ static void logger_thread_write_entry(logentry *e, struct logger_stats *ls,
                 (skip_scr = (char *) bipbuf_request(w->buf, scratch_len + 128)) == NULL) {
             if (logger_thread_poll_watchers(0, x) <= 0) {
                 L_DEBUG("LOGGER: Watcher had no free space for line of size (%d)\n", scratch_len + 128);
-                w->failed_flush = true;
+                // Oddity; poll_watchers can free *w, recheck it.
+                if (watchers[x] != NULL) {
+                    w->failed_flush = true;
+                }
             }
         }
 
