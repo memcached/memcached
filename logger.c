@@ -379,6 +379,7 @@ static void _logger_log_proxy_req(logentry *e, const entry_details *d, const voi
     }
     if (dlen > 150) {
         dlen = 150;
+        le->dlen = dlen;
     }
     // be_namelen and be_portlen can't be longer than 255+6
     le->reqlen = reqlen;
