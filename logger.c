@@ -550,7 +550,7 @@ static const entry_details default_entries[] = {
     [LOGGER_PROXY_USER] = {512, LOG_PROXYUSER, _logger_log_text, _logger_parse_text,
         "type=proxy_user msg=%s"
     },
-    [LOGGER_PROXY_BE_ERROR] = {512, LOG_PROXYEVENTS, _logger_log_proxy_errbe, _logger_parse_prx_errbe,
+    [LOGGER_PROXY_BE_ERROR] = {1024, LOG_PROXYEVENTS, _logger_log_proxy_errbe, _logger_parse_prx_errbe,
         NULL
     },
 
