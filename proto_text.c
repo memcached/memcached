@@ -932,6 +932,10 @@ static void process_slabs_automove_command(conn *c, mcp_parser_t *pr) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
+        if (level < 3 || level > 1800) {
+            out_string(c, "CLIENT_ERROR automove window too low or too high");
+            return;
+        }
 
         settings.slab_automove_window = level;
         settings.slab_automove_version++;

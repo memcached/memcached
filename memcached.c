@@ -5279,8 +5279,8 @@ int main (int argc, char **argv) {
                     goto error;
                 }
                 settings.slab_automove_window = atoi(subopts_value);
-                if (settings.slab_automove_window < 3) {
-                    fprintf(stderr, "slab_automove_window must be > 2\n");
+                if (settings.slab_automove_window < 3 || settings.slab_automove_window > 1800) {
+                    fprintf(stderr, "slab_automove_window must be > 2 and < 1800\n");
                     goto error;
                 }
                 break;
