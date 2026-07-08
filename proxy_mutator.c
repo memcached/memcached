@@ -489,6 +489,8 @@ mut_step_n(resnull) {
         case CMD_DELETE:
             p->src = "NOT_FOUND";
             break;
+        default:
+            return -1;
     }
     p->slen = strlen(p->src);
 
