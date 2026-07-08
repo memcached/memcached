@@ -750,7 +750,7 @@ static const char *mcp_key_hash_filter_tag(const char *conf, const char *key, si
         size_t remain = klen - (t1 - key);
         // must be at least one character inbetween the tags to hash.
         if (remain > 1) {
-            const char *t2 = memchr(t1, conf[1], remain);
+            const char *t2 = memchr(t1+1, conf[1], remain-1);
 
             if (t2) {
                 *newlen = t2 - t1 - 1;
