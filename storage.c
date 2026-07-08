@@ -204,7 +204,8 @@ static void _storage_get_item_cb(void *e, obj_io *io, int ret) {
                 // truncate the data response.
                 resp->iov[p->iovec_data].iov_len = 0;
                 // wipe the extlen iov... wish it was just a flat buffer.
-                resp->iov[p->iovec_data-1].iov_len = 0;
+                // this is unconditionally the second iov.
+                resp->iov[1].iov_len = 0;
                 resp->chunked_data_iov = 0;
             } else {
                 int i;
