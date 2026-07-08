@@ -792,7 +792,7 @@ int slabs_pick_any_for_reassign(const unsigned int did) {
     int tries = MAX_NUMBER_OF_SLAB_CLASSES - POWER_SMALLEST + 1;
     for (; tries > 0; tries--) {
         cur++;
-        if (cur > MAX_NUMBER_OF_SLAB_CLASSES)
+        if (cur >= MAX_NUMBER_OF_SLAB_CLASSES)
             cur = POWER_SMALLEST;
         if (cur == did)
             continue;
