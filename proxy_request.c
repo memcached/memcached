@@ -109,7 +109,7 @@ int mcp_request_append(mcp_request_t *rq, const char flag, const char *tok, size
     char *p = (char *)pr->request + pr->reqlen - 2; // start at the \r
     assert(*p == '\r');
 
-    if (pr->reqlen + len + 2 > MCP_REQUEST_MAXLEN) {
+    if (pr->reqlen + len + 2 >= MCP_REQUEST_MAXLEN) {
         return -1;
     }
 
