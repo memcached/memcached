@@ -940,6 +940,9 @@ static int mcplib_pool(lua_State *L) {
         luaL_checktype(L, -1, LUA_TSTRING);
         size_t len = 0;
         const char *bepfx = lua_tolstring(L, -1, &len);
+        if (len > MAX_LABELLEN-1) {
+            len = MAX_LABELLEN-1;
+        }
         memcpy(p->beprefix, bepfx, len);
         p->beprefix[len+1] = '\0';
         lua_pop(L, 1); // pop beprefix string.
