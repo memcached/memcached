@@ -135,6 +135,7 @@ static void _add_server_default(ketama_t *kt, size_t hashstring_size, const char
         size_t len = snprintf(hashstring, hashstring_size, "%s:%s-%d", parts[0], parts[1], k);
         kt->continuum[*cont].point = (unsigned int) XXH3_64bits(hashstring, len);
         kt->continuum[*cont].id = id;
+        (*cont)++;
     }
 
     free(hashstring);
