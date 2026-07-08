@@ -1466,6 +1466,7 @@ void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
           break;
         default:
           pout_errstring(resp, "SERVER_ERROR Unhandled storage type.");
+          item_remove(it);
           return;
 
     }
@@ -1517,9 +1518,8 @@ void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
 
     return;
 error:
-    // Note: no errors possible after the item was successfully allocated.
-    // So we're just looking at dumping error codes and returning.
     pout_errstring(resp, errstr);
+    item_remove(it);
 }
 
 void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
