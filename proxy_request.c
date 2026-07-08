@@ -94,12 +94,12 @@ int mcp_request_render(mcp_request_t *rq, int idx, const char flag, const char *
 
     memset(pr, 0, sizeof(mcp_parser_t)); // TODO: required?
     int ret = process_request(pr, rq->request, p - temp);
-    if (ret != 0) {
-        // FIXME: does this leak the vbuf?
-        return ret;
-    }
     pr->vbuf = vbuf;
     pr->vlen = vlen;
+
+    if (ret != 0) {
+        return ret;
+    }
     return 0;
 }
 
@@ -134,11 +134,11 @@ int mcp_request_append(mcp_request_t *rq, const char flag, const char *tok, size
 
     memset(pr, 0, sizeof(mcp_parser_t)); // TODO: required?
     int ret = process_request(pr, rq->request, p - start);
+    pr->vbuf = vbuf;
+    pr->vlen = vlen;
     if (ret != 0) {
         return ret;
     }
-    pr->vbuf = vbuf;
-    pr->vlen = vlen;
 
     return 0;
 }
