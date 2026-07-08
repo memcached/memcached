@@ -760,9 +760,8 @@ void slabs_finalize_page_move(const unsigned int sid, const unsigned int did, vo
         s_cls->slab_list[x] = s_cls->slab_list[x+1];
     }
 
-    // FIXME: it's nearly impossible for this to fail, and error handling here
-    // is gnarly since we'll have to just put the page back where we got it
-    // from.
+    // FIXME: it's nearly impossible for this to fail. If it does it can cause
+    // writing beyond the border, lost pages, etc.
     // For now we won't handle the error, and a subsequent commit should
     // remove the need to resize the slab list.
     do_grow_slab_list(did);
