@@ -992,7 +992,7 @@ static int mcplib_pool(lua_State *L) {
             }
 
             memcpy(p->key_filter_conf, conf, len);
-            p->key_filter_conf[len+1] = '\0';
+            p->key_filter_conf[len] = '\0';
         } else {
             proxy_lua_error(L, "hash filter requires 'filter_conf' string");
         }
