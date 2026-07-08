@@ -2456,9 +2456,13 @@ static enum try_read_result try_read_network(conn *c) {
                     fprintf(stderr, "Couldn't realloc input buffer\n");
                 }
                 c->rbytes = 0; /* ignore what we read */
-                out_of_memory(c, "SERVER_ERROR out of memory reading request");
-                c->close_after_write = true;
-                return READ_MEMORY_ERROR;
+                if (!resp_start(c)) {
+                    return READ_ERROR;
+                } else {
+                    out_of_memory(c, "SERVER_ERROR out of memory reading request");
+                    c->close_after_write = true;
+                    return READ_MEMORY_ERROR;
+                }
             }
             c->rcurr = c->rbuf = new_rbuf;
             c->rsize *= 2;
