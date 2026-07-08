@@ -823,7 +823,7 @@ mut_step_n(flagcopy) {
                     return -1;
                 }
                 int tlen = 0;
-                if (mcmc_token_has_flag_bit(&srs->tok, c->bit) == MCMC_OK) {
+                if (mcmc_token_has_flag_bit(&srq->pr.tok, c->bit) == MCMC_OK) {
                     const char *tok = mcmc_token_get_flag(srq->pr.request, &srq->pr.tok, c->f, &tlen);
                     p->slen = 1;
                     if (tok && tlen > 0) {
