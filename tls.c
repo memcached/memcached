@@ -86,6 +86,7 @@ void *ssl_accept(conn *c, int sfd, bool *fail) {
                             NULL, c->sfd, strerror(errno));
                 } else {
                     char ssl_err[SSL_ERROR_MSG_SIZE];
+                    ssl_err[0] = '\0';
                     // OpenSSL internal error. One or more, but lets only care about
                     // the top error for now.
                     print_ssl_error(ssl_err, SSL_ERROR_MSG_SIZE);
