@@ -578,7 +578,11 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
                 break;
             // mset-related.
             case 'F':
-                if (!safe_strtoflags(&pr->request[pr->tok.tokens[i]+1], &of->client_flags)) {
+#ifdef LARGE_CLIENT_FLAGS
+                if (mcmc_token_get_flag_arg_u64(pr->request, &pr->tok, i, &of->client_flags) != MCMC_OK) {
+#else
+                if (mcmc_token_get_flag_arg_u32(pr->request, &pr->tok, i, &of->client_flags) != MCMC_OK) {
+#endif
                     of->has_error = true;
                 }
                 break;
