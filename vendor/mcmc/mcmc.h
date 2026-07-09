@@ -154,6 +154,15 @@ int mcmc_token_get_flag_32(const char *l, mcmc_tokenizer_t *t, char flag, int32_
 int mcmc_token_get_flag_64(const char *l, mcmc_tokenizer_t *t, char flag, int64_t *val);
 int mcmc_token_get_flag_idx(const char *l, mcmc_tokenizer_t *t, char flag);
 
+// WARNING: these assume a valid index fetched via get_flag_idx or a loop
+// iteration against ntokens.
+// If exists, convert the argument to the flag at position idx into the
+// requested numeric.
+int mcmc_token_get_flag_arg_u32(const char *l, mcmc_tokenizer_t *t, int idx, uint32_t *val);
+int mcmc_token_get_flag_arg_u64(const char *l, mcmc_tokenizer_t *t, int idx, uint64_t *val);
+int mcmc_token_get_flag_arg_32(const char *l, mcmc_tokenizer_t *t, int idx, int32_t *val);
+int mcmc_token_get_flag_arg_64(const char *l, mcmc_tokenizer_t *t, int idx, int64_t *val);
+
 #ifdef MCMC_TEST
 int mcmc_toktou32(const char *t, size_t len, uint32_t *out);
 int mcmc_toktou64(const char *t, size_t len, uint64_t *out);

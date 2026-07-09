@@ -655,6 +655,21 @@ X(mcmc_token_get_64, int64_t, mcmc_tokto64)
 
 #undef X
 
+#define X(n, p, c) \
+    int n(const char *l, mcmc_tokenizer_t *t, int idx, p *val) { \
+        int tlen = 0; \
+        const char *tok = _mcmc_token(l, t, idx, &tlen); \
+        if (tlen > 1) { \
+            return c(tok+1, tlen-1, val); \
+        } \
+        return MCMC_ERR; \
+    }
+
+X(mcmc_token_get_flag_arg_u32, uint32_t, mcmc_toktou32)
+X(mcmc_token_get_flag_arg_u64, uint64_t, mcmc_toktou64)
+X(mcmc_token_get_flag_arg_32, int32_t, mcmc_tokto32)
+X(mcmc_token_get_flag_arg_64, int64_t, mcmc_tokto64)
+
 int mcmc_token_has_flag(const char *l, mcmc_tokenizer_t *t, char flag) {
     if (flag < 65 || flag > 122) {
         return MCMC_ERR;
