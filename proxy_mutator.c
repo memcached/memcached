@@ -1120,6 +1120,9 @@ static int mcp_mutator_new(lua_State *L, enum mcp_mut_type type) {
     if (size != mut->aused) {
         proxy_lua_error(L, "mutator failed to properly initialize, memory not filled correctly");
     }
+    if (scount == 0) {
+        proxy_lua_error(L, "mutator failed to initialize, no steps given");
+    }
     mut->scount = scount;
 
     return 1;
