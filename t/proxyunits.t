@@ -1079,6 +1079,19 @@ check_sanity($ps);
         );
     };
 
+    subtest 'response:line() under pipeline' => sub {
+        my $be = $mbe[0];
+        my $cmd = "mg /response/rbufline\r\n";
+        # pipeline two requests to the same backend
+        print $ps $cmd . $cmd;
+        is(scalar <$be>, $cmd, "be received request A");
+        is(scalar <$be>, $cmd, "be received request B");
+        print $be "HD Oa\r\nHD Ob\r\n";
+        is(scalar <$ps>, "HD Oa\r\n", "response A matches");
+        is(scalar <$ps>, "HD Ob\r\n", "response B matches");
+        check_version($ps);
+    };
+
     subtest 'response:flag_blank()' => sub {
         proxy_test(
             ps_send => "mg /response/blank f Ofoo t\r\n",

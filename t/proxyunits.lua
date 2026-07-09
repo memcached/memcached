@@ -281,6 +281,8 @@ function mcp_config_routes(zones)
                         return res
                     end
                     return "ERROR unexpected line, got [" .. line .. "]\r\n"
+                elseif key == "/response/rbufline" then
+                    return "HD " .. res:line() .. "\r\n"
                 elseif key == "/response/blank" then
                     res:flag_blank("O")
                     return res

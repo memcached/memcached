@@ -601,6 +601,16 @@ static int proxy_backend_drive_machine(struct mcp_backendconn_s *be) {
                 }
             }
 
+            // TODO: mcmc's parser needs to use offsets into a string instead
+            // of pointers. Then all we do is swap the buffer pointer. In the
+            // meantime this is the smallest possible change to fix the issue
+            // of res:line() and similar returning the wrong buffer for
+            // pipelined requests, in cases where the result hasn't been
+            // reparsed before requesting the line.
+            ptrdiff_t rebase = r->buf - be->rbuf;
+            r->resp.value += rebase;
+            if (r->resp.rline) r->resp.rline += rebase;
+
             P_DEBUG("%s: r->status: %d, r->bread: %d, r->vlen: %lu\n", __func__, r->status, r->bread, r->resp.vlen);
             if (r->resp.vlen != r->resp.vlen_read) {
                 // shouldn't be possible to have excess in buffer
