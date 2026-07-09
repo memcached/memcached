@@ -142,6 +142,10 @@ void mcp_response_cleanup(LIBEVENT_THREAD *t, mcp_resp_t *r) {
 
         free(r->buf);
         r->buf = NULL;
+        // Do some deeper cleaning: a manually closed res could still
+        // potentially be fed back into the system, causing errors.
+        r->blen = 0;
+        memset(&r->resp, 0, sizeof(r->resp));
     }
     r->tok.ntokens = 0;
 
