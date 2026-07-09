@@ -1282,9 +1282,11 @@ void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp,
     return;
 error:
     if (it) {
-        do_item_remove(it);
         if (of.locked) {
+            do_item_remove(it);
             item_unlock(hv);
+        } else {
+            item_remove(it);
         }
     }
     pout_errstring(resp, errstr);
