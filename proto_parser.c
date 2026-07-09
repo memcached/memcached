@@ -333,15 +333,6 @@ int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
  * PARSER UTIL CODE
  */
 
-// TODO:
-// - the safe_strto calls in here are still "string-y" - they're going to
-// parse until a space or newline. This is perfectly safe for any time we're
-// in this code; since we can't get here without a \n or a space (ie;
-// non-digit)
-// - I'm not converting these to tokto*'s right now, because what they're
-// pulling the flag while in a loop. So we need yet another interface (or
-// refactor of existing interface). This code is safe, just not consistent.
-
 int mc_prcmp(mcp_parser_t *pr, int token, const char *s) {
     int len = 0;
     const char *t = mcmc_token_get(pr->request, &pr->tok, token, &len);
@@ -421,7 +412,7 @@ static void pout_errstring(mc_resp *resp, const char *str) {
 
 bool mc_parse_exptime(mc_resp *resp, mcp_parser_t *pr, int token, rel_time_t *exptime) {
     int32_t exptime_int = 0;
-    if (!safe_strtol(&pr->request[pr->tok.tokens[1]], &exptime_int)) {
+    if (mcmc_token_get_32(pr->request, &pr->tok, token, &exptime_int) != MCMC_OK) {
         pout_string(resp, "CLIENT_ERROR invalid exptime argument");
         return false;
     }
@@ -875,7 +866,7 @@ void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp,
         return;
     }
 
-    if (!safe_strtoull(&pr->request[pr->tok.tokens[2]], &delta)) {
+    if (mcmc_token_get_u64(pr->request, &pr->tok, 2, &delta) != MCMC_OK) {
         pout_string(resp, "CLIENT_ERROR invalid numeric delta argument");
         return;
     }
@@ -965,7 +956,7 @@ void process_touch_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
         return;
     }
 
-    if (!safe_strtol(&pr->request[pr->tok.tokens[2]], &exptime_int)) {
+    if (mcmc_token_get_32(pr->request, &pr->tok, 2, &exptime_int) != MCMC_OK) {
         pout_string(resp, "CLIENT_ERROR invalid exptime argument");
         return;
     }
