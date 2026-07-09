@@ -521,30 +521,30 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
             case 'N':
                 of->locked = 1;
                 of->vivify = 1;
-                if (!safe_strtol(&pr->request[pr->tok.tokens[i]+1], &tmp_int)) {
+                if (mcmc_token_get_flag_arg_32(pr->request, &pr->tok, i, &tmp_int) == MCMC_OK) {
+                    of->autoviv_exptime = realtime(EXPTIME_TO_POSITIVE_TIME(tmp_int));
+                } else {
                     *errstr = "CLIENT_ERROR bad token in command line format";
                     of->has_error = 1;
-                } else {
-                    of->autoviv_exptime = realtime(EXPTIME_TO_POSITIVE_TIME(tmp_int));
                 }
                 break;
             case 'T':
                 of->locked = 1;
-                if (!safe_strtol(&pr->request[pr->tok.tokens[i]+1], &tmp_int)) {
-                    *errstr = "CLIENT_ERROR bad token in command line format";
-                    of->has_error = 1;
-                } else {
+                if (mcmc_token_get_flag_arg_32(pr->request, &pr->tok, i, &tmp_int) == MCMC_OK) {
                     of->exptime = realtime(EXPTIME_TO_POSITIVE_TIME(tmp_int));
                     of->new_ttl = true;
+                } else {
+                    *errstr = "CLIENT_ERROR bad token in command line format";
+                    of->has_error = 1;
                 }
                 break;
             case 'R':
                 of->locked = 1;
-                if (!safe_strtol(&pr->request[pr->tok.tokens[i]+1], &tmp_int)) {
+                if (mcmc_token_get_flag_arg_32(pr->request, &pr->tok, i, &tmp_int) == MCMC_OK) {
+                    of->recache_time = realtime(EXPTIME_TO_POSITIVE_TIME(tmp_int));
+                } else {
                     *errstr = "CLIENT_ERROR bad token in command line format";
                     of->has_error = 1;
-                } else {
-                    of->recache_time = realtime(EXPTIME_TO_POSITIVE_TIME(tmp_int));
                 }
                 break;
             case 'l':
@@ -583,19 +583,19 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
                 }
                 break;
             case 'C': // mset, mdelete, marithmetic
-                if (!safe_strtoull(&pr->request[pr->tok.tokens[i]+1], &of->req_cas_id)) {
-                    *errstr = "CLIENT_ERROR bad token in command line format";
-                    of->has_error = true;
-                } else {
+                if (mcmc_token_get_flag_arg_u64(pr->request, &pr->tok, i, &of->req_cas_id) == MCMC_OK) {
                     of->has_cas = true;
+                } else {
+                    *errstr = "CLIENT_ERROR bad token in command line format";
+                    of->has_error = 1;
                 }
                 break;
             case 'E': // ms, md, ma
-                if (!safe_strtoull(&pr->request[pr->tok.tokens[i]+1], &of->cas_id_in)) {
-                    *errstr = "CLIENT_ERROR bad token in command line format";
-                    of->has_error = true;
-                } else {
+                if (mcmc_token_get_flag_arg_u64(pr->request, &pr->tok, i, &of->cas_id_in) == MCMC_OK) {
                     of->has_cas_in = true;
+                } else {
+                    *errstr = "CLIENT_ERROR bad token in command line format";
+                    of->has_error = 1;
                 }
                 break;
             case 'M': // mset and marithmetic mode switch
@@ -604,13 +604,13 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
                 of->mode = pr->request[pr->tok.tokens[i]+1];
                 break;
             case 'J': // marithmetic initial value
-                if (!safe_strtoull(&pr->request[pr->tok.tokens[i]+1], &of->initial)) {
+                if (mcmc_token_get_flag_arg_u64(pr->request, &pr->tok, i, &of->initial) != MCMC_OK) {
                     *errstr = "CLIENT_ERROR invalid numeric initial value";
                     of->has_error = 1;
                 }
                 break;
             case 'D': // marithmetic delta value
-                if (!safe_strtoull(&pr->request[pr->tok.tokens[i]+1], &of->delta)) {
+                if (mcmc_token_get_flag_arg_u64(pr->request, &pr->tok, i, &of->delta) != MCMC_OK) {
                     *errstr = "CLIENT_ERROR invalid numeric delta value";
                     of->has_error = 1;
                 }
@@ -769,7 +769,7 @@ item *process_update_cmd_start(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
 
     // does cas value exist?
     if (handle_cas) {
-        if (!safe_strtoull(&pr->request[pr->tok.tokens[5]], &req_cas_id)) {
+        if (mcmc_token_get_u64(pr->request, &pr->tok, 5, &req_cas_id) != MCMC_OK) {
             pout_string(resp, "CLIENT_ERROR bad command line format");
             return NULL;
         }
