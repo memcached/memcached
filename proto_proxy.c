@@ -616,7 +616,8 @@ int try_read_command_proxy(conn *c) {
              * large multiget, if not we should just nuke the connection.
              */
             char *ptr = c->rcurr;
-            while (*ptr == ' ') { /* ignore leading whitespaces */
+            char *end = c->rcurr + c->rbytes-6;
+            while (*ptr == ' ' && ptr != end) { /* ignore leading whitespaces */
                 ++ptr;
             }
 
