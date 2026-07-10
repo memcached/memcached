@@ -259,12 +259,12 @@ static uint64_t mc_swap64(uint64_t in) {
 #ifdef ENDIAN_LITTLE
     /* Little endian, flip the bytes around until someone makes a faster/better
     * way to do this. */
-    int64_t rv = 0;
+    uint64_t rv = 0;
     int i = 0;
-     for(i = 0; i<8; i++) {
-        rv = (rv << 8) | (in & 0xff);
-        in >>= 8;
-     }
+    for(i = 0; i < 8; i++) {
+       rv = (rv << 8) | (in & 0xff);
+       in >>= 8;
+    }
     return rv;
 #else
     /* big-endian machines don't need byte swapping */
