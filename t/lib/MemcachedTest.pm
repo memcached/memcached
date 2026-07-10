@@ -18,13 +18,16 @@ my @unixsockets = ();
              mem_get_is mem_gets mem_gets_is mem_stats mem_move_time
              supports_sasl free_port supports_drop_priv supports_extstore
              wait_ext_flush supports_tls enabled_tls_testing run_help
-             supports_unix_socket get_memcached_exe supports_proxy);
+             supports_unix_socket get_memcached_exe supports_proxy
+             supports_tls_proxy);
 
 use constant MAX_READ_WRITE_SIZE => 16384;
 use constant SRV_CRT => "server_crt.pem";
 use constant SRV_KEY => "server_key.pem";
 use constant CLIENT_CRT => "client_crt.pem";
 use constant CLIENT_KEY => "client_key.pem";
+use constant EXPIRED_CRT => "expired_crt.pem";
+use constant EXPIRED_KEY => "expired_key.pem";
 use constant CA_CRT => "cacert.pem";
 
 my $testdir = $builddir . "/t/";
@@ -224,6 +227,12 @@ sub supports_proxy {
 sub supports_tls {
     my $output = print_help();
     return 1 if $output =~ /enable-ssl/i;
+    return 0;
+}
+
+sub supports_tls_proxy {
+    my $output = print_help();
+    return 1 if $output =~ /TLS enabled in proxy/i;
     return 0;
 }
 
@@ -752,6 +761,266 @@ sub clear {
     delete $self->{_becmd} if exists $self->{_becmd};
     delete $self->{_cmd} if exists $self->{_cmd};
     $self->check_c();
+}
+
+############################################################################
+package Memcached::TLSTest;
+use strict;
+use warnings;
+
+use Test::More;
+use IO::Socket::SSL;
+use FindBin qw($Bin);
+
+use constant default_crt_ou => "OU=Subunit of Test Organization";
+my %certs_check = (
+                    ca_cert => "$Bin/" . MemcachedTest::CA_CRT,
+                    server => {
+                        cn => 'test.com',
+                        alt => ['test.com', 'alt.test.com'],
+                        ssl_chain_cert => "$Bin/" . MemcachedTest::SRV_CRT,
+                        ssl_key => "$Bin/" . MemcachedTest::SRV_KEY,
+                    },
+                    client => {
+                        cn => 'test.com',
+                        alt => ['client.test.com', 'alt.client.test.com'],
+                        ssl_chain_cert => "$Bin/" . MemcachedTest::CLIENT_CRT,
+                        ssl_key => "$Bin/" . MemcachedTest::CLIENT_KEY,
+                    },
+                    expired => {
+                        cn => 'test.com',
+                        alt => ['client.test.com', 'alt.client.test.com'],
+                        ssl_chain_cert => "$Bin/" . MemcachedTest::EXPIRED_CRT,
+                        ssl_key => "$Bin/" . MemcachedTest::EXPIRED_KEY,
+                    },
+                );
+
+sub get_cert {
+    my $name = shift || return {};
+    return $certs_check{$name};
+}
+
+my %tls_type = map { $_ => undef } qw/notls tls btls mtls mtls2/;
+
+sub check_tls {
+    my ($type) = @_;
+    die "bad tls_type 'type'" unless exists $tls_type{$type};
+}
+
+sub new {
+    my ($class) = shift;
+    my %args = (
+        -cert_name => "server",
+        -memcached_tls => "tls",
+        @_);
+
+    check_tls($args{-memcached_tls});
+    $args{-memcached_cnt} = 1;
+
+    my $certs = get_cert($args{-cert_name});
+    my @args = map { "-o $_=" . $certs->{$_}} qw/ssl_chain_cert ssl_key/;
+    push (@args, "-o ssl_ca_cert=" . get_cert("ca_cert"));
+    $args{-memcached_args} = \@args;
+    $args{-memcached_ports} = {};
+    $args{-memcached_ports_cmd} = {};
+    $args{-server} = undef;
+    my $self = bless \%args, $class;
+
+    $self->add_memcached_port();
+    if ($args{-memcached_tls} ne "tls") {
+        $self->add_memcached_port(-memcached_tls => $args{-memcached_tls});
+    }
+    return $self;
+}
+
+sub add_memcached_port {
+    my ($class) = shift;
+    my %args = (
+        -memcached_tls => "tls",
+        @_);
+
+    my $tls = $args{-memcached_tls};
+    check_tls($tls);
+
+    if (exists $class->{-memcached_ports}->{$tls}) {
+        print STDERR "Memached for '$tls' exists\n";
+        return;
+    }
+
+    my $port = MemcachedTest::free_port();
+    $class->{-memcached_ports}->{$tls} = $port;
+    $class->{-memcached_ports_cmd}->{$tls} = "-l " . ($tls eq "tls" ? "" : "$tls:") . "127.0.0.1:$port";
+}
+
+sub start_memcached {
+    my ($class) = shift;
+    my (@args) = @_;
+
+    return if $class->{-server};
+
+    push (@args, @{$class->{-memcached_args}});
+    push (@args, $class->{-memcached_ports_cmd}->{$_}) foreach (keys %{$class->{-memcached_ports_cmd}});
+    my $tls_port = $class->{-memcached_ports}->{tls};
+    my $server = MemcachedTest::new_memcached(join(" ", @args), $tls_port);
+    my $stats = MemcachedTest::mem_stats($server->sock);
+    cmp_ok($stats->{total_connections}, '>', 0, "Memcached initial connection is established");
+
+    $class->{-server} = $server;
+}
+
+sub args_to_array {
+    my $name = shift;
+    if (exists $ENV{$name}) {
+        return split(" ", $ENV{$name});
+    }
+    return @_;
+}
+
+sub test_loop {
+    my ($code, $ssl_verify_methods) = @_;
+
+    if (!ref($ssl_verify_methods) || !scalar(@$ssl_verify_methods)) {
+        $ssl_verify_methods = [SSL_VERIFY_NONE, SSL_VERIFY_PEER];
+    }
+
+    my @types = args_to_array("TLS_TYPES", qw/notls tls mtls btls mtls2/);
+    my @server_certs = args_to_array("SERVER_CERTS", "server", "expired");
+    my @client_certs = args_to_array("CLIENT_CERTS", "client", "expired", undef);
+    my @check_hostnames = args_to_array("CHECK_HOSTNAMES", 1, 0);
+
+    foreach my $type (@types) {
+        foreach my $server_cert (@server_certs) {
+            foreach my $cert (@client_certs) {
+                foreach my $ssl_verify (@{$ssl_verify_methods}) {
+                    foreach my $check_hostname (@check_hostnames) {
+                        my @a = ("Server cert '" . ($server_cert || "") . "'");
+                        push (@a, "client cert '" . ( $cert || "") . "'");
+                        push (@a, "ssl type '$type'");
+                        push (@a, "ssl verify '" . ($ssl_verify eq SSL_VERIFY_NONE ? "none" : "peer") . "'");
+                        push (@a, "check hostname '" . ($check_hostname ? "true" : "false") . "'");
+                        subtest join (" and ", @a) => sub {
+                            $code->($type, $server_cert, $cert, $ssl_verify, $check_hostname);
+                        };
+                    }
+                }
+            }
+        }
+    }
+}
+
+package Memcached::ProxyRoutelibTLS;
+use strict;
+use warnings;
+
+use IO::Socket::SSL;
+use Test::More;
+use Data::Dumper;
+
+sub add_memcached {
+    my ($class) = shift;
+    my $mem = shift;
+
+    my $tls = $mem->{-memcached_tls};
+    my $cert_name = $class->{-cert_name};
+
+    my @opts = ("host = '127.0.0.1'");
+    push (@opts, "port = " . $mem->{-memcached_ports}->{$tls});
+    push (@opts, "tls = " . ($tls eq "notls" ? "false" : "true"));
+    my $certs = Memcached::TLSTest::get_cert($cert_name);
+    if ($tls =~ /^mtls/ && $certs &&  keys %$certs) {
+        push (@opts, map { "$_ = '" . $certs->{$_} . "'"} qw/ssl_chain_cert ssl_key/);
+        push (@opts, "ssl_ca_cert = '" . Memcached::TLSTest::get_cert("ca_cert") . "'");
+        push (@opts, "tls_type = '$tls'");
+    }
+
+  return @opts;
+}
+
+sub new {
+    my ($class) = shift;
+    my %args = (
+        -cert_name => "client",
+        -ssl_verify_mode => SSL_VERIFY_NONE,
+        -check_hostname => 1,
+        -routelib_lua => "./t/proxyroutelibtls.lua",
+        -routelib_backeds_lua => undef,
+        -memcached_objs => [],
+        -ssl_verify_name => [],
+        -options => "",
+        @_);
+
+    my $self = bless \%args, $class;
+
+    my $ext_path = $self->{-routelib_backeds_lua};
+    open(my $fh, ">",  $ext_path) or die "Couldn't write: $ext_path: $!";
+    print $fh "return {\n";
+    foreach my $mem (@{$self->{-memcached_objs}}) {
+        print $fh "\t{\n";
+        foreach my $str ($self->add_memcached($mem)) {
+            print $fh "\t\t$str,\n";
+        }
+        if (scalar (@{$self->{-ssl_verify_name}}) > 1) {
+            my @arr = map { "'" . $_ . "'" } @{$self->{-ssl_verify_name}};
+            print $fh "\t\tssl_verify_name = { ";
+            print $fh join(", ", @arr);
+            print $fh " },\n";
+        } elsif (scalar (@{$self->{-ssl_verify_name}}) == 1) {
+            print $fh "\t\tssl_verify_name = '" . $self->{-ssl_verify_name}->[0] . "',\n";
+        }
+        print $fh "\t},\n";
+    }
+    print $fh " }\n";
+    close($fh);
+
+    my $tcp_port = MemcachedTest::free_port();
+    my $server = MemcachedTest::new_memcached("-o proxy_config=routelib,proxy_arg=" . $args{-routelib_lua}
+                                              . " -l 127.0.0.1:$tcp_port $args{-options}",
+                                              $tcp_port, -disable_ssl => 1);
+    my $stats = MemcachedTest::mem_stats($server->sock);
+    cmp_ok($stats->{total_connections}, '>', 0, "Proxy initial connection is established");
+
+    $self->{-port} = $tcp_port;
+    $self->{-server} = $server;
+    return $self;
+}
+
+sub basic_testing {
+    my $self = shift;
+    my ($cert_name, $server_cert, $type, $ssl_verify, $check_hostname) = @_;
+
+    my $sock = $self->{-server}->sock;
+
+    print $sock "set foo 0 0 6\r\nfooval\r\n";
+    my $str = scalar <$sock>;
+
+    my $test = 1;
+    if ($type =~ /^mtls/ && (!$cert_name || $cert_name eq "expired" || !$server_cert || $server_cert eq "expired")) {
+        if ($ssl_verify == SSL_VERIFY_NONE) {
+            $test = 0;
+        }elsif ($ssl_verify != SSL_VERIFY_NONE && !$check_hostname) {
+            $test = 0;
+        } elsif ($check_hostname) {
+            $test = 0;
+        }
+    }
+
+    unless ($test) {
+        ok($str =~ /backend failur/, "Stored func fail on backend");
+        return 0;
+    } elsif ($test) {
+        is($str, "STORED\r\n", "stored foo");
+    }
+
+    MemcachedTest::mem_get_is($sock, "foo", "fooval");
+
+    print $sock "set foo 0 0 3\r\nnew\r\n";
+    is(scalar <$sock>, "STORED\r\n", "stored foo = 'new'");
+    return MemcachedTest::mem_get_is($sock, "foo", 'new');
+}
+
+DESTROY {
+    my ($class) = shift;
+    unlink $class->{-routelib_backeds_lua};
 }
 
 1;
