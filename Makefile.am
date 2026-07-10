@@ -154,7 +154,7 @@ memcached_debug_dtrace.o: $(memcached_debug_OBJECTS)
 SUBDIRS = doc
 DIST_DIRS = scripts
 EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4 README.md LICENSE.bipbuffer
-EXTRA_DIST += vendor/Makefile vendor/lua/doc/* vendor/lua/Makefile vendor/lua/README
+EXTRA_DIST += vendor/Makefile vendor/lua/doc/* vendor/lua/Makefile vendor/lua/README parallel.mk
 EXTRA_DIST += vendor/lua/src/*.c vendor/lua/src/*.h vendor/lua/src/Makefile
 EXTRA_DIST += vendor/mcmc/LICENSE vendor/mcmc/Makefile vendor/mcmc/README.md vendor/mcmc/*.c vendor/mcmc/*.h
 EXTRA_DIST += vendor/routelib/*.h vendor/routelib/*.lua
@@ -165,15 +165,18 @@ endif
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
+@INC_PARALLEL_MK@
+
 if ENABLE_TLS
+
 test_tls:
 	$(MAKE) SSL_TEST=1 test
 
 test_basic_tls:
-	@if test $(SSL_TEST)1 != 1; then \
+	@if [ "$(SSL_TEST)" = "1" ]; then \
 	  echo "Running basic tests with TLS"; \
 	  $(builddir)/testapp && \
-	  prove $(srcdir)/t/binary.t $(srcdir)/t/getset.t $(srcdir)/t/ssl* && \
+	  prove $(PARALLEL) $(srcdir)/t/binary.t $(srcdir)/t/getset.t $(srcdir)/t/ssl* && \
 	  echo "Finished running basic TLS tests"; \
 	else \
 	  echo "Set SSL_TEST=1 to enable TLS tests"; \
@@ -184,15 +187,11 @@ test:	memcached-debug sizes testapp
 	$(builddir)/sizes
 	$(builddir)/testapp
 if ENABLE_TLS
-	@if test $(SSL_TEST)1 = 1; then \
-          $(MAKE) SSL_TEST=1  test_basic_tls; \
+	@if [ "$(SSL_TEST)" = "1" ]; then \
+          $(MAKE) SSL_TEST=1 test_basic_tls; \
 	fi
 endif
-	@if test -n "${PARALLEL}"; then \
-	  prove $(srcdir)/t -j ${PARALLEL}; \
-	else \
-	  prove $(srcdir)/t; \
-	fi
+	@prove $(PARALLEL) $(srcdir)/t
 	@if test `basename $(PROFILER)` = "gcov"; then \
 	  for file in memcached_debug-*.gc??; do \
 	    mv -f $$file `echo $$file | sed 's/memcached_debug-//'`; \
@@ -232,3 +231,4 @@ maintainer-clean-local:
 	-rm configure
 	-rm config.log
 	-rm config.status
+

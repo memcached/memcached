@@ -8,14 +8,17 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-my $server = new_memcached();
+my $port = free_port();
+my $server = new_memcached(undef, $port, -disable_ssl => 1);
+
 test_maxconns($server);
 
 my $ext_path;
 if (supports_extstore()) {
     $ext_path = "/tmp/extstore.$$";
 
-    my $server = new_memcached("-m 64 -U 0 -o ext_path=$ext_path:64m");
+    my $port = free_port();
+    my $server = new_memcached("-m 64 -U 0 -o ext_path=$ext_path:64m", $port, -disable_ssl => 1);
     test_maxconns($server);
 }
 

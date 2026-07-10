@@ -79,6 +79,9 @@ make %{?_smp_mflags}
 
 
 %check
+%if %{defined _smp_mflags}
+export PARALLEL=%{_smp_mflags}
+%endif
 make test
 
 
