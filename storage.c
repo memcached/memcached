@@ -91,6 +91,9 @@ void process_extstore_stats(ADD_STAT add_stats, void *c) {
     }
     extstore_get_stats(storage, &st);
     st.page_data = calloc(st.page_count, sizeof(struct extstore_page_data));
+    if (st.page_data == NULL) {
+        return;
+    }
     extstore_get_page_data(storage, &st);
 
     for (i = 0; i < st.page_count; i++) {
@@ -302,7 +305,7 @@ int storage_get_item(LIBEVENT_THREAD *t, item *it, mc_resp *resp) {
         // but we still can't load objects requiring > IOV_MAX iovs.
         // In the meantime, these objects are rare/slow enough that
         // malloc/freeing a statically sized object won't cause us much pain.
-        eio->iov = malloc(sizeof(struct iovec) * IOV_MAX);
+        eio->iov = calloc(IOV_MAX, sizeof(struct iovec));
         if (eio->iov == NULL) {
             item_remove(new_it);
             do_cache_free(t->io_cache, p);
