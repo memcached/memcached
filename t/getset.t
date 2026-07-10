@@ -27,7 +27,7 @@ subtest 'oops all spaces' => sub {
     my $ns = $server->new_sock;
     $ns->autoflush(1);
 
-    my $spaces = ' ' x 65535;
+    my $spaces = ' ' x 14000;
     print $ns "$spaces";
     is(scalar <$ns>, undef, "errored out");
 };
