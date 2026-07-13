@@ -275,8 +275,8 @@ static int _logger_parse_ide(logentry *e, char *scratch) {
         cmd = cmd_map[le->cmd];
 
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-                     "ts=%d.%d gid=%llu type=deleted key=%s cmd=%s clsid=%u size=%d\n",
-                     (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+                     "ts=%lld.%d gid=%llu type=deleted key=%s cmd=%s clsid=%u size=%d\n",
+                     (long long int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
                      keybuf, cmd, le->clsid,
                      le->nbytes > 0 ? le->nbytes - 2 : 0); // CLRF
     return total;
