@@ -33,6 +33,7 @@
 #include "queue.h"
 #define XXH_INLINE_ALL // modifier for xxh3's include below
 #include "xxhash.h"
+#include "farmhash.h"
 
 #ifdef PROXY_DEBUG
 #define P_DEBUG(...) \
@@ -759,6 +760,7 @@ int mcplib_response_close(lua_State *L);
 
 int mcplib_open_dist_jump_hash(lua_State *L);
 int mcplib_open_dist_ring_hash(lua_State *L);
+int mcplib_open_dist_modulo(lua_State *L);
 
 int proxy_run_rcontext(mcp_rcontext_t *rctx);
 mcp_backend_t *mcplib_pool_proxy_call_helper(mcp_pool_proxy_t *pp, const char *key, size_t len);
@@ -780,6 +782,7 @@ int proxy_thread_loadconf(proxy_ctx_t *ctx, LIBEVENT_THREAD *thr);
 
 // TODO (v2): more .h files, perhaps?
 int mcplib_open_hash_xxhash(lua_State *L);
+int mcplib_open_hash_farmhash(lua_State *L);
 
 __attribute__((unused)) void dump_stack(lua_State *L, const char *msg);
 __attribute__((unused)) void dump_registry(lua_State *L, const char *msg);
