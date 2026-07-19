@@ -24,6 +24,15 @@ my ($from, $to);
 my $limit;
 my $unescape = 0;
 
+eval {
+    if ($addr =~ /^tls:/) {
+        require IO::Socket::SSL;
+    }
+    1;
+} or do {
+    die "IO::Socket::SSL is not available: $@";
+};
+
 if ($mode eq "display") {
     undef $mode if @ARGV;
 } elsif ($mode eq "move") {
@@ -67,7 +76,7 @@ if ($mode eq "display") {
 undef $mode if @ARGV;
 
 die
-    "Usage: memcached-tool <host[:port] | /path/to/socket> [mode]\n
+    "Usage: memcached-tool <host[:port] | [tls:]host[:port] | /path/to/socket> [mode]\n
        memcached-tool 10.0.0.5:11211 display           # shows slabs
        memcached-tool 10.0.0.5:11211                   # same.  (default is display)
        memcached-tool 10.0.0.5:11211 stats             # shows general stats
@@ -94,10 +103,19 @@ sub server_connect {
     else {
         $addr .= ':11211' unless $addr =~ /:\d+$/;
 
-        $sock = IO::Socket::INET->new(
-            PeerAddr => $addr,
-            Proto    => 'tcp',
-        );
+        if ($addr =~ /^tls:/) {
+            $addr =~ s/^tls://;
+            $sock = IO::Socket::SSL->new(
+                PeerAddr => $addr,
+                Proto    => 'tcp',
+                SSL_verify_mode => IO::Socket::SSL->SSL_VERIFY_NONE,
+            );
+        } else {
+            $sock = IO::Socket::INET->new(
+                PeerAddr => $addr,
+                Proto    => 'tcp',
+            );
+        }
     }
     die "Couldn't connect to $addr\n" unless $sock;
     return $sock;
@@ -268,8 +286,8 @@ foreach my $n (1..$max) {
         sprintf("%.1fK", $it->{chunk_size} / 1024.0);
     my $full = $it->{used_chunks} == $it->{total_chunks} ? "yes" : " no";
     printf("%3d %8s %9ds %7d %7d %7s %8d %8d %4d\n",
-           $n, $size, $it->{age}, $it->{total_pages},
-           $it->{number}, $full, $it->{evicted},
-           $it->{evicted_time}, $it->{outofmemory});
+        $n, $size, $it->{age}, $it->{total_pages},
+        $it->{number}, $full, $it->{evicted},
+        $it->{evicted_time}, $it->{outofmemory});
 }
 
