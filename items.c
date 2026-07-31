@@ -973,12 +973,10 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
 /** wrapper around assoc_find which does the lazy expiration logic */
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, LIBEVENT_THREAD *t, const bool do_update) {
     item *it = assoc_find(key, nkey, hv);
-    if (it != NULL) {
-        refcount_incr(it);
-    }
     int was_found = 0;
 
     if (it != NULL) {
+        refcount_incr(it);
         was_found = 1;
         if (item_is_flushed(it)) {
             do_item_unlink(it, hv);
