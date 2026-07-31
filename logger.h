@@ -92,7 +92,7 @@ struct logentry_ext_write {
 };
 #endif
 struct logentry_item_get {
-    uint8_t was_found;
+    uint8_t status;
     uint8_t nkey;
     uint8_t clsid;
     int nbytes;
