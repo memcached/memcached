@@ -978,29 +978,30 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, LIBEVEN
     if (it != NULL) {
         refcount_incr(it);
         status = ITEM_GET_FOUND;
+
         if (item_is_flushed(it)) {
-            do_item_unlink(it, hv);
-            STORAGE_delete(t->storage, it);
-            do_item_remove(it);
-            it = NULL;
-            pthread_mutex_lock(&t->stats.mutex);
-            t->stats.get_flushed++;
-            pthread_mutex_unlock(&t->stats.mutex);
             status = ITEM_GET_FLUSHED;
         } else if (it->exptime != 0 && it->exptime <= current_time) {
-            do_item_unlink(it, hv);
-            STORAGE_delete(t->storage, it);
-            do_item_remove(it);
-            it = NULL;
-            pthread_mutex_lock(&t->stats.mutex);
-            t->stats.get_expired++;
-            pthread_mutex_unlock(&t->stats.mutex);
             status = ITEM_GET_EXPIRED;
         } else {
             if (do_update) {
                 do_item_bump(t, it, hv);
             }
             DEBUG_REFCNT(it, '+');
+        }
+
+        if (status == ITEM_GET_FLUSHED || status == ITEM_GET_EXPIRED) {
+            do_item_unlink(it, hv);
+            STORAGE_delete(t->storage, it);
+            do_item_remove(it);
+            it = NULL;
+            pthread_mutex_lock(&t->stats.mutex);
+            if (status == ITEM_GET_FLUSHED) {
+                t->stats.get_flushed++;
+            } else {
+                t->stats.get_expired++;
+            }
+            pthread_mutex_unlock(&t->stats.mutex);
         }
     }
 
