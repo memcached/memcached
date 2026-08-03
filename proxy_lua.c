@@ -944,7 +944,7 @@ static int mcplib_pool(lua_State *L) {
             len = MAX_LABELLEN-1;
         }
         memcpy(p->beprefix, bepfx, len);
-        p->beprefix[len+1] = '\0';
+        p->beprefix[len] = '\0';
         lua_pop(L, 1); // pop beprefix string.
     } else {
         lua_pop(L, 1); // pop the nil.
