@@ -1,0 +1,8 @@
+<service>
+  <id>Memcached</id>
+  <name>Memcached</name>
+  <description>High-performance, distributed memory object caching system.</description>
+  <executable>%BASE%\memcached.exe</executable>
+  <arguments>-m 64 -p 11211</arguments>
+  <log mode="roll"></log>
+</service>

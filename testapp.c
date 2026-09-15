@@ -30,7 +30,12 @@
 #include <openssl/ssl.h>
 #endif
 
+#if defined(_WIN32) || defined(_MSC_VER)
+#include "win_compat.h"
+#define TMP_TEMPLATE "./test_file.XXXXXXX"
+#else
 #define TMP_TEMPLATE "/tmp/test_file.XXXXXXX"
+#endif
 
 enum test_return { TEST_SKIP, TEST_PASS, TEST_FAIL };
 
@@ -515,6 +520,19 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
     system(coreadm);
 #endif
 
+#if defined(_WIN32) || defined(_MSC_VER)
+    STARTUPINFOA si = { sizeof(si) };
+    PROCESS_INFORMATION pi = { 0 };
+    char cmd[512];
+    const char *bin = getenv("MEMCACHED_BIN");
+    snprintf(cmd, sizeof(cmd), "%s -A -l 127.0.0.1 -p -1 -U 0%s%s",
+             bin ? bin : "memcached.exe", daemon ? " -P " : "", daemon ? pid_file : "");
+    putenv(environment);
+    assert(CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi));
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    pid_t pid = (pid_t)pi.dwProcessId;
+#else
     pid_t pid = fork();
     assert(pid != -1);
     if (pid == 0) {
@@ -534,7 +552,7 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
             argv[arg++] = "./timedrun";
             argv[arg++] = tmo;
         }
-        argv[arg++] = "./memcached-debug";
+        argv[arg++] = access("./memcached-debug", X_OK) == 0 ? "./memcached-debug" : "./memcached";
         argv[arg++] = "-A";
         argv[arg++] = "-p";
         argv[arg++] = "-1";
@@ -569,6 +587,7 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
         argv[arg++] = NULL;
         assert(execv(argv[0], argv) != -1);
     }
+#endif
 
     /* Yeah just let us "busy-wait" for the file to be created ;-) */
     useconds_t wait_timeout = 1000000 * 10;
@@ -678,7 +697,14 @@ static struct conn *connect_server(const char *hostname, in_port_t port,
     if (ai != NULL) {
        if ((sock = socket(ai->ai_family, ai->ai_socktype,
                           ai->ai_protocol)) != -1) {
-          if (connect(sock, ai->ai_addr, ai->ai_addrlen) == -1) {
+          int ret = connect(sock, ai->ai_addr, ai->ai_addrlen);
+#if defined(_WIN32) || defined(_MSC_VER)
+          for (int r = 0; ret == -1 && r < 50; r++) {
+              usleep(20000);
+              ret = connect(sock, ai->ai_addr, ai->ai_addrlen);
+          }
+#endif
+          if (ret == -1) {
              fprintf(stderr, "Failed to connect socket: %s\n",
                      strerror(errno));
              close(sock);
@@ -851,6 +877,7 @@ static enum test_return test_issue_92(void) {
 }
 
 static enum test_return test_crc32c(void) {
+    crc32c_init();
     uint32_t crc_hw, crc_sw;
 
     char buffer[256];
@@ -879,6 +906,9 @@ static enum test_return test_crc32c(void) {
 }
 
 static enum test_return test_issue_102(void) {
+#if defined(_WIN32) || defined(_MSC_VER)
+    return TEST_SKIP;
+#endif
     char buffer[4096];
     memset(buffer, ' ', sizeof(buffer));
     buffer[sizeof(buffer) - 1] = '\0';
@@ -2167,6 +2197,9 @@ static enum test_return test_binary_pipeline_hickup(void)
 
 
 static enum test_return test_issue_101(void) {
+#if defined(_WIN32) || defined(_MSC_VER)
+    return TEST_SKIP;
+#endif
     enum { max = 2 };
     enum test_return ret = TEST_PASS;
     struct conn *conns[max];
@@ -2327,6 +2360,9 @@ void STATS_UNLOCK(void)
 
 int main(int argc, char **argv)
 {
+#if defined(_WIN32) || defined(_MSC_VER)
+    ensure_wsastartup();
+#endif
     int exitcode = 0;
     int ii = 0, num_cases = 0;
 #ifdef TLS

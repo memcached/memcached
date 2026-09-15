@@ -42,3 +42,7 @@ memcached-*.tar.gz.sha1
 /memcached.spec
 .*.swp
 /compile_commands.json
+build_msvc/
+build/
+__pycache__/
+*.pyc

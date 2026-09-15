@@ -793,7 +793,7 @@ static void process_bin_complete_sasl_auth(conn *c) {
         return;
     }
 
-    char mech[nkey+1];
+    char mech[KEY_MAX_LENGTH + 1];
     memcpy(mech, ITEM_key((item*)c->item), nkey);
     mech[nkey] = 0x00;
 

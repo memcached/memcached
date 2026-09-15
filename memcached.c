@@ -2142,9 +2142,8 @@ void process_stats_conns(ADD_STAT add_stats, void *c) {
     int i;
     char key_str[STAT_KEY_LEN];
     char val_str[STAT_VAL_LEN];
-    size_t extras_len = sizeof(":unix:") + sizeof("65535");
-    char addr[MAXPATHLEN + extras_len];
-    char svr_addr[MAXPATHLEN + extras_len];
+    char addr[MAXPATHLEN + sizeof(":unix:") + sizeof("65535")];
+    char svr_addr[MAXPATHLEN + sizeof(":unix:") + sizeof("65535")];
     memset(addr, 0, sizeof(addr));
     memset(svr_addr, 0, sizeof(svr_addr));
     int klen = 0, vlen = 0;

@@ -1,0 +1,14 @@
+<CPackWiXPatch>
+  <!-- Inject the Windows Service installation into the component generated for memcached-service.exe -->
+  <CPackWiXFragment Id="CM_CP_memcached.bin.memcached_service.exe">
+    <ServiceInstall Id="ServiceInstaller"
+                    Type="ownProcess"
+                    Name="Memcached"
+                    DisplayName="Memcached Server"
+                    Description="High-performance, distributed memory object caching system."
+                    Start="auto"
+                    Account="LocalSystem"
+                    ErrorControl="normal" />
+    <ServiceControl Id="StartService" Start="install" Stop="both" Remove="uninstall" Name="Memcached" Wait="yes" />
+  </CPackWiXFragment>
+</CPackWiXPatch>
