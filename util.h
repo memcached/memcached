@@ -28,7 +28,7 @@ extern uint64_t htonll(uint64_t);
 extern uint64_t ntohll(uint64_t);
 #endif
 
-#ifdef __GCC
+#if defined(__GNUC__) || defined(__clang__)
 # define __gcc_attribute__ __attribute__
 #else
 # define __gcc_attribute__(x)
