@@ -34,7 +34,7 @@ my $sock = $server->sock;
 # - k: return key
 # - q: noreply semantics.
 # - u: don't bump the item in LRU
-# - C(token): if does not match, do never return value
+# - C(token): if does not match, never return value
 # updaters:
 # - N(token): vivify on miss, takes TTL as a argument
 # - R(token): if token is less than item TTL win for recache
@@ -59,6 +59,7 @@ my $sock = $server->sock;
 # - O(token): opaque to copy back.
 # - k: return key
 # - I: invalid. set-to-invalid if CAS is older than it should be.
+# - W: allow CAS write if miss or supplied CAS is higher.
 # - M(token): mode switch.
 #   - default to "set"
 #   - E: add mode
@@ -77,6 +78,8 @@ my $sock = $server->sock;
 # - I: invalidate. mark as stale, bumps CAS.
 # - O(token): opaque to copy back.
 # - k: return key
+# - x: remove value, leave item as tombstone
+# - W: allow CAS write if miss or supplied CAS is higher.
 #
 # ma [key] [flags]\r\n
 # response:
@@ -110,37 +113,26 @@ my $sock = $server->sock;
 # response:
 # MN\r\n
 
-# Test basic parser.
-{
+subtest 'blank request' => sub {
     print $sock " \n";
     is(scalar <$sock>, "CLIENT_ERROR bad command line format\r\n", "error from blank command");
-}
+};
 
-{
-    print $sock "set foo 0 0 2\r\nhi\r\n";
-    is(scalar <$sock>, "STORED\r\n", "stored test value");
-
-    print $sock "me none\r\n";
-    is(scalar <$sock>, "EN\r\n", "raw mget miss");
-
-    print $sock "me foo\r\n";
-    like(scalar <$sock>, qr/^ME foo /, "raw mget result");
-}
-
-# mdelete had excess space before newline.
-{
+subtest 'md had extra space before newline' => sub {
     print $sock "md deltest\r\n";
     is(scalar <$sock>, "NF\r\n", "delete status is correct");
+    print $sock "ms foo 2\r\nhi\r\n";
+    is(scalar <$sock>, "HD\r\n", "seed set");
     print $sock "md foo\r\n";
     is(scalar <$sock>, "HD\r\n", "delete status is correct");
-}
+};
 
 # mget with arguments
 # - set some specific TTL and get it back (within reason)
 # - get cas
 # - autovivify and bit-win
 
-{
+subtest 'basic mg with arguments' => sub {
     print $sock "set foo2 0 90 2\r\nho\r\n";
     is(scalar <$sock>, "STORED\r\n", "stored test value");
 
@@ -151,10 +143,9 @@ my $sock = $server->sock;
 
     # FIXME: figure out what I meant to do here.
     #my $res = mget($sock, 'foo2', 's t v');
-}
+};
 
-{
-    note "ensure mset flag reflection doesn't bleed";
+subtest 'ensure ms flag reflection does not leak' => sub {
     # mset return flags are internally implemented by stashing the flags in
     # the write buffer then re-parsing them later (to preserve order...) so we
     # need to check extra that I'm not being a dingus and forgetting a break
@@ -173,10 +164,9 @@ my $sock = $server->sock;
 
     print $sock "ms a 1 k\r\n1\r\n";
     like(scalar <$sock>, qr/^HD ka\r\n/, "k flag");
-}
+};
 
-{
-    note "client flags";
+subtest 'client flags' => sub {
     my @fset = (0, 123, 2**16-1, 2**31);
     my $stats = mem_stats($sock, "settings");
     if ($stats->{client_flags_size} == 8) {
@@ -190,10 +180,9 @@ my $sock = $server->sock;
         my $res = mget($sock, 'a', 'f');
         is(get_flag($res, 'f'), $flags, "client flags $flags returned");
     }
-}
+};
 
-{
-    note "basic mset CAS";
+subtest 'basic ms CAS' => sub {
     my $key = "msetcas";
     print $sock "ms $key 2\r\nbo\r\n";
     like(scalar <$sock>, qr/^HD/, "set test key");
@@ -208,9 +197,9 @@ my $sock = $server->sock;
 
     print $sock "ms $key 2 c C$cas\r\nio\r\n";
     like(scalar <$sock>, qr/^HD c\d+/, "success on correct cas");
-}
+};
 
-subtest 'mset with E CAS override' => sub {
+subtest 'ms with E CAS override' => sub {
     my $key = "msetE";
     my $cas = "973";
     print $sock "ms $key 2 E$cas\r\nji\r\n";
@@ -224,7 +213,7 @@ subtest 'mset with E CAS override' => sub {
     like(scalar <$sock>, qr/^HD c$cas2/, "overwrite test key with new CAS");
 };
 
-subtest 'mget vivify with CAS override' => sub {
+subtest 'mg vivify with CAS override' => sub {
     my $k = "mgetE";
     my $cas = "9876";
     my $res = mget($sock, $k, "s c v N30 t E$cas");
@@ -238,7 +227,7 @@ subtest 'mget vivify with CAS override' => sub {
     is(get_flag($res, 'c'), $cas, "CAS was not overridden");
 };
 
-subtest 'mdelete with CAS override' => sub {
+subtest 'md with CAS override' => sub {
     my $k = "mdelE";
     my $cas = "1234";
 
@@ -258,7 +247,7 @@ subtest 'mdelete with CAS override' => sub {
     is(get_flag($res, 'c'), $ncas, "got cas value back");
 };
 
-subtest 'marith with CAS override' => sub {
+subtest 'ma with CAS override' => sub {
     my $k = "maE";
     my $cas = "4321";
 
@@ -279,8 +268,7 @@ subtest 'marith with CAS override' => sub {
     is(get_flag($res, 'c'), $ncas, "CAS came back");
 };
 
-{
-    note "mdelete with cas";
+subtest 'md with CAS' => sub {
     my $key = "mdeltest";
     print $sock "ms $key 2\r\nzo\r\n";
     like(scalar <$sock>, qr/^HD/, "set test key");
@@ -294,10 +282,48 @@ subtest 'marith with CAS override' => sub {
     like(scalar <$sock>, qr/^EX/, "mdelete fails for wrong CAS");
     print $sock "md $key C$cas\r\n";
     like(scalar <$sock>, qr/^HD/, "mdeleted key");
-}
+};
 
-{
-    note "encoded binary keys";
+### TODO NEW TESTS:
+# - ms with W
+#   - CAS and no CAS and E + now CAS and E + CAS
+#   - lower CAS, equal CAS, higher CAS
+#   - with I
+#   - MR/MA/etc
+#   - on all stages, fetch and validate CAS is as expected
+# - md with W
+#   - no CAS, CAS
+#   - x, no x, x + I
+#   - low, equal, high
+#   - re-fetch and ensure CAS and value are correct
+
+subtest 'ms W flag LWW' => sub {
+    my $k = 'lww1';
+    print $sock "ms $k 2 c\r\nqu\r\n";
+    my $res = parse_res(scalar <$sock>);
+    ok($res && $res->{status} eq 'HD', "proper response");
+    my $cas = get_flag($res, 'c');
+    ok($cas, "cas is defined and nonzero");
+
+    # With W flag, attempt: CAS low, equal, high
+    for my $t ([$cas-1, "EX"], [$cas, "EX"], [$cas+1, "HD"]) {
+        my $ncas = $t->[0];
+        ok($ncas != 0);
+        print $sock "ms $k 2 W c C$ncas\r\nxx\r\n";
+        my $res = parse_res(scalar <$sock>);
+        ok($res && $res->{status} eq $t->[1], "proper response: $res->{status}");
+        if ($res->{status} eq 'HD') {
+            my $rc = get_flag($res, 'c');
+            is($rc, $cas+1, "HD updated CAS");
+        }
+    }
+
+    # TODO: decide: If W inherits C then E becomes pointless with W.
+    # Are there cases where this needs to differ?
+    # Does E become required to stay consistent?
+};
+
+subtest 'encoded binary keys' => sub {
     # 44OG44K544OI is "tesuto" in katakana
     my $tesuto = "44OG44K544OI";
     print $sock "ms $tesuto 2 b\r\npo\r\n";
@@ -311,10 +337,9 @@ subtest 'marith with CAS override' => sub {
 
     # TODO: test k is returned properly from ms.
     # validate the store data is smaller somehow?
-}
+};
 
-{
-    note "marithmetic tests";
+subtest 'ma tests' => sub {
     print $sock "ma mo\r\n";
     like(scalar <$sock>, qr/^NF\r/, "incr miss");
 
@@ -377,12 +402,9 @@ subtest 'marith with CAS override' => sub {
     my $ncas = get_flag($res, 'c');
     is($res->{val}, '1', 'ticked after CAS increment');
     isnt($cas, $ncas, 'CAS increments during modification');
-}
+};
 
-# mset tests with mode switch flag (M)
-
-{
-    note "mset mode switch";
+subtest 'ms mode switch' => sub {
     print $sock "ms modedefault 2 T120\r\naa\r\n";
     like(scalar <$sock>, qr/^HD/, "default set mode");
     mget_is({ sock => $sock,
@@ -433,10 +455,9 @@ subtest 'marith with CAS override' => sub {
     # invalid mode
     print $sock "ms modetest 2 T120 MZ\r\ntt\r\n";
     like(scalar <$sock>, qr/^CLIENT_ERROR /, "invalid mode");
-}
+};
 
-# Append tests
-{
+subtest 'ms append mode' => sub {
     print $sock "ms appendcas 2 MA C5000 T30\r\nhi\r\n";
     is(scalar <$sock>, "NS\r\n", "ms append with bad cas");
     print $sock "ms appendcas 2 MA T30\r\nhi\r\n";
@@ -459,7 +480,7 @@ subtest 'marith with CAS override' => sub {
     # Test full size on append.
     print $sock "ms appendviv 2 MA N30 s\r\nko\r\n";
     is(scalar <$sock>, "HD s4\r\n", "got appended length");
-}
+};
 
 # lease-test, use two sockets? one socket should be fine, actually.
 # - get a win on autovivify
@@ -469,7 +490,7 @@ subtest 'marith with CAS override' => sub {
 # - repeat for "triggered on TTL"
 # - test just modifying the TTL (touch)
 # - test fetching without value
-{
+subtest 'lease test' => sub {
     my $res = mget($sock, 'needwin', 's c v N30 t');
     like($res->{flags}, qr/[scvNt]+/, "got main flags back");
     like($res->{flags}, qr/W/, "got a win result");
@@ -540,10 +561,9 @@ subtest 'marith with CAS override' => sub {
     ok($res->{size} == 4, "Size returned correctly");
     is($res->{val}, "zuuu", "value matches: " . $res->{val});
 
-}
+};
 
-# test get-and-touch mode
-{
+subtest 'get-and-touch mode' => sub {
     # Set key with lower initial TTL.
     print $sock "ms gatkey 4 T100\r\nooom\r\n";
     like(scalar <$sock>, qr/^HD/, "set gatkey");
@@ -556,10 +576,9 @@ subtest 'marith with CAS override' => sub {
     unlike($res->{flags}, qr/[WZ]/, "not a win or token result");
     my $ttl = get_flag($res, 't');
     ok($ttl > 280 && $ttl <= 300, "TTL is within requested window: $ttl");
-}
+};
 
-# test no-value mode
-{
+subtest 'mg without value' => sub {
     # Set key with lower initial TTL.
     print $sock "ms hidevalue 4 T100\r\nhide\r\n";
     like(scalar <$sock>, qr/^HD/, "set hidevalue");
@@ -571,10 +590,9 @@ subtest 'marith with CAS override' => sub {
     $res = mget($sock, 'hidevalue', 's t v');
     ok(keys %$res, "not a miss");
     is($res->{val}, 'hide', "real value returned");
-}
+};
 
-# test hit-before? flag
-{
+subtest 'hit before flag' => sub {
     print $sock "ms hitflag 3 T100\r\nhit\r\n";
     like(scalar <$sock>, qr/^HD/, "set hitflag");
 
@@ -585,10 +603,9 @@ subtest 'marith with CAS override' => sub {
     $res = mget($sock, 'hitflag', 's t h');
     ok(keys %$res, "not a miss");
     is(get_flag($res, 'h'), 1, "been hit before");
-}
+};
 
-# test no-update flag
-{
+subtest 'no-update flag' => sub {
     print $sock "ms noupdate 3 T100\r\nhit\r\n";
     like(scalar <$sock>, qr/^HD/, "set noupdate");
 
@@ -603,10 +620,9 @@ subtest 'marith with CAS override' => sub {
 
     $res = mget($sock, 'noupdate', 's t u h');
     is(get_flag($res, 'h'), 1, "finally a hit");
-}
+};
 
-# test last-access time
-{
+subtest 'last access time' => sub {
     print $sock "ms la_test 2 T100\r\nla\r\n";
     like(scalar <$sock>, qr/^HD/, "set la_test");
     sleep 2;
@@ -614,10 +630,9 @@ subtest 'marith with CAS override' => sub {
     my $res = mget($sock, 'la_test', 's t l');
     ok(keys %$res, "not a miss");
     isnt(get_flag($res, 'l'), 0, "been over a second since most recently accessed");
-}
+};
 
-# CAS to mask value flag
-{
+subtest 'CAS to mask value flag' => sub {
     print $sock "ms va_set 2 c\r\nva\r\n";
     my $res = scalar <$sock>;
     like($res, qr/^HD c/, "set va_set");
@@ -633,7 +648,7 @@ subtest 'marith with CAS override' => sub {
 
     mget_is({ sock => $sock, flags => 'C99999 v c', eflags => "c$cas" }, 'va_set', 'va',
             "got value from mismatched CAS");
-}
+};
 
 # high level tests:
 # - mget + mset with serve-stale
@@ -646,8 +661,7 @@ subtest 'marith with CAS override' => sub {
 #   - also test re-setting as stale (CAS is below requested)
 #     - this should probably be conditional.
 
-{
-    note "starting serve stale with mdelete";
+subtest 'serve stale with md' => sub {
     my ($ttl, $cas, $res);
     print $sock "set toinv 0 0 3\r\nmoo\r\n";
     is(scalar <$sock>, "STORED\r\n", "stored key 'toinv'");
@@ -705,13 +719,12 @@ subtest 'marith with CAS override' => sub {
     ok($cas != get_flag($res, 'c'), "CAS was updated");
     is($res->{size}, 1, "size updated");
     is($res->{val}, "g", "value was updated");
-}
+};
 
 # Quiet flag suppresses most output. Badly invalid commands will still
 # generate something. Not weird to parse like 'noreply' token was...
 # mget's with hits should return real data.
-{
-    note "testing quiet flag";
+subtest 'quiet flag' => sub {
     print $sock "ms quiet 2 q\r\nmo\r\n";
     print $sock "md quiet q\r\n";
     print $sock "mg quiet s v q\r\n";
@@ -733,26 +746,23 @@ subtest 'marith with CAS override' => sub {
     # should return data anyway.
     print $sock "mg quietautov s N30 t q\r\n";
     like(scalar <$sock>, qr/^HD s0/, "quiet doesn't override autovivication");
-}
+};
 
-{
+subtest 'mget opaque' => sub {
     my $k = 'otest';
-    note "testing mget opaque";
     print $sock "ms $k 2 T100\r\nra\r\n";
     like(scalar <$sock>, qr/^HD/, "set $k");
 
     my $res = mget($sock, $k, 't v Oopaque');
     is(get_flag($res, 'O'), 'opaque', "O flag returned opaque");
-}
+};
 
-{
-    note "flag and token count errors";
+subtest 'flag and token count errors' => sub {
     print $sock "mg foo m o o o o o o o o o\r\n";
     like(scalar <$sock>, qr/^CLIENT_ERROR invalid flag/, "gone silly with flags");
-}
+};
 
-{
-    note "pipeline test";
+subtest 'pipeline test' => sub {
     my $sock = $server->new_sock;
     print $sock "ms foo 2 T100\r\nna\r\n";
     like(scalar <$sock>, qr/^HD/, "set foo");
@@ -760,7 +770,7 @@ subtest 'marith with CAS override' => sub {
     like(scalar <$sock>, qr/^HD /, "got resp");
     like(scalar <$sock>, qr/^HD /, "got resp");
     is(scalar <$sock>, undef, "final get didn't run");
-}
+};
 
 subtest 'md x and I flags' => sub {
     my $k = 'mdx';
@@ -789,74 +799,6 @@ subtest 'md x and I flags' => sub {
     is($res->{val}, '', 'value zeroed out');
     ok(find_flags($res, 'XW'), "got win and stale flags back");
 };
-
-# TODO: move wait_for_ext into Memcached.pm
-sub wait_for_ext {
-    my $sock = shift;
-    my $target = shift || 0;
-    my $sum = $target + 1;
-    while ($sum > $target) {
-        my $s = mem_stats($sock, "items");
-        $sum = 0;
-        for my $key (keys %$s) {
-            if ($key =~ m/items:(\d+):number/) {
-                # Ignore classes which can contain extstore items
-                next if $1 < 3;
-                $sum += $s->{$key};
-            }
-        }
-        sleep 1 if $sum > $target;
-    }
-}
-
-my $ext_path;
-# Do a basic extstore test if enabled.
-if (supports_extstore()) {
-    note "mget + extstore tests";
-    $ext_path = "/tmp/extstore.$$";
-    my $server = new_memcached("-m 64 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path:64m,slab_automove=0,ext_compact_under=1,no_lru_crawler");
-    my $sock = $server->sock;
-
-    my $value;
-    {
-        my @chars = ("C".."Z");
-        for (1 .. 20000) {
-            $value .= $chars[rand @chars];
-        }
-    }
-
-    my $keycount = 10;
-    for (1 .. $keycount) {
-        print $sock "set nfoo$_ 0 0 20000 noreply\r\n$value\r\n";
-    }
-
-    wait_for_ext($sock);
-    mget_is({ sock => $sock,
-              flags => 's v',
-              eflags => 's20000' },
-            'nfoo1', $value, "retrieved test value");
-    my $stats = mem_stats($sock);
-    cmp_ok($stats->{get_extstore}, '>', 0, 'one object was fetched');
-
-    my $ovalue = $value;
-    for (1 .. 4) {
-        $value .= $ovalue;
-    }
-    # Fill to eviction.
-    $keycount = 1000;
-    for (1 .. $keycount) {
-        print $sock "set mfoo$_ 0 0 100000 noreply\r\n$value\r\n";
-        # wait to avoid memory evictions
-        wait_for_ext($sock, 1) if ($_ % 250 == 0);
-    }
-
-    print $sock "mg mfoo1 s v\r\n";
-    is(scalar <$sock>, "EN\r\n");
-    print $sock "mg mfoo1 s v q\r\nmn\r\n";
-    is(scalar <$sock>, "MN\r\n");
-    $stats = mem_stats($sock);
-    cmp_ok($stats->{miss_from_extstore}, '>', 0, 'at least one miss');
-}
 
 ###
 
@@ -963,9 +905,14 @@ sub mget_res {
 sub parse_res {
     my $resp = shift;
     my %r = ();
-    if ($resp =~ m/^(\w\w)\s*([^\r]+)\r\n/gm) {
+    if ($resp =~ m/^(\w\w)\s+([^\r]+)\r\n/gm) {
         $r{status} = $1;
         $r{flags} = $2;
+    } elsif ($resp =~ m/^(CLIENT|SERVER|ERROR)/) {
+        fail("bad result: $resp");
+        return undef;
+    } else {
+        return undef;
     }
 
     return \%r;
@@ -993,7 +940,3 @@ sub find_flags {
 }
 
 done_testing();
-
-END {
-    unlink $ext_path if $ext_path;
-}
