@@ -122,6 +122,16 @@ assert(strlen(name) < THR_NAME_MAXLEN);
 pthread_setname_np(thread, name);
 #endif
 }
+
+#if !defined(HAVE_PREAD) || !defined(HAVE_PREADV)
+// On platforms without pread/preadv the lseek+read fallback below shares one
+// file offset between every extstore IO thread (and the bg thread), which
+// races. Serialize access to the offset with a process-wide mutex so the
+// fallback stays correct. The mutex is only compiled in when needed, so
+// platforms with pread/preadv pay nothing.
+// See https://github.com/memcached/memcached/issues/814
+static pthread_mutex_t extstore_lseek_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
 #undef THR_NAME_MAXLEN
 
 static _store_wbuf *wbuf_new(size_t size) {
@@ -402,6 +412,23 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
 
     e->io_depth = cf->io_depth;
 
+#if !defined(HAVE_PREAD) || !defined(HAVE_PREADV)
+    // Without pread/preadv the lseek+read fallback shares one file offset
+    // between all IO threads (and the bg thread), which races if more than
+    // one thread runs. Force a single IO thread so the shared offset is
+    // only used serially; the bg thread still serializes against it via
+    // extstore_lseek_mutex. settings.ext_io_threadcount is left untouched
+    // so -h keeps reflecting the user-requested value.
+    // See https://github.com/memcached/memcached/issues/814
+    if (cf->io_threadcount > 1) {
+        fprintf(stderr, "extstore: built without pread/preadv; clamping "
+                "ext_threads from %u to 1, extra IO threads would race on "
+                "the shared file offset\n",
+                cf->io_threadcount);
+        cf->io_threadcount = 1;
+    }
+#endif
+
     // spawn threads
     e->io_threads = calloc(cf->io_threadcount, sizeof(store_io_thread));
     for (i = 0; i < cf->io_threadcount; i++) {
@@ -415,12 +442,18 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
     e->io_threadcount = cf->io_threadcount;
 
     // dedicated IO thread for certain non-hotpath functions.
+#if !defined(HAVE_PREAD) || !defined(HAVE_PREADV)
+    // Same race: bg_thread shares the same fds and runs the same lseek+read
+    // fallback. Fold it into io_threads[0] so all extstore IO is serial.
+    e->bg_thread = &e->io_threads[0];
+#else
     e->bg_thread = calloc(1, sizeof(store_io_thread));
     e->bg_thread->e = e;
     pthread_mutex_init(&e->bg_thread->mutex, NULL);
     pthread_cond_init(&e->bg_thread->cond, NULL);
     pthread_create(&thread, NULL, extstore_io_thread, e->bg_thread);
     thread_setname(thread, "mc-ext-bgio");
+#endif
 
     return (void *)e;
 }
@@ -902,6 +935,7 @@ static void *extstore_io_thread(void *arg) {
 #if !defined(HAVE_PREAD) || !defined(HAVE_PREADV)
                         // TODO: lseek offset is natively 64-bit on OS X, but
                         // perhaps not on all platforms? Else use lseek64()
+                        pthread_mutex_lock(&extstore_lseek_mutex);
                         ret = lseek(p->fd, p->offset + cur_io->offset, SEEK_SET);
                         if (ret >= 0) {
                             if (cur_io->iov == NULL) {
@@ -910,6 +944,7 @@ static void *extstore_io_thread(void *arg) {
                                 ret = readv(p->fd, cur_io->iov, cur_io->iovcnt);
                             }
                         }
+                        pthread_mutex_unlock(&extstore_lseek_mutex);
 #else
                         if (cur_io->iov == NULL) {
                             ret = pread(p->fd, cur_io->buf, cur_io->len, p->offset + cur_io->offset);
