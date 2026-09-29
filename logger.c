@@ -88,12 +88,11 @@ static void _logger_log_ext_write(logentry *e, const entry_details *d, const voi
     e->size = sizeof(struct logentry_ext_write) + le->nkey;
 }
 #endif
-// 0 == nf, 1 == found. 2 == flushed. 3 == expired.
 // might be useful to store/print the flags an item has?
 // could also collapse this and above code into an "item status" struct. wait
 // for more endpoints to be written before making it generic, though.
 static void _logger_log_item_get(logentry *e, const entry_details *d, const void *entry, va_list ap) {
-    int was_found = va_arg(ap, int);
+    enum item_get_result_type status = va_arg(ap, enum item_get_result_type);
     char *key = va_arg(ap, char *);
     int nkey = va_arg(ap, int);
     int nbytes = va_arg(ap, int);
@@ -101,7 +100,7 @@ static void _logger_log_item_get(logentry *e, const entry_details *d, const void
     int sfd = va_arg(ap, int);
 
     struct logentry_item_get *le = (struct logentry_item_get *) e->data;
-    le->was_found = was_found;
+    le->status = status;
     le->nkey = nkey;
     le->nbytes = nbytes;
     le->clsid = clsid;
@@ -235,14 +234,17 @@ static int _logger_parse_ige(logentry *e, char *scratch) {
     int total;
     struct logentry_item_get *le = (struct logentry_item_get *) e->data;
     char keybuf[KEY_MAX_URI_ENCODED_LENGTH];
-    const char * const was_found_map[] = {
-        "not_found", "found", "flushed", "expired" };
+    const char * const status_map[] = {
+        [ITEM_GET_NOT_FOUND] = "not_found",
+        [ITEM_GET_FOUND] = "found",
+        [ITEM_GET_FLUSHED] = "flushed",
+        [ITEM_GET_EXPIRED] = "expired" };
 
     uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
             "ts=%lld.%d gid=%llu type=item_get key=%s status=%s clsid=%u cfd=%d size=%d\n",
             (long long int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
-            keybuf, was_found_map[le->was_found], le->clsid, le->sfd,
+            keybuf, status_map[le->status], le->clsid, le->sfd,
             le->nbytes > 0 ? le->nbytes - 2 : 0); // CLRF
     return total;
 }

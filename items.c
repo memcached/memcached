@@ -973,54 +973,53 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
 /** wrapper around assoc_find which does the lazy expiration logic */
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, LIBEVENT_THREAD *t, const bool do_update) {
     item *it = assoc_find(key, nkey, hv);
-    if (it != NULL) {
-        refcount_incr(it);
-    }
-    int was_found = 0;
+    enum item_get_result_type status = ITEM_GET_NOT_FOUND;
 
     if (it != NULL) {
-        was_found = 1;
+        refcount_incr(it);
+        status = ITEM_GET_FOUND;
+
         if (item_is_flushed(it)) {
-            do_item_unlink(it, hv);
-            STORAGE_delete(t->storage, it);
-            do_item_remove(it);
-            it = NULL;
-            pthread_mutex_lock(&t->stats.mutex);
-            t->stats.get_flushed++;
-            pthread_mutex_unlock(&t->stats.mutex);
-            was_found = 2;
+            status = ITEM_GET_FLUSHED;
         } else if (it->exptime != 0 && it->exptime <= current_time) {
-            do_item_unlink(it, hv);
-            STORAGE_delete(t->storage, it);
-            do_item_remove(it);
-            it = NULL;
-            pthread_mutex_lock(&t->stats.mutex);
-            t->stats.get_expired++;
-            pthread_mutex_unlock(&t->stats.mutex);
-            was_found = 3;
+            status = ITEM_GET_EXPIRED;
         } else {
             if (do_update) {
                 do_item_bump(t, it, hv);
             }
             DEBUG_REFCNT(it, '+');
         }
+
+        if (status == ITEM_GET_FLUSHED || status == ITEM_GET_EXPIRED) {
+            do_item_unlink(it, hv);
+            STORAGE_delete(t->storage, it);
+            do_item_remove(it);
+            it = NULL;
+            pthread_mutex_lock(&t->stats.mutex);
+            if (status == ITEM_GET_FLUSHED) {
+                t->stats.get_flushed++;
+            } else {
+                t->stats.get_expired++;
+            }
+            pthread_mutex_unlock(&t->stats.mutex);
+        }
     }
 
     if (settings.verbose > 2) {
-        fprintf(stderr, "> %s ", was_found ? "FOUND KEY" : "NOT FOUND");
+        fprintf(stderr, "> %s ", status != ITEM_GET_NOT_FOUND ? "FOUND KEY" : "NOT FOUND");
         for (int ii = 0; ii < nkey; ++ii) {
             fprintf(stderr, "%c", key[ii]);
         }
-        if (was_found == 2) {
+        if (status == ITEM_GET_FLUSHED) {
             fprintf(stderr, " -removed by flush");
-        } else if (was_found == 3) {
+        } else if (status == ITEM_GET_EXPIRED) {
             fprintf(stderr, " -removed by expire");
         }
 
         fprintf(stderr, "\n");
     }
     /* For now this is in addition to the above verbose logging. */
-    LOGGER_LOG(t->l, LOG_FETCHERS, LOGGER_ITEM_GET, NULL, was_found, key,
+    LOGGER_LOG(t->l, LOG_FETCHERS, LOGGER_ITEM_GET, NULL, status, key,
                nkey, (it) ? it->nbytes : 0, (it) ? ITEM_clsid(it) : 0, t->cur_sfd);
 
     return it;
