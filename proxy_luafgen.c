@@ -1608,6 +1608,29 @@ int mcplib_rcontext_tls_peer_cn(lua_State *L) {
     return 1;
 }
 
+// Must not call this if rctx has returned result to client already.
+int mcplib_rcontext_tls_peer_ext(lua_State *L) {
+    mcp_rcontext_t *rctx = lua_touserdata(L, 1);
+    if (!rctx->c) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+#ifdef TLS
+    int len = 0;
+    int nid = luaL_checkinteger(L, 2);
+    const unsigned char *ext = ssl_get_peer_ext_by_nid(rctx->c, nid, &len);
+    if (ext) {
+        lua_pushlstring(L, (const char *)ext, len);
+    } else {
+        lua_pushnil(L);
+    }
+#else
+    lua_pushnil(L);
+#endif
+    return 1;
+}
+
 // call with uobj on top of stack
 static void _mcplib_rcontext_ref_uobj(lua_State *L, mcp_rcontext_t *rctx, void *obj, int otype) {
     lua_pushvalue(L, -1); // dupe rq for the rqueue slot

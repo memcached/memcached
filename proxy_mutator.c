@@ -1,6 +1,8 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 
 #include "proxy.h"
+#include "tls.h"
+#include "base64.h"
 
 /*
  * !!!WARNING!!!
@@ -18,6 +20,7 @@
 enum mcp_mut_type {
     MUT_REQ = 1,
     MUT_RES,
+    MUT_RCTX,
 };
 
 enum mcp_mut_steptype {
@@ -34,6 +37,7 @@ enum mcp_mut_steptype {
     mcp_mut_step_flagcopy,
     mcp_mut_step_flagcopyall,
     mcp_mut_step_valcopy,
+    mcp_mut_step_combine,
     mcp_mut_step_final, // not used.
 };
 
@@ -82,6 +86,40 @@ struct mcp_mut_flagval {
     struct mcp_mut_string str;
 };
 
+enum mcp_mut_srctype {
+    MUT_SRC_ARG = 0, // string or key from an argument
+    MUT_SRC_VAL, // static string
+    MUT_SRC_TLS_CN, // peer cert CN via rctx
+    MUT_SRC_TLS_EXT, // peer cert extension via rctx
+    MUT_SRC_HASH, // hash of child sources
+};
+
+
+// combine's source structs embed in the arena
+#define MUT_SRC_ALIGN 8
+struct mcp_mut_src {
+    enum mcp_mut_srctype type;
+    bool def; // default string with nil source
+    unsigned short children; // hash: number of children
+    unsigned int aoffset; // hash: start of child sources
+    unsigned int hoffset; // hash: output offset in run->hbuf
+    unsigned int idx;
+    int nid; // resolved NID for TLS extension
+    struct mcp_mut_string str;
+};
+
+// enough space for base64_encode()'s output + padding + linefeed
+#define MUT_HASH_SLOT 26
+
+#define MUT_COMBINE_MAX 8
+struct mcp_mut_combine {
+    char flag; // 0 for key
+    char sep;
+    unsigned short count;
+    unsigned int asrc; // arena offset for sources
+    unsigned int part; // first slot in run->sparts
+};
+
 struct mcp_mut_step {
     enum mcp_mut_steptype type;
     unsigned int idx; // common: input argument position
@@ -91,6 +129,7 @@ struct mcp_mut_step {
         struct mcp_mut_string string;
         struct mcp_mut_flag flag;
         struct mcp_mut_flagval flagval;
+        struct mcp_mut_combine combine;
     } c;
 };
 
@@ -101,6 +140,8 @@ struct mcp_mutator {
     int scount;
     unsigned int aused; // arena memory used
     unsigned int rcount; // number of results to expect
+    unsigned int pcount; // scratch parts for combine
+    unsigned int hcount; // hash outputs for combine
     char *arena; // string/data storage for steps
     struct mcp_mut_step steps[];
 };
@@ -121,6 +162,8 @@ struct mcp_mut_run {
 
     const char *vbuf; // buffer or ptr if a value is being attached
     size_t vlen; // length of the actual value buffer.
+    struct mcp_mut_part *sparts; // scratch for combine
+    char *hbuf; // combine hash output scratch
 };
 
 #define mut_step_c(n) static int mcp_mutator_##n##_c(lua_State *L, int tidx)
@@ -292,15 +335,8 @@ mut_step_n(cmdcopy) {
             _mut_checkudata(L, idx, &srq, &srs);
             p->slen = 0;
             if (srq) {
-                // command must be at the start
-                const char *cmd = srq->pr.request;
-                // command ends at the first token
-                // FIXME: use the mcmc API to pull the token.
-                int clen = srq->pr.tok.tokens[1];
-                if (cmd[clen] == ' ') {
-                    clen--;
-                }
-                p->src = cmd;
+                int clen = 0;
+                p->src = mcmc_token_get(srq->pr.request, &srq->pr.tok, 0, &clen);
                 p->slen = clen;
             } else {
                 // can only use a request object
@@ -1022,6 +1058,342 @@ mut_step_r(valcopy) {
     return true;
 }
 
+// certificate data are untrusted; restrict character set
+static bool _mut_check_badbytes(const char *s, size_t len) {
+    for (int x = 0; x < len; x++) {
+        if ((unsigned char)s[x] <= ' ' || (unsigned char)s[x] >= 0x7f) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// reserves an aligned block of sources in the arena
+static int _mut_src_reserve(struct mcp_mutator *mut, int count, unsigned int *offset) {
+    int size = sizeof(struct mcp_mut_src) * count + MUT_SRC_ALIGN - 1;
+    if (mut) {
+        *offset = (mut->aused + MUT_SRC_ALIGN - 1) & ~(MUT_SRC_ALIGN - 1);
+        mut->aused += size;
+    }
+    return size;
+}
+
+// parses one source from the part table on top of the stack.
+// copies string if *mut is given.
+// returns arena space required.
+static int _mut_src_parse(lua_State *L, int tidx, int pnum, struct mcp_mutator *mut, struct mcp_mut_src *src) {
+    int pidx = lua_absindex(L, -1);
+    int total = 0;
+    size_t len = 0;
+    int isnum = 0;
+
+    memset(src, 0, sizeof(*src));
+    if (lua_getfield(L, pidx, "val") != LUA_TNIL) {
+        // static string default when source missing.
+        src->type = MUT_SRC_VAL;
+    } else {
+        lua_pop(L, 1);
+        lua_getfield(L, pidx, "idx");
+        lua_Integer i = lua_tointegerx(L, -1, &isnum);
+        if (!isnum || i < 1) {
+            proxy_lua_ferror(L, "mutator step %d: part %d needs 'val' or an 'idx' above 0", tidx, pnum);
+        }
+        src->idx = i + 2; // self, dst, args
+        lua_pop(L, 1);
+
+        if (lua_getfield(L, pidx, "tls") != LUA_TNIL) {
+            const char *tls = lua_tostring(L, -1);
+            if (!ssl_is_compiled()) {
+                proxy_lua_ferror(L, "mutator step %d: TLS support not compiled", tidx);
+            }
+            if (tls && strcmp(tls, "cn") == 0) {
+                src->type = MUT_SRC_TLS_CN;
+            } else if (tls && strcmp(tls, "ext") == 0) {
+                src->type = MUT_SRC_TLS_EXT;
+                lua_getfield(L, pidx, "nid");
+                src->nid = lua_tointegerx(L, -1, &isnum);
+                if (!isnum || src->nid < 1) {
+                    proxy_lua_ferror(L, "mutator step %d: part %d needs a 'nid' from mcp.tls_oid_to_nid", tidx, pnum);
+                }
+                lua_pop(L, 1);
+            } else {
+                proxy_lua_ferror(L, "mutator step %d: part %d 'tls' must be 'cn' or 'ext'", tidx, pnum);
+            }
+        }
+        lua_pop(L, 1);
+        lua_getfield(L, pidx, "default");
+    }
+
+    // "val" or "default" top of stack
+    src->def = !lua_isnil(L, -1);
+    if (src->def) {
+        const char *str = lua_tolstring(L, -1, &len);
+        if (str == NULL || _mut_check_badbytes(str, len)) {
+            proxy_lua_ferror(L, "mutator step %d: part %d string must be ascii safe", tidx, pnum);
+        }
+        if (mut) {
+            src->str.str = mut->aused;
+            src->str.len = len;
+            memcpy(mut->arena + mut->aused, str, len);
+            mut->aused += len;
+        }
+        total += len;
+    }
+    lua_pop(L, 1); // val or default
+
+    return total;
+}
+
+// parses a hash group from table on top of the stack
+static int _mut_hash_parse(lua_State *L, int tidx, int pnum, struct mcp_mutator *mut, struct mcp_mut_src *src) {
+    struct mcp_mut_src *children = NULL;
+    struct mcp_mut_src child;
+
+    if (!lua_istable(L, -1)) {
+        proxy_lua_ferror(L, "mutator step %d: part %d 'hash' must be a table of parts", tidx, pnum);
+    }
+    size_t count = lua_rawlen(L, -1);
+    if (count < 1 || count > MUT_COMBINE_MAX) {
+        proxy_lua_ferror(L, "mutator step %d: part %d 'hash' must have 1 to %d entries", tidx, pnum, MUT_COMBINE_MAX);
+    }
+
+    // NOTE: an 'alg' or 'htype' arg would be used here for more hash types
+    // MUT_HASH_SLOT would become per-source.
+    memset(src, 0, sizeof(*src));
+    src->type = MUT_SRC_HASH;
+    src->children = count;
+    int total = _mut_src_reserve(mut, count, &src->aoffset);
+    if (mut) {
+        children = (struct mcp_mut_src *)(mut->arena + src->aoffset);
+        src->hoffset = mut->hcount * MUT_HASH_SLOT;
+        mut->hcount++;
+    }
+
+    for (int x = 0; x < src->children; x++) {
+        if (lua_rawgeti(L, -1, x+1) != LUA_TTABLE) {
+            proxy_lua_ferror(L, "mutator step %d: part %d 'hash' entries must be tables", tidx, pnum);
+        }
+        if (lua_getfield(L, -1, "hash") != LUA_TNIL) {
+            proxy_lua_ferror(L, "mutator step %d: part %d 'hash' cannot be nested", tidx, pnum);
+        }
+        lua_pop(L, 1);
+        total += _mut_src_parse(L, tidx, pnum, mut, &child);
+        if (mut) {
+            children[x] = child;
+        }
+        lua_pop(L, 1); // child table
+    }
+
+    return total;
+}
+
+mut_step_i(combine) {
+    struct mcp_mut_combine scratch = {0};
+    struct mcp_mut_combine *c = mut ? &mut->steps[sc].c.combine : &scratch;
+    struct mcp_mut_src *srcs = NULL;
+    struct mcp_mut_src src;
+    size_t len = 0;
+
+    if (lua_getfield(L, tidx, "flag") != LUA_TNIL) {
+        _mut_check_flag(L, tidx);
+        c->flag = lua_tostring(L, -1)[0];
+    }
+    lua_pop(L, 1);
+
+    if (lua_getfield(L, tidx, "sep") != LUA_TNIL) {
+        const char *sep = lua_tolstring(L, -1, &len);
+        if (sep == NULL || len != 1 || _mut_check_badbytes(sep, len)) {
+            proxy_lua_ferror(L, "mutator step %d: 'sep' must be one ascii character", tidx);
+        }
+        c->sep = sep[0];
+    }
+    lua_pop(L, 1);
+
+    if (lua_getfield(L, tidx, "parts") != LUA_TTABLE) {
+        proxy_lua_ferror(L, "mutator step %d: must provide 'parts' table", tidx);
+    }
+    size_t count = lua_rawlen(L, -1);
+    if (count < 1 || count > MUT_COMBINE_MAX) {
+        proxy_lua_ferror(L, "mutator step %d: 'parts' must have 1 to %d entries", tidx, MUT_COMBINE_MAX);
+    }
+    c->count = count;
+
+    int total = _mut_src_reserve(mut, c->count, &c->asrc);
+    if (mut) {
+        srcs = (struct mcp_mut_src *)(mut->arena + c->asrc);
+        c->part = mut->pcount;
+        mut->pcount += c->count;
+    }
+
+    for (int x = 0; x < c->count; x++) {
+        if (lua_rawgeti(L, -1, x+1) != LUA_TTABLE) {
+            proxy_lua_ferror(L, "mutator step %d: part %d must be a table", tidx, x+1);
+        }
+        if (lua_getfield(L, -1, "hash") != LUA_TNIL) {
+            total += _mut_hash_parse(L, tidx, x+1, mut, &src);
+            lua_pop(L, 1); // hash table
+        } else {
+            lua_pop(L, 1);
+            total += _mut_src_parse(L, tidx, x+1, mut, &src);
+        }
+        if (mut) {
+            srcs[x] = src;
+        }
+        lua_pop(L, 1); // part table
+    }
+    lua_pop(L, 1); // parts
+
+    return total;
+}
+
+mut_step_c(combine) {
+    return mcp_mutator_combine_i(L, tidx, 0, NULL);
+}
+
+// check: skip badbytes filter if hashing the input
+static bool _mut_combine_src(struct mcp_mut_run *run, struct mcp_mut_src *src, struct mcp_mut_part *p, bool check) {
+    lua_State *L = run->L;
+    mcp_request_t *srq = NULL;
+    mcp_resp_t *srs = NULL;
+    mcp_rcontext_t *rctx = NULL;
+    p->src = NULL;
+
+    // Declarations for MUT_SRC_HASH
+    struct mcp_mut_src *children;
+    struct mcp_mut_part cp;
+    XXH3_state_t state;
+    XXH128_canonical_t digest;
+    unsigned char lenb[4];
+
+    switch (src->type) {
+        case MUT_SRC_VAL:
+            break;
+        case MUT_SRC_ARG:
+            switch (lua_type(L, src->idx)) {
+                case LUA_TNIL:
+                case LUA_TNONE:
+                    break;
+                case LUA_TSTRING:
+                    p->src = lua_tolstring(L, src->idx, &p->slen);
+                    if (check && _mut_check_badbytes(p->src, p->slen)) {
+                        return false;
+                    }
+                    break;
+                case LUA_TUSERDATA:
+                    _mut_checkudata(L, src->idx, &srq, &srs);
+                    if (srq == NULL) {
+                        return false;
+                    }
+                    // already tokenized
+                    p->src = MCP_PARSER_KEY(&srq->pr);
+                    p->slen = srq->pr.klen;
+                    break;
+                default:
+                    return false;
+            }
+            break;
+        case MUT_SRC_TLS_CN:
+        case MUT_SRC_TLS_EXT:
+            if (lua_getmetatable(L, src->idx)) {
+                lua_getiuservalue(L, 1, MUT_RCTX);
+                if (lua_rawequal(L, -1, -2)) {
+                    rctx = lua_touserdata(L, src->idx);
+                }
+                lua_pop(L, 2);
+            }
+            if (rctx == NULL) {
+                return false;
+            }
+            // can only check certs if conn is available
+            if (rctx->c) {
+                int len = 0;
+                p->src = (const char *)(src->type == MUT_SRC_TLS_CN
+                        ? ssl_get_peer_cn(rctx->c, &len)
+                        : ssl_get_peer_ext_by_nid(rctx->c, src->nid, &len));
+                p->slen = len;
+                if (check && p->src && _mut_check_badbytes(p->src, p->slen)) {
+                    return false;
+                }
+            }
+            break;
+        case MUT_SRC_HASH:
+            children = (struct mcp_mut_src *)(run->mut->arena + src->aoffset);
+
+            XXH3_128bits_reset(&state);
+            for (int x = 0; x < src->children; x++) {
+                if (!_mut_combine_src(run, &children[x], &cp, false)) {
+                    return false;
+                }
+                // Use length as separator in fixed byte order.
+                // TODO: might be excessive? Is a fixed separator good enough?
+                lenb[0] = cp.slen;
+                lenb[1] = cp.slen >> 8;
+                lenb[2] = cp.slen >> 16;
+                lenb[3] = cp.slen >> 24;
+                XXH3_128bits_update(&state, lenb, sizeof(lenb));
+                XXH3_128bits_update(&state, cp.src, cp.slen);
+            }
+            XXH128_canonicalFromHash(&digest, XXH3_128bits_digest(&state));
+
+            // NOTE: base64 has some non-URI friendly characters.
+            // If problematic we need a subset encoding.
+            char *out = run->hbuf + src->hoffset;
+            p->slen = base64_encode(digest.digest, sizeof(digest.digest),
+                    (unsigned char *)out, MUT_HASH_SLOT);
+            p->src = out;
+            return true;
+    }
+
+    if (p->src == NULL) {
+        if (!src->def) {
+            return false;
+        }
+        p->src = run->mut->arena + src->str.str;
+        p->slen = src->str.len;
+    }
+    return true;
+}
+
+mut_step_n(combine) {
+    struct mcp_mut_combine *c = &s->c.combine;
+    struct mcp_mut_src *srcs = (struct mcp_mut_src *)(run->mut->arena + c->asrc);
+    struct mcp_mut_part *sp = run->sparts + c->part;
+    // start with the count of separators
+    int total = c->sep ? c->count - 1 : 0;
+
+    for (int x = 0; x < c->count; x++) {
+        if (!_mut_combine_src(run, &srcs[x], &sp[x], true)) {
+            return -1;
+        }
+        total += sp[x].slen;
+    }
+
+    if (c->flag) {
+        return total + 1;
+    }
+    if (total == 0 || total > KEY_MAX_LENGTH) {
+        return -1;
+    }
+    return total;
+}
+
+mut_step_r(combine) {
+    struct mcp_mut_combine *c = &s->c.combine;
+    struct mcp_mut_part *sp = run->sparts + c->part;
+
+    if (c->flag) {
+        *(run->d_pos++) = c->flag;
+    }
+    for (int x = 0; x < c->count; x++) {
+        if (x && c->sep) {
+            *(run->d_pos++) = c->sep;
+        }
+        memcpy(run->d_pos, sp[x].src, sp[x].slen);
+        run->d_pos += sp[x].slen;
+    }
+    return true;
+}
+
 // END STEPS
 
 static const struct mcp_mut_entry mcp_mut_entries[] = {
@@ -1038,6 +1410,7 @@ static const struct mcp_mut_entry mcp_mut_entries[] = {
     [mcp_mut_step_flagcopy] = {"flagcopy", mcp_mutator_flagcopy_c, mcp_mutator_flagcopy_i, mcp_mutator_flagcopy_n, mcp_mutator_flagcopy_r, MUT_REQ|MUT_RES, 0},
     [mcp_mut_step_flagcopyall] = {"flagcopyall", mcp_mutator_flagcopyall_c, mcp_mutator_flagcopyall_i, mcp_mutator_flagcopyall_n, mcp_mutator_flagcopyall_r, MUT_REQ|MUT_RES, 0},
     [mcp_mut_step_valcopy] = {"valcopy", mcp_mutator_valcopy_c, mcp_mutator_valcopy_i, mcp_mutator_valcopy_n, mcp_mutator_valcopy_r, MUT_REQ|MUT_RES, 0},
+    [mcp_mut_step_combine] = {"combine", mcp_mutator_combine_c, mcp_mutator_combine_i, mcp_mutator_combine_n, mcp_mutator_combine_r, MUT_REQ|MUT_RES, 0},
     [mcp_mut_step_final] = {NULL, NULL, NULL, NULL, NULL, 0, 0},
 };
 
@@ -1079,7 +1452,7 @@ static int mcp_mutator_new(lua_State *L, enum mcp_mut_type type) {
     // we now know the size and number of steps. allocate some flat memory.
 
     size_t extsize = sizeof(struct mcp_mut_step) * scount;
-    struct mcp_mutator *mut = lua_newuserdatauv(L, sizeof(*mut) + extsize, 2);
+    struct mcp_mutator *mut = lua_newuserdatauv(L, sizeof(*mut) + extsize, 3);
     memset(mut, 0, sizeof(*mut) + extsize);
 
     mut->arena = malloc(size);
@@ -1095,6 +1468,8 @@ static int mcp_mutator_new(lua_State *L, enum mcp_mut_type type) {
     lua_setiuservalue(L, -2, MUT_REQ);
     luaL_getmetatable(L, "mcp.response");
     lua_setiuservalue(L, -2, MUT_RES);
+    luaL_getmetatable(L, "mcp.rcontext");
+    lua_setiuservalue(L, -2, MUT_RCTX);
 
     // loop the arg tables again to fill in the steps
     // skip checks since we did that during the first loop.
@@ -1177,7 +1552,10 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
     struct mcp_mutator *mut = run->mut;
     LIBEVENT_THREAD *t = PROXY_GET_THR(run->L);
     int ret = 0;
-    struct mcp_mut_part parts[mut->scount];
+    struct mcp_mut_part parts[mut->scount + mut->pcount];
+    char hbuf[mut->hcount * MUT_HASH_SLOT + 1];
+    run->sparts = parts + mut->scount;
+    run->hbuf = hbuf;
 
     // first accumulate the length tally
     // FIXME: noticed off-by-one's sometimes.
