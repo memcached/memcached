@@ -123,6 +123,9 @@ subtest 'failed to allocate ustat at index 0' => sub {
     my $last = 0;
     write_config('return "' . $pfx . ' ' . $first . ' ' . $last . '"');
     $p_srv->reload();
+    # The reload timeout in clock_handler() is set to 1 second
+    # Add a sleep here to ensure the event timeout is triggered correctly.
+    sleep 2;
     unlike(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_conf status=start/, "reload not started");
     unlike(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_conf status=done/, "reload not completed");
 
