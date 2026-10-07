@@ -172,10 +172,7 @@ static void _proxy_event_handler_dequeue(proxy_event_thread_t *t) {
 
 static void _cleanup_backend(mcp_backend_t *be) {
     if (be->use_logging) {
-        if (be->logging.detail) {
-            free(be->logging.detail);
-            be->logging.detail = NULL;
-        }
+        safe_free(be->logging.detail);
     }
 
     for (int x = 0; x < be->conncount; x++) {
@@ -207,11 +204,21 @@ static void _cleanup_backend(mcp_backend_t *be) {
                     bec->be_parent->label, -1);
             }
         }
+
         // - free be->client
         free(bec->client);
         // - free be->rbuf
         free(bec->rbuf);
     }
+
+#ifdef PROXY_TLS
+    safe_free(be->tls_settings.ssl_chain_cert);
+    safe_free(be->tls_settings.ssl_key);
+    safe_free(be->tls_settings.ssl_ciphers);
+    safe_free(be->tls_settings.ssl_ca_cert);
+    be->tls_settings.ssl_verify_name = name_list_free(be->tls_settings.ssl_verify_name);
+#endif
+
     // free once parent has had all connections closed off.
     free(be);
 }

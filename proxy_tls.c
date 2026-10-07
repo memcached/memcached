@@ -3,6 +3,7 @@
 #include "proxy.h"
 #include "proxy_tls.h"
 #ifdef PROXY_TLS
+#include "tls.h"
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
@@ -26,6 +27,7 @@ int mcp_tls_init(proxy_ctx_t *ctx) {
         return MCP_TLS_OK;
     }
 
+#if 0
     // TODO: check for OpenSSL 1.1+ ? should be elsewhere in the code.
     SSL_CTX *tctx = SSL_CTX_new(TLS_client_method());
     if (tctx == NULL) {
@@ -38,7 +40,22 @@ int mcp_tls_init(proxy_ctx_t *ctx) {
     SSL_CTX_set_mode(tctx, SSL_MODE_RELEASE_BUFFERS);
 
     ctx->tls_ctx = tctx;
-    return 0;
+#else
+    // TODO: check for OpenSSL 1.1+ ? should be elsewhere in the code.
+    struct tls_settings tls_settings = ssl_init_settings();
+    if (tls_settings.TLS_method == NULL) {
+        tls_settings.TLS_method = TLS_client_method();
+    }
+    tls_settings.ssl_min_version = TLS1_3_VERSION;
+
+    if (ssl_init(true, &tls_settings) || tls_settings.ssl_ctx == NULL) {
+        return MCP_TLS_ERR;
+    }
+
+    ctx->tls_ctx = tls_settings.ssl_ctx;
+#endif
+
+    return MCP_TLS_OK;
 }
 
 int mcp_tls_backend_init(proxy_ctx_t *ctx, struct mcp_backendconn_s *be) {
@@ -46,9 +63,30 @@ int mcp_tls_backend_init(proxy_ctx_t *ctx, struct mcp_backendconn_s *be) {
         return MCP_TLS_OK;
     }
 
-    SSL *ssl = SSL_new(ctx->tls_ctx);
-    if (ssl == NULL) {
-        return MCP_TLS_ERR;
+    SSL *ssl;
+    struct tls_settings *tls_settings = &be->be_parent->tls_settings;
+
+    if (tls_settings->ssl_enabled == MC_SSL_ENABLED_DEFAULT) {
+        ssl = SSL_new(ctx->tls_ctx);
+        if (ssl == NULL) {
+            return MCP_TLS_ERR;
+        }
+    } else {
+        if (tls_settings->TLS_method == NULL) {
+            tls_settings->TLS_method = TLS_client_method();
+        }
+        if (!tls_settings->ssl_min_version) {
+            tls_settings->ssl_min_version = TLS1_3_VERSION;
+        }
+
+        if (ssl_init(true, tls_settings) || tls_settings->ssl_ctx == NULL) {
+            return MCP_TLS_ERR;
+        }
+
+        ssl = SSL_new(tls_settings->ssl_ctx);
+        if (ssl == NULL) {
+            return MCP_TLS_ERR;
+        }
     }
 
     be->ssl = ssl;
@@ -88,6 +126,30 @@ int mcp_tls_connect(struct mcp_backendconn_s *be) {
     // TODO: check return code. can fail if BIO fails to alloc.
     SSL_set_fd(be->ssl, mcmc_fd(be->client));
 
+    // Setup verification
+    struct tls_settings *tls_settings = &be->be_parent->tls_settings;
+    if (tls_settings->ssl_enabled == MC_SSL_ENABLED_NOPEER) {
+        // Don't enforce peer certs for this socket.
+        //SSL_set_verify(be->ssl, SSL_VERIFY_NONE, NULL);
+    } else if (tls_settings->ssl_enabled == MC_SSL_ENABLED_PEER) {
+        // Force peer validation for this socket.
+        SSL_set_verify(be->ssl, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+    } else if (tls_settings->ssl_enabled == MC_SSL_VERIFY_PEER) {
+        // Force peer validation for this socket with validation
+
+        // Init certification files
+        if(!ssl_check_CA_cert(tls_settings)) {
+            fprintf(stderr, "No trusted certificate found\n");
+            ERR_clear_error();
+            return MCP_TLS_ERR;
+        }
+
+        //SSL_LOCK();
+        SSL_set_ex_data(be->ssl, ssl_data_index, tls_settings);
+        SSL_set_verify(be->ssl, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, ssl_verify_callback);
+        //SSL_UNLOCK();
+    }
+
     // TODO:
     // if the backend is changing TLS version or some similar issue, we will
     // be unable to reconnect as the SSL object "Caches" some information
@@ -100,6 +162,7 @@ int mcp_tls_connect(struct mcp_backendconn_s *be) {
     SSL_clear(be->ssl);
     ERR_clear_error();
     int n = SSL_connect(be->ssl);
+
     int ret = MCP_TLS_OK;
     // TODO: complete error handling.
     if (n == 1) {
@@ -161,12 +224,18 @@ int mcp_tls_send_validate(struct mcp_backendconn_s *be) {
 
     // Non hot path, clear errors.
     ERR_clear_error();
-    int n = SSL_write(be->ssl, str, len);
+    ssize_t n = SSL_write(be->ssl, str, len);
 
     // TODO: more detailed error checking.
     if (n < 0 || n != len) {
-        ERR_clear_error();
-        return MCP_TLS_ERR;
+        int err = SSL_get_error(be->ssl, n);
+        if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ) {
+            ERR_clear_error();
+            return MCP_TLS_NEEDIO;
+        } else {
+            ERR_clear_error();
+            return MCP_TLS_ERR;
+        }
     }
 
     return MCP_TLS_OK;

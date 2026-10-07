@@ -475,7 +475,7 @@ static void setup_thread(LIBEVENT_THREAD *me) {
     }
 #ifdef TLS
     if (settings.ssl_enabled) {
-        me->ssl_wbuf = (char *)malloc((size_t)settings.ssl_wbuf_size);
+        me->ssl_wbuf = (char *)malloc((size_t)settings.tls_settings.ssl_wbuf_size);
         if (me->ssl_wbuf == NULL) {
             fprintf(stderr, "Failed to allocate the SSL write buffer\n");
             exit(EXIT_FAILURE);

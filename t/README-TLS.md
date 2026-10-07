@@ -33,5 +33,17 @@ $ openssl x509 -req -in client_crt.csr -CA cacert.pem -CAkey cakey.pem \
     -CAcreateserial -out client_crt.pem -days 182500 -sha256 -text
 ```
 
+## Create expired client key and certificate
+```
+$ openssl genrsa -out expired_key.pem 2048
+$ openssl req -new -sha256 -key expired_key.pem \
+    -subj "/C=US/ST=CA/O=Test Client/OU=Subunit of Test Organization/CN=client.test.com/emailAddress=root@client.test.com" \
+    -addext "subjectAltName=DNS:client.test.com,DNS:alt.client.test.com" \
+    -out expired_crt.csr
+$ faketime '2008-12-24 08:15:42' openssl x509 -req -in expired_crt.csr -CA cacert.pem -CAkey cakey.pem \
+    -extfile <(printf "subjectAltName=DNS:client.test.com,DNS:alt.client.test.com") \
+    -CAcreateserial -out expired_crt.pem -days -1 -sha256 -text
+```
+
 **NOTES**: *.csr files are certificate signing requests which are needed in order to sign certificates with signing authority.
 -CAcreateserial option creates one file which we do not need but openssl does. You can delete it after you are done.

@@ -3,6 +3,7 @@
 #include "proxy.h"
 #include "proxy_tls.h"
 #include "storage.h" // for stats call
+#include "tls.h"
 
 // func prototype example:
 // static int fname (lua_State *L)
@@ -12,6 +13,19 @@
 struct _mcplib_statctx_s {
     lua_State *L;
 };
+
+static char *_mpclib_strdup(lua_State *L, const char *name, int arg) {
+    char *ret = NULL;
+    if (lua_getfield(L, arg, name) != LUA_TNIL) {
+        size_t tlen = 0;
+        const char *tag = luaL_checklstring(L, -1, &tlen);
+        ret = malloc(tlen+1);
+        memcpy(ret, tag, tlen);
+        ret[tlen] = '\0';
+    }
+    lua_pop(L, 1);
+    return ret;
+}
 
 static void _mcplib_append_stats(const char *key, const uint16_t klen,
                   const char *val, const uint32_t vlen,
@@ -286,9 +300,8 @@ static int mcplib_backend_wrap_gc(lua_State *L) {
 
 static int mcplib_backend_gc(lua_State *L) {
     mcp_backend_label_t *be = lua_touserdata(L, 1);
-    if (be->logging.detail)
-        free(be->logging.detail);
 
+    safe_free (be->logging.detail);
     return 0;
 }
 
@@ -325,14 +338,7 @@ static int _mcplib_backend_log(lua_State *L, mcp_backend_label_t *be) {
     }
     lua_pop(L, 1);
 
-    if (lua_getfield(L, -1, "tag") != LUA_TNIL) {
-        size_t tlen = 0;
-        const char *tag = luaL_checklstring(L, -1, &tlen);
-        be->logging.detail = malloc(tlen+1);
-        memcpy(be->logging.detail, tag, tlen);
-        be->logging.detail[tlen] = '\0';
-    }
-    lua_pop(L, 1);
+    be->logging.detail = _mpclib_strdup(L, "tag", -1);
 
     // If user didn't set deadline, or errors, or rate, we would log nothing:
     // instead default to a rate of 1.
@@ -403,6 +409,101 @@ static int mcplib_backend(lua_State *L) {
             be->tunables.use_tls = lua_toboolean(L, -1);
         }
         lua_pop(L, 1);
+
+#ifdef PROXY_TLS
+        // TLS settings
+        be->tls_settings = ssl_init_settings();
+        be->tls_settings.TLS_method = TLS_client_method();
+        be->tls_settings.ssl_enabled = MC_SSL_ENABLED_DEFAULT;
+
+        // Setup TLS type of connection
+        if (lua_getfield(L, 1, "tls_type") != LUA_TNIL) {
+            const char *btls = "btls";
+            const char *mtls = "mtls";
+            const char *mtls2 = "mtls2";
+            size_t tlen = 0;
+            const char * p = luaL_checklstring(L, -1, &tlen);
+
+            if (strncmp(p, btls, strlen(btls)) == 0) {
+                be->tls_settings.ssl_enabled = MC_SSL_ENABLED_NOPEER;
+            } else if (strncmp(p, mtls2, strlen(mtls2)) == 0) {
+                be->tls_settings.ssl_enabled = MC_SSL_VERIFY_PEER;
+            } else if (strncmp(p, mtls, strlen(mtls)) == 0) {
+                be->tls_settings.ssl_enabled = MC_SSL_ENABLED_PEER;
+            }
+            be->tunables.use_tls = true;
+        }
+        lua_pop(L, 1);
+
+        // Add SSL verify hostname in certificate
+        if (lua_getfield(L, 1, "ssl_verify_name") != LUA_TNIL) {
+            int type = lua_type(L, -1);
+            if (type == LUA_TSTRING) {
+                size_t tlen = 0;
+                const char *p = luaL_checklstring(L, -1, &tlen);
+                name_list_append_option(&be->tls_settings.ssl_verify_name, (char *)p);
+            } else if (type == LUA_TTABLE) {
+                unsigned int size = lua_rawlen(L, -1);
+                for (unsigned int i = 0; i < size; i++) {
+                    size_t tlen = 0;
+                    lua_rawgeti(L, -1, i + 1);
+                    const char *p = luaL_checklstring(L, -1, &tlen);
+                    name_list_append_option(&be->tls_settings.ssl_verify_name, (char *)p);
+                    lua_pop(L, 1);
+                }
+            }
+        }
+        lua_pop(L, 1);
+
+        // Setup SSL keys + ciphers
+        be->tls_settings.ssl_chain_cert = _mpclib_strdup(L, "ssl_chain_cert", 1);
+        be->tls_settings.ssl_key = _mpclib_strdup(L, "ssl_key", 1);
+        be->tls_settings.ssl_ca_cert = _mpclib_strdup(L, "ssl_ca_cert", 1);
+        be->tls_settings.ssl_ciphers = _mpclib_strdup(L, "ssl_ciphers", 1);
+
+        // Setup SSL verify mode
+        if (lua_getfield(L, 1, "ssl_verify_mode") != LUA_TNIL) {
+            int verify = luaL_checkinteger(L, -1);
+            if (!ssl_set_verify_mode(verify)) {
+                proxy_lua_error(L, "Invalid ssl_verify_mode");
+                return 0;
+            }
+            be->tls_settings.ssl_verify_mode = verify;
+        }
+        lua_pop(L, 1);
+
+        // Other SSL settings for current host
+        if (lua_getfield(L, 1, "ssl_key_format") != LUA_TNIL) {
+            be->tls_settings.ssl_keyformat = luaL_checkinteger(L, -1);
+        }
+        lua_pop(L, 1);
+
+        if (lua_getfield(L, 1, "ssl_wbuf_size") != LUA_TNIL) {
+            be->tls_settings.ssl_wbuf_size = luaL_checkinteger(L, -1);
+            be->tls_settings.ssl_wbuf_size *= 1024; /* kilobytes */
+        }
+        lua_pop(L, 1);
+
+        if (lua_getfield(L, 1, "ssl_session_cache") != LUA_TNIL) {
+            be->tls_settings.ssl_session_cache = lua_toboolean(L, -1);
+        }
+        lua_pop(L, 1);
+
+        if (lua_getfield(L, 1, "ssl_kernel_tls") != LUA_TNIL) {
+            be->tls_settings.ssl_session_cache = lua_toboolean(L, -1);
+        }
+        lua_pop(L, 1);
+
+        if (lua_getfield(L, 1, "ssl_min_version") != LUA_TNIL) {
+            int min_version = luaL_checkinteger(L, -1);
+            if (!ssl_set_min_version(min_version)) {
+                proxy_lua_error(L, "Invalid ssl_min_version");
+                return 0;
+            }
+            be->tls_settings.ssl_min_version = min_version;
+        }
+        lua_pop(L, 1);
+#endif
 
         if (lua_getfield(L, 1, "failurelimit") != LUA_TNIL) {
             int limit = luaL_checkinteger(L, -1);
@@ -611,6 +712,10 @@ static mcp_backend_wrap_t *_mcplib_make_backendconn(lua_State *L, mcp_backend_la
     if (bel->logging.detail) {
         be->logging.detail = strdup(bel->logging.detail);
     }
+
+#ifdef PROXY_TLS
+    memcpy(&be->tls_settings, &bel->tls_settings, sizeof(struct tls_settings));
+#endif
 
     be->conncount = bel->conncount;
     STAILQ_INIT(&be->iop_head);
@@ -1099,7 +1204,9 @@ static int mcplib_init_tls(lua_State *L) {
     proxy_lua_error(L, "cannot run mcp.init_tls: TLS support not compiled");
 #else
     proxy_ctx_t *ctx = PROXY_GET_CTX(L);
-    mcp_tls_init(ctx);
+    if (mcp_tls_init(ctx) != MCP_TLS_OK) {
+        proxy_lua_error(L, " mcp.init_tls: failed");
+    }
 #endif
 
     return 0;
