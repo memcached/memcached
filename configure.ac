@@ -290,6 +290,8 @@ AC_SUBST(DTRACEFLAGS)
 AC_SUBST(ENABLE_SASL)
 AC_SUBST(PROFILER_LDFLAGS)
 
+AC_SUBST([INC_PARALLEL_MK], ['include $(top_srcdir)/parallel.mk'])
+
 AC_ARG_ENABLE(coverage,
   [AS_HELP_STRING([--disable-coverage],[Disable code coverage])])
 
