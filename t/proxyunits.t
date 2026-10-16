@@ -766,6 +766,16 @@ check_sanity($ps);
         );
     };
 
+    subtest 'request:token() fetch a token other than the key' => sub {
+        # be_recv must receive the value length token in the P flag.
+        proxy_test(
+            ps_send => "ms /token/fetchother 2 C123 P\r\nhi\r\n",
+            be_recv => {0 => ["ms /token/fetchother 2 C123 P2\r\n", "hi\r\n"]},
+            be_send => {0 => ["HD\r\n"]},
+            ps_recv => ["HD\r\n"],
+        );
+    };
+
     # # command() integer
 
     subtest 'request:has_flag() meta positive 1' => sub {

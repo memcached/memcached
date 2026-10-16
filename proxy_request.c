@@ -325,7 +325,7 @@ int mcplib_request_token(lua_State *L) {
         // fetching a token.
         mcp_parser_t *pr = &rq->pr;
         int vlen = 0;
-        const char *start = mcmc_token_get(pr->request, &pr->tok, pr->keytoken, &vlen);
+        const char *start = mcmc_token_get(pr->request, &pr->tok, token-1, &vlen);
 
         P_DEBUG("%s: pushing token of len: %lu\n", __func__, vlen);
         lua_pushlstring(L, start, vlen);
