@@ -640,14 +640,14 @@ check_sanity($ps);
     note("Test noreply:" . __LINE__);
 
     # noreply tests.
-    # - backend should receive with noreply/q stripped or mangled
+    # - backend should receive with noreply/q stripped
     # - backend should reply as normal
     # - frontend should get nothing; to test issue another command and ensure
     # it only gets that response.
     my $be = $mbe[0];
     my $cmd = "set /b/a 0 0 2 noreply\r\nhi\r\n";
     print $ps $cmd;
-    is(scalar <$be>, "set /b/a 0 0 2 noreplY\r\n", "set received with broken noreply");
+    is(scalar <$be>, "set /b/a 0 0 2\r\n", "set received without noreply");
     is(scalar <$be>, "hi\r\n", "set payload received");
 
     print $be "STORED\r\n";
@@ -662,6 +662,15 @@ check_sanity($ps);
 }
 
 check_sanity($ps);
+
+{
+    note("Test noreply backend failure:" . __LINE__);
+    proxy_test(
+        ps_send => "delete /dead/foo noreply\r\n",
+        ps_recv => [],
+    );
+    check_sanity($ps);
+}
 
 {
     subtest 'quiet flag: HD response' => sub {
