@@ -1597,7 +1597,7 @@ static int mcp_mut_run(struct mcp_mut_run *run) {
                 proxy_lua_error(run->L, "mutator: failed to allocate value buffer");
                 return 0;
             }
-            t->proxy_buffer_memory_used += rq->pr.vlen;
+            t->proxy_buffer_memory_used += run->vlen;
 
             rq->pr.vlen = run->vlen;
             memcpy(rq->pr.vbuf, run->vbuf, run->vlen);
