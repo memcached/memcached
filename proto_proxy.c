@@ -768,8 +768,8 @@ static void _set_noreply_mode(mc_resp *resp, mcp_request_t *rq, mcp_resp_t *r) {
             // ignores HD for mutations but not get.
             resp->skip = true;
         }
-    } else if (rq->pr.noreply && r->status == MCMC_OK) {
-        // ascii noreply only threw egregious errors to client
+    } else if (rq->pr.noreply) {
+        // ascii noreply suppresses backend responses, including errors.
         resp->skip = true;
     }
 }
@@ -831,7 +831,6 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
             mcp_resp_t *r = NULL;
             P_DEBUG("%s: coroutine completed. return type: %d\n", __func__, type);
             if (type == LUA_TUSERDATA && (r = luaL_testudata(Lc, 1, "mcp.response")) != NULL) {
-                _set_noreply_mode(resp, rctx->request, r);
                 if (r->status != MCMC_OK && r->resp.type != MCMC_RESP_ERRMSG) {
                     proxy_out_errstring(resp, PROXY_SERVER_ERROR, "backend failure");
                 } else if (r->cresp) {
@@ -857,7 +856,7 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
                 } else {
                     // Empty response: used for ascii multiget emulation.
                 }
-
+                _set_noreply_mode(resp, rctx->request, r);
             } else if (type == LUA_TSTRING) {
                 // response is a raw string from lua.
                 const char *s = lua_tolstring(Lc, 1, &rlen);
@@ -1255,7 +1254,14 @@ void mcp_set_resobj(mcp_resp_t *r, mcp_request_t *rq, mcp_backend_t *be, LIBEVEN
         }
     } else {
         if (rq->pr.noreply) {
-            rq->request[rq->pr.reqlen - 3] = 'Y';
+            // The backend must reply so we can keep its connection in sync.
+            // Keep the parsed flag for suppressing the client's response.
+            size_t endlen = rq->request[rq->pr.reqlen - 2] == '\r' ? 2 : 1;
+            char *end = rq->request + rq->pr.reqlen - endlen;
+            if (end - rq->request >= 8 && memcmp(end - 8, " noreply", 8) == 0) {
+                memmove(end - 8, end, endlen);
+                rq->pr.reqlen -= 8;
+            }
         }
     }
 
