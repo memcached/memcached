@@ -399,6 +399,20 @@ static int mcplib_backend(lua_State *L) {
         }
         lua_pop(L, 1);
 
+        // optional identity string handed to key distributors (ie; the exact
+        // ketama node string a client library hashes) instead of host:port.
+        if (lua_getfield(L, 1, "hashkey") != LUA_TNIL) {
+            size_t hklen = 0;
+            const char *hk = luaL_checklstring(L, -1, &hklen);
+            if (hklen == 0 || hklen > MAX_LABELLEN-1) {
+                proxy_lua_error(L, "backend hashkey must be between 1 and 511 characters");
+                return 0;
+            }
+            memcpy(be->hashkey, hk, hklen);
+            be->hashkey[hklen] = '\0';
+        }
+        lua_pop(L, 1);
+
         if (lua_getfield(L, 1, "tls") != LUA_TNIL) {
             be->tunables.use_tls = lua_toboolean(L, -1);
         }
@@ -785,6 +799,14 @@ static void _mcplib_pool_dist(lua_State *L, mcp_pool_t *p) {
         lua_setfield(L, -2, "addr");
         lua_pushstring(L, be->port);
         lua_setfield(L, -2, "port");
+        // the backend label objects are still in the table at index 1.
+        lua_geti(L, 1, x);
+        mcp_backend_label_t *bel = luaL_checkudata(L, -1, "mcp.backend");
+        if (bel->hashkey[0] != '\0') {
+            lua_pushstring(L, bel->hashkey);
+            lua_setfield(L, -3, "hashkey");
+        }
+        lua_pop(L, 1);
 
         // set the backend table into the new pool table.
         lua_rawseti(L, -2, x);

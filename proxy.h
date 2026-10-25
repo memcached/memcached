@@ -302,6 +302,7 @@ struct mcp_backend_label_s {
     char name[MAX_NAMELEN+1];
     char port[MAX_PORTLEN+1];
     char label[MAX_LABELLEN+1];
+    char hashkey[MAX_LABELLEN+1]; // optional node identity for key distributors.
     size_t llen; // cache label length for small speedup in pool creation.
     int conncount; // number of sockets to make.
     bool use_logging;
