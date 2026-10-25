@@ -1797,6 +1797,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
 
     const struct luaL_Reg mcplib_rcontext_m[] = {
         {"handle_set_cb", mcplib_rcontext_handle_set_cb},
+        {"handle_reset", mcplib_rcontext_handle_reset},
         {"enqueue", mcplib_rcontext_enqueue},
         {"wait_cond", mcplib_rcontext_wait_cond},
         {"enqueue_and_wait", mcplib_rcontext_enqueue_and_wait},

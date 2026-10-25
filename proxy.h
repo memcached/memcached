@@ -677,6 +677,7 @@ void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle);
 void mcp_process_rctx_wait(mcp_rcontext_t *rctx, int handle);
 int mcp_process_rqueue_return(mcp_rcontext_t *rctx, int handle, mcp_resp_t *res);
 int mcplib_rcontext_handle_set_cb(lua_State *L);
+int mcplib_rcontext_handle_reset(lua_State *L);
 int mcplib_rcontext_enqueue(lua_State *L);
 int mcplib_rcontext_wait_cond(lua_State *L);
 int mcplib_rcontext_wait_handle(lua_State *L);

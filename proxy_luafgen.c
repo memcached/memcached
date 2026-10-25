@@ -776,6 +776,59 @@ int mcplib_rcontext_handle_set_cb(lua_State *L) {
     return 0;
 }
 
+// Make a completed pool (or internal) handle queueable again within the same
+// request, so a route can resend to the same child (ie; retries) without
+// creating a handle per attempt. Each handle is a request slot plus a result
+// object in every rcontext, so per-attempt handles multiply the memory held
+// by each in-flight request.
+// A result object previously fetched for this handle is cleared and refilled
+// by the next attempt.
+// Returns true if the handle is idle afterwards, false if it is still queued
+// or in flight (ie; a wait with a timeout returned before it completed).
+int mcplib_rcontext_handle_reset(lua_State *L) {
+    mcp_rcontext_t *rctx = lua_touserdata(L, 1);
+    int handle = luaL_checkinteger(L, 2);
+    if (handle < 0 || handle >= rctx->fgen->max_queues) {
+        proxy_lua_error(L, "invalid handle passed to handle_reset");
+        return 0;
+    }
+    if (rctx->wait_mode != QWAIT_IDLE) {
+        proxy_lua_error(L, "handle_reset: cannot reset handles while in a wait");
+        return 0;
+    }
+
+    struct mcp_rqueue_s *rqu = &rctx->qslots[handle];
+    if (rqu->obj_type != RQUEUE_TYPE_POOL && rqu->obj_type != RQUEUE_TYPE_INT) {
+        proxy_lua_error(L, "handle_reset only supports pool and internal handles");
+        return 0;
+    }
+
+    switch (rqu->state) {
+        case RQUEUE_IDLE:
+            lua_pushboolean(L, 1);
+            return 1;
+        case RQUEUE_COMPLETE:
+        case RQUEUE_WAITED:
+            break;
+        default:
+            lua_pushboolean(L, 0);
+            return 1;
+    }
+
+    // same as the per-slot reset in _mcp_funcgen_return_rctx()
+    mcp_response_cleanup(rctx->fgen->thread, rqu->res_obj);
+    if (rqu->req_ref) {
+        luaL_unref(L, LUA_REGISTRYINDEX, rqu->req_ref);
+        rqu->req_ref = 0;
+    }
+    rqu->state = RQUEUE_IDLE;
+    rqu->flags = 0;
+    rqu->rq = NULL;
+
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
 // call with request object on top of stack.
 // pops the request object
 // FIXME: callers are doing a pushvalue(L, 2) and then in here we're also
