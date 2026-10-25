@@ -214,6 +214,7 @@ typedef struct {
     bool worker_failed; // covered by worker_lock as well.
     bool use_uring; // use IO_URING for backend connections.
     bool loading; // bool indicating an active config load.
+    int reload_pending; // reload requested; atomic, never lost if busy.
     bool memprofile; // indicate if we want to profile lua memory.
     uint8_t memprofile_thread_counter;
 } proxy_ctx_t;
