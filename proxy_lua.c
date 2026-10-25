@@ -236,6 +236,18 @@ static int mcplib_time_mono_millis(lua_State *L) {
     return 1;
 }
 
+// Requests active on this worker thread, including background
+// (route_allasync) sub-requests that outlive the client response. Lets a
+// route apply back-pressure before queued requests use unbounded memory.
+static int mcplib_active_requests(lua_State *L) {
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
+    WSTAT_L(t);
+    lua_Integer active = t->stats.proxy_req_active;
+    WSTAT_UL(t);
+    lua_pushinteger(L, active);
+    return 1;
+}
+
 // end util funcs.
 
 // NOTE: backends are global objects owned by pool objects.
@@ -1880,6 +1892,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"res_mutator_new", mcplib_res_mutator_new},
         {"time_real_millis", mcplib_time_real_millis},
         {"time_mono_millis", mcplib_time_mono_millis},
+        {"active_requests", mcplib_active_requests},
         {NULL, NULL}
     };
     // VM's have void* extra space in the VM by default for fast-access to a
