@@ -224,9 +224,9 @@ static int _mcplib_funcgen_gencall(lua_State *L) {
         if (frqu->obj_type == RQUEUE_TYPE_POOL || frqu->obj_type == RQUEUE_TYPE_INT) {
             rqu->obj_ref = 0;
             rqu->obj = frqu->obj;
-            mcp_resp_t *r = mcp_prep_bare_resobj(L, fgen->thread);
-            rqu->res_ref = luaL_ref(L, LUA_REGISTRYINDEX);
-            rqu->res_obj = r;
+            // The response object is created when the queue is first used
+            // (see _mcplib_rcontext_queue): a slot has a queue for every
+            // handle in the function generator, but may only ever use a few.
         } else if (frqu->obj_type == RQUEUE_TYPE_FGEN) {
             // owner funcgen already holds the subfgen reference, so here we're just
             // grabbing a subrctx to pin into the slot.
@@ -792,6 +792,12 @@ static void _mcplib_rcontext_queue(lua_State *L, mcp_rcontext_t *rctx, mcp_reque
     if (rqu->state != RQUEUE_IDLE) {
         lua_pop(L, 1);
         return;
+    }
+
+    if ((rqu->obj_type == RQUEUE_TYPE_POOL || rqu->obj_type == RQUEUE_TYPE_INT)
+            && rqu->res_obj == NULL) {
+        rqu->res_obj = mcp_prep_bare_resobj(L, rctx->fgen->thread);
+        rqu->res_ref = luaL_ref(L, LUA_REGISTRYINDEX);
     }
 
     // If we're queueing to an fgen, arm the coroutine while we have the
