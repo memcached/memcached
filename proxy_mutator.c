@@ -94,12 +94,18 @@ enum mcp_mut_srctype {
     MUT_SRC_HASH, // hash of child sources
 };
 
+// Encoding for combiner or potentially copiers
+enum mcp_mut_enctype {
+    MUT_ENC_NONE = 0,
+    MUT_ENC_URI,
+};
 
 // combine's source structs embed in the arena
 #define MUT_SRC_ALIGN 8
 struct mcp_mut_src {
     enum mcp_mut_srctype type;
     bool def; // default string with nil source
+    uint8_t enc; // enctype enum
     unsigned short children; // hash: number of children
     unsigned int aoffset; // hash: start of child sources
     unsigned int hoffset; // hash: output offset in run->hbuf
@@ -1187,6 +1193,22 @@ static int _mut_hash_parse(lua_State *L, int tidx, int pnum, struct mcp_mutator 
     return total;
 }
 
+static uint8_t _mut_enc_parse(lua_State *L, int tidx, int idx, uint8_t def) {
+    uint8_t enc = def;
+    if (lua_getfield(L, idx, "enc") != LUA_TNIL) {
+        const char *e = lua_tostring(L, -1);
+        if (e && strcmp(e, "uri") == 0) {
+            enc = MUT_ENC_URI;
+        } else if (e && strcmp(e, "none") == 0) {
+            enc = MUT_ENC_NONE;
+        } else {
+            proxy_lua_ferror(L, "mutator step %d: 'enc' must be 'uri' or 'none'", tidx);
+        }
+    }
+    lua_pop(L, 1);
+    return enc;
+}
+
 mut_step_i(combine) {
     struct mcp_mut_combine scratch = {0};
     struct mcp_mut_combine *c = mut ? &mut->steps[sc].c.combine : &scratch;
@@ -1208,6 +1230,7 @@ mut_step_i(combine) {
         c->sep = sep[0];
     }
     lua_pop(L, 1);
+    uint8_t enc = _mut_enc_parse(L, tidx, tidx, MUT_ENC_NONE);
 
     if (lua_getfield(L, tidx, "parts") != LUA_TTABLE) {
         proxy_lua_ferror(L, "mutator step %d: must provide 'parts' table", tidx);
@@ -1236,6 +1259,8 @@ mut_step_i(combine) {
             lua_pop(L, 1);
             total += _mut_src_parse(L, tidx, x+1, mut, &src);
         }
+        // Inherit encoding default from combine table
+        src.enc = _mut_enc_parse(L, tidx, lua_absindex(L, -1), enc);
         if (mut) {
             srcs[x] = src;
         }
@@ -1362,10 +1387,14 @@ mut_step_n(combine) {
     int total = c->sep ? c->count - 1 : 0;
 
     for (int x = 0; x < c->count; x++) {
-        if (!_mut_combine_src(run, &srcs[x], &sp[x], true)) {
+        if (!_mut_combine_src(run, &srcs[x], &sp[x], !srcs[x].enc)) {
             return -1;
         }
-        total += sp[x].slen;
+        if (srcs[x].enc == MUT_ENC_URI) {
+            total += uriencode_len(sp[x].src, sp[x].slen);
+        } else {
+            total += sp[x].slen;
+        }
     }
 
     if (c->flag) {
@@ -1379,6 +1408,7 @@ mut_step_n(combine) {
 
 mut_step_r(combine) {
     struct mcp_mut_combine *c = &s->c.combine;
+    struct mcp_mut_src *srcs = (struct mcp_mut_src *)(run->mut->arena + c->asrc);
     struct mcp_mut_part *sp = run->sparts + c->part;
 
     if (c->flag) {
@@ -1388,8 +1418,12 @@ mut_step_r(combine) {
         if (x && c->sep) {
             *(run->d_pos++) = c->sep;
         }
-        memcpy(run->d_pos, sp[x].src, sp[x].slen);
-        run->d_pos += sp[x].slen;
+        if (srcs[x].enc == MUT_ENC_URI) {
+            run->d_pos = uriencode_p(sp[x].src, run->d_pos, sp[x].slen);
+        } else {
+            memcpy(run->d_pos, sp[x].src, sp[x].slen);
+            run->d_pos += sp[x].slen;
+        }
     }
     return true;
 }

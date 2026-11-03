@@ -61,6 +61,19 @@ char *uriencode_p(const char *src, char *dst, const size_t srclen) {
     return dst+d;
 }
 
+size_t uriencode_len(const char *src, const size_t srclen) {
+    int x;
+    size_t len = 0;
+    for (x = 0; x < srclen; x++) {
+        if (uriencode_map[(unsigned char) src[x]] != NULL) {
+            len += 3;
+        } else {
+            len++;
+        }
+    }
+    return len;
+}
+
 /* Avoid warnings on solaris, where isspace() is an index into an array, and gcc uses signed chars */
 #define xisspace(c) isspace((unsigned char)c)
 
