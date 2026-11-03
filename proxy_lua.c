@@ -3,6 +3,7 @@
 #include "proxy.h"
 #include "proxy_tls.h"
 #include "storage.h" // for stats call
+#include "tls.h"
 
 // func prototype example:
 // static int fname (lua_State *L)
@@ -1105,6 +1106,22 @@ static int mcplib_init_tls(lua_State *L) {
     return 0;
 }
 
+static int mcplib_tls_oid_to_nid(lua_State *L) {
+    const char *oid = luaL_checkstring(L, -1);
+#ifdef TLS
+    int nid = ssl_oid_to_nid(oid);
+    if (nid == 0) {
+        proxy_lua_error(L, "mcp.tls_oid_to_nid: invalid OID string");
+        return 0;
+    }
+    lua_pushinteger(L, nid);
+#else
+    (void)oid;
+    proxy_lua_error(L, "cannot run mcp.tls_oid_to_nid: TLS support not compiled");
+#endif
+    return 1;
+}
+
 static int mcplib_tcp_keepalive(lua_State *L) {
     luaL_checktype(L, -1, LUA_TBOOLEAN);
     int state = lua_toboolean(L, -1);
@@ -1809,6 +1826,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"worst_result", mcplib_rcontext_worst_result},
         {"cfd", mcplib_rcontext_cfd},
         {"tls_peer_cn", mcplib_rcontext_tls_peer_cn},
+        {"tls_peer_ext", mcplib_rcontext_tls_peer_ext},
         {"request_new", mcplib_rcontext_request_new},
         {"response_new", mcplib_rcontext_response_new},
         {"sleep", mcplib_rcontext_sleep},
@@ -1853,6 +1871,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"backend_use_iothread", mcplib_backend_use_iothread},
         {"backend_use_tls", mcplib_backend_use_tls},
         {"init_tls", mcplib_init_tls},
+        {"tls_oid_to_nid", mcplib_tls_oid_to_nid},
         {"tcp_keepalive", mcplib_tcp_keepalive},
         {"active_req_limit", mcplib_active_req_limit},
         {"buffer_memory_limit", mcplib_buffer_memory_limit},

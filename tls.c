@@ -128,31 +128,92 @@ const unsigned char *ssl_get_peer_cn(conn *c, int *len) {
         return NULL;
     }
 
-    // can't use get0 to avoid getting a reference since that requires 3.0.0+
-    X509 *cert = SSL_get_peer_certificate(c->ssl);
+    X509 *cert = SSL_SESSION_get0_peer(SSL_get_session(c->ssl));
     if (cert == NULL) {
         return NULL;
     }
     X509_NAME *name = X509_get_subject_name(cert);
     if (name == NULL) {
-        X509_free(cert);
         return NULL;
     }
 
     int r = X509_NAME_get_index_by_NID(name, NID_commonName, -1);
     if (r == -1) {
-        X509_free(cert);
         return NULL;
     }
     ASN1_STRING *asn1 = X509_NAME_ENTRY_get_data(X509_NAME_get_entry(name, r));
 
     if (asn1 == NULL) {
-        X509_free(cert);
         return NULL;
     }
     *len = ASN1_STRING_length(asn1);
-    X509_free(cert);
     return ASN1_STRING_get0_data(asn1);
+}
+
+// Turns text OID into a nid for faster extension lookups.
+// Always speed things up, but especially if the OID new to OpenSSL
+// Returns 0 on failure to avoid leaking definitions into caller code.
+int ssl_oid_to_nid(const char *oid) {
+    int nid = OBJ_txt2nid(oid);
+    if (nid != NID_undef) {
+        return nid;
+    }
+
+    nid = OBJ_create(oid, NULL, NULL);
+    if (nid == NID_undef) {
+        ERR_clear_error();
+        return 0;
+    }
+
+    return nid;
+}
+
+// Why isn't ASN1_get_object documented? Why am I pulling this out of SO?
+// Rendering extensions are a bag of worms: a custom extension cannot be
+// printed with the standard functions.
+// For our purposes we assume the caller will know how to decode and try to
+// get the UTF8 string.
+static const unsigned char *_ssl_unwrap_ext_value(ASN1_OCTET_STRING *os, int *len) {
+    const unsigned char *data = ASN1_STRING_get0_data(os);
+    long dlen = ASN1_STRING_length(os);
+    const unsigned char *p = data;
+    long plen = 0;
+    int tag = 0, xclass = 0;
+
+    // Return unwrapped DER. Checks that unwrapping covers the whole object
+    // since it can mis-match an unencoded prefix and under-consume.
+    if (ASN1_get_object(&p, &plen, &tag, &xclass, dlen) == 0
+          && p + plen == data + dlen) {
+      *len = plen;
+      return p;
+    }
+
+    // TODO: Allow surfacing the error.
+    ERR_clear_error();
+    *len = dlen;
+    return data;
+}
+
+// Look up an extension with a precalculated NID.
+// Grabs UTF8 encoded extension by skipping DER header information.
+// Caller _must immediately_ use or copy the string and not store the pointer.
+const unsigned char *ssl_get_peer_ext_by_nid(conn *c, int nid, int *len) {
+    if (!c->ssl) {
+        return NULL;
+    }
+
+    X509 *cert = SSL_SESSION_get0_peer(SSL_get_session(c->ssl));
+    if (cert == NULL) {
+        return NULL;
+    }
+
+    int idx = X509_get_ext_by_NID(cert, nid, -1);
+    if (idx < 0) {
+        return NULL;
+    }
+
+    ASN1_OCTET_STRING *os = X509_EXTENSION_get_data(X509_get_ext(cert, idx));
+    return _ssl_unwrap_ext_value(os, len);
 }
 
 /*
