@@ -1,0 +1,31 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "memcached.fullname" . }}
+  labels:
+    {{- include "memcached.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "memcached.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: memcached
+          protocol: TCP
+      from:
+        {{- if .Values.networkPolicy.allowedFrom }}
+        {{- toYaml .Values.networkPolicy.allowedFrom | nindent 8 }}
+        {{- else }}
+        - podSelector: {}
+        {{- end }}
+    {{- if and .Values.metrics.enabled .Values.networkPolicy.metricsAllowedFrom }}
+    - ports:
+        - port: metrics
+          protocol: TCP
+      from:
+        {{- toYaml .Values.networkPolicy.metricsAllowedFrom | nindent 8 }}
+    {{- end }}
+{{- end }}

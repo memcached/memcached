@@ -1,0 +1,13 @@
+memcached is listening on {{ include "memcached.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
+{{- if eq .Values.kind "StatefulSet" }}
+
+Per-pod addresses for clients that shard keys over a server list:
+{{- range $i, $e := until (int .Values.replicaCount) }}
+  {{ include "memcached.fullname" $ }}-{{ $i }}.{{ include "memcached.headlessServiceName" $ }}.{{ $.Release.Namespace }}.svc:11211
+{{- end }}
+{{- end }}
+
+Quick check:
+
+  kubectl -n {{ .Release.Namespace }} run memcached-check --rm -it --restart=Never --image=busybox -- \
+    sh -c 'echo stats | nc -w 1 {{ include "memcached.fullname" . }} {{ .Values.service.port }} | head'

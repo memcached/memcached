@@ -1,0 +1,60 @@
+suite: optional resources
+templates:
+  - pdb.yaml
+  - networkpolicy.yaml
+  - servicemonitor.yaml
+tests:
+  - it: renders nothing optional by default
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: creates a PodDisruptionBudget
+    template: pdb.yaml
+    set:
+      podDisruptionBudget.enabled: true
+    asserts:
+      - equal:
+          path: spec.maxUnavailable
+          value: 1
+  - it: only admits pods from the release namespace by default
+    template: networkpolicy.yaml
+    set:
+      networkPolicy.enabled: true
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - ports:
+                - port: memcached
+                  protocol: TCP
+              from:
+                - podSelector: {}
+  - it: admits the configured peers and the scraper
+    template: networkpolicy.yaml
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.allowedFrom:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: web
+      metrics.enabled: true
+      networkPolicy.metricsAllowedFrom:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+    asserts:
+      - lengthEqual:
+          path: spec.ingress
+          count: 2
+      - equal:
+          path: spec.ingress[1].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: monitoring
+  - it: scrapes the exporter
+    template: servicemonitor.yaml
+    set:
+      metrics.enabled: true
+      metrics.serviceMonitor.enabled: true
+    asserts:
+      - equal:
+          path: spec.endpoints[0].port
+          value: metrics

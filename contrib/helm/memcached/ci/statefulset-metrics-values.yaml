@@ -1,0 +1,12 @@
+kind: StatefulSet
+replicaCount: 2
+metrics:
+  enabled: true
+podDisruptionBudget:
+  enabled: true
+networkPolicy:
+  enabled: true
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway

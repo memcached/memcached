@@ -1,0 +1,41 @@
+{{ template "chart.header" . }}
+
+{{ template "chart.versionBadge" . }}{{ template "chart.typeBadge" . }}{{ template "chart.appVersionBadge" . }}
+
+{{ template "chart.description" . }}
+
+The chart runs the [Docker official image](https://hub.docker.com/_/memcached) as the `memcache` user with a read-only root filesystem and no service account token. It does not create an Ingress: memcached has no authentication by default and should only be reachable from inside the cluster. Use `networkPolicy` to narrow that further.
+
+## Install
+
+```console
+helm install cache ./contrib/helm/memcached --set memcached.memoryLimitMB=512 \
+  --set resources.requests.memory=600Mi --set resources.limits.memory=640Mi
+```
+
+Keep the container memory limit comfortably above `memcached.memoryLimitMB`: the item memory is only part of what memcached allocates.
+
+## Deployment or StatefulSet
+
+The default `kind: Deployment` puts every pod behind one ClusterIP Service. That is fine for a single pod, or for clients that do not care which server holds a key.
+
+Most clients shard keys over a fixed list of servers. Use `kind: StatefulSet` for them: each pod gets a stable name through a headless Service, for example `cache-memcached-0.cache-memcached-headless.default.svc:11211`.
+
+```yaml
+kind: StatefulSet
+replicaCount: 3
+podDisruptionBudget:
+  enabled: true
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+```
+
+## Metrics
+
+`metrics.enabled` adds [memcached_exporter](https://github.com/prometheus/memcached_exporter) as a sidecar on port 9150, and `metrics.serviceMonitor.enabled` creates a ServiceMonitor for the Prometheus Operator.
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}

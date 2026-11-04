@@ -1,0 +1,15 @@
+apiVersion: v2
+name: memcached
+description: Memcached, a high performance multithreaded event-based key/value cache store.
+type: application
+version: 0.1.0
+appVersion: "1.6.45"
+kubeVersion: ">=1.25.0-0"
+keywords:
+  - memcached
+  - cache
+home: https://memcached.org
+sources:
+  - https://github.com/memcached/memcached
+annotations:
+  artifacthub.io/license: BSD-3-Clause

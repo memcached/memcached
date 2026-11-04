@@ -1,0 +1,40 @@
+suite: services
+templates:
+  - service.yaml
+tests:
+  - it: exposes memcached only by default
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.ports
+          value:
+            - name: memcached
+              port: 11211
+              targetPort: memcached
+              protocol: TCP
+  - it: exposes the exporter port when metrics are enabled
+    set:
+      metrics.enabled: true
+    asserts:
+      - contains:
+          path: spec.ports
+          content:
+            name: metrics
+            port: 9150
+            targetPort: metrics
+            protocol: TCP
+  - it: adds a headless Service for a StatefulSet
+    set:
+      kind: StatefulSet
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: spec.clusterIP
+          value: None
+        documentIndex: 1
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-memcached-headless
+        documentIndex: 1
