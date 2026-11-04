@@ -1,0 +1,109 @@
+suite: workload
+templates:
+  - workload.yaml
+tests:
+  - it: runs as the memcache user with a read-only root filesystem
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 11211
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          value: [ALL]
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+  - it: uses the official image at the appVersion
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: memcached:1.6.45
+  - it: pins the image by digest when set
+    set:
+      image.digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "^memcached@sha256:0{64}$"
+  - it: maps the memcached settings to flags
+    set:
+      memcached.memoryLimitMB: 1024
+      memcached.maxConnections: 4096
+      memcached.threads: 8
+      memcached.maxItemSize: 4m
+      memcached.extraArgs: ["-o", "modern"]
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - --port=11211
+            - --memory-limit=1024
+            - --conn-limit=4096
+            - --threads=8
+            - --max-item-size=4m
+            - -o
+            - modern
+  - it: probes the memcached port
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.tcpSocket.port
+          value: memcached
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.tcpSocket.port
+          value: memcached
+  - it: renders a StatefulSet bound to the headless Service
+    set:
+      kind: StatefulSet
+    asserts:
+      - isKind:
+          of: StatefulSet
+      - equal:
+          path: spec.serviceName
+          value: RELEASE-NAME-memcached-headless
+      - equal:
+          path: spec.podManagementPolicy
+          value: Parallel
+  - it: rejects other workload kinds
+    set:
+      kind: DaemonSet
+    asserts:
+      - failedTemplate: {}
+  - it: adds the exporter sidecar when metrics are enabled
+    set:
+      metrics.enabled: true
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers
+          count: 2
+      - equal:
+          path: spec.template.spec.containers[1].image
+          value: prom/memcached-exporter:v0.18.0
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --memcached.address=localhost:11211
+  - it: fills the selector of topology spread constraints
+    set:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].labelSelector.matchLabels
+          value:
+            app.kubernetes.io/name: memcached
+            app.kubernetes.io/instance: RELEASE-NAME
+  - it: needs metrics for a ServiceMonitor
+    set:
+      metrics.serviceMonitor.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: metrics.serviceMonitor.enabled requires metrics.enabled

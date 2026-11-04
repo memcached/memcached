@@ -21,7 +21,7 @@ autom4te.cache
 configure
 depcomp
 install-sh
-memcached
+/memcached
 memcached-debug
 memcached-debug.profile
 missing

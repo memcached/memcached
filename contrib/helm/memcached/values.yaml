@@ -1,0 +1,160 @@
+# -- Overrides the chart name used in resource names and labels.
+nameOverride: ""
+# -- Overrides the fully qualified resource name.
+fullnameOverride: ""
+
+image:
+  # -- Image repository. Defaults to the Docker official image.
+  repository: memcached
+  # -- Image tag. Defaults to the chart appVersion.
+  tag: ""
+  # -- Image digest. Takes precedence over the tag when set.
+  digest: ""
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+
+# -- Secrets used to pull the images.
+imagePullSecrets: []
+
+# -- Workload kind. Deployment fits a plain cache behind one Service. StatefulSet gives every pod a stable DNS name through a headless Service, which clients that shard keys over a fixed server list need.
+kind: Deployment
+
+# -- Number of memcached pods.
+replicaCount: 1
+
+# -- Revisions kept for rollback.
+revisionHistoryLimit: 5
+
+# -- Extra labels added to every resource.
+commonLabels: {}
+# -- Extra annotations added to the pods.
+podAnnotations: {}
+# -- Extra labels added to the pods.
+podLabels: {}
+
+serviceAccount:
+  # -- Create a ServiceAccount.
+  create: true
+  # -- ServiceAccount name. Generated when empty.
+  name: ""
+  # -- ServiceAccount annotations.
+  annotations: {}
+
+memcached:
+  # -- Item memory in megabytes (-m). Keep the container memory limit above this, memcached also needs memory for connections and hash tables.
+  memoryLimitMB: 64
+  # -- Max simultaneous connections (-c).
+  maxConnections: 1024
+  # -- Worker threads (-t).
+  threads: 4
+  # -- Max item size (-I), for example 1m or 4m.
+  maxItemSize: 1m
+  # -- Extra command line arguments, for example ["-o", "modern"] or extstore options.
+  extraArgs: []
+
+# -- Pod level security context. The official image runs as the memcache user (11211).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 11211
+  runAsGroup: 11211
+  fsGroup: 11211
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container level security context, shared by memcached and the exporter.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# -- Resources of the memcached container.
+resources:
+  requests:
+    cpu: 100m
+    memory: 96Mi
+  limits:
+    memory: 128Mi
+
+probes:
+  liveness:
+    # -- TCP liveness probe on the memcached port.
+    enabled: true
+    # -- Seconds between checks.
+    periodSeconds: 10
+    # -- Failures before the container is restarted.
+    failureThreshold: 3
+  readiness:
+    # -- TCP readiness probe on the memcached port.
+    enabled: true
+    # -- Seconds between checks.
+    periodSeconds: 5
+    # -- Failures before the pod is marked unready.
+    failureThreshold: 3
+
+service:
+  # -- Service type.
+  type: ClusterIP
+  # -- Service port.
+  port: 11211
+  # -- Service annotations.
+  annotations: {}
+
+metrics:
+  # -- Run prom/memcached-exporter as a sidecar.
+  enabled: false
+  image:
+    # -- Exporter image repository.
+    repository: prom/memcached-exporter
+    # -- Exporter image tag.
+    tag: v0.18.0
+    # -- Exporter image pull policy.
+    pullPolicy: IfNotPresent
+  # -- Exporter port.
+  port: 9150
+  # -- Extra exporter arguments.
+  extraArgs: []
+  # -- Resources of the exporter container.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      memory: 32Mi
+  serviceMonitor:
+    # -- Create a Prometheus Operator ServiceMonitor.
+    enabled: false
+    # -- Scrape interval.
+    interval: 30s
+    # -- Scrape timeout.
+    scrapeTimeout: 10s
+    # -- Extra labels, for example the one your Prometheus selects on.
+    labels: {}
+
+podDisruptionBudget:
+  # -- Create a PodDisruptionBudget.
+  enabled: false
+  # -- Pods that may be down at once during voluntary disruptions.
+  maxUnavailable: 1
+
+networkPolicy:
+  # -- Create a NetworkPolicy that only admits the listed peers.
+  enabled: false
+  # -- Peers allowed to reach memcached. Empty allows only pods in the release namespace.
+  allowedFrom: []
+  # -- Peers allowed to scrape the exporter.
+  metricsAllowedFrom: []
+
+# -- Grace period before the pod is killed.
+terminationGracePeriodSeconds: 30
+# -- Priority class of the pods.
+priorityClassName: ""
+# -- Node selector.
+nodeSelector: {}
+# -- Tolerations.
+tolerations: []
+# -- Affinity rules.
+affinity: {}
+# -- Topology spread constraints. The pod selector labels are filled in when labelSelector is omitted.
+topologySpreadConstraints: []
