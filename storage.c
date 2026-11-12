@@ -1082,17 +1082,19 @@ static void storage_compact_readback(void *storage, logger *l,
             NULL, page_id, offset, rescues, rescues_realloc, lost, lost_oom, skipped);
 }
 
-// wrap lock is held while waiting for this callback, preventing caller thread
-// from fast-looping.
+// The compact thread observes done/miss under wrap.lock after submitting a
+// background read. This callback must take that lock before updating the
+// flags; unlocking without ownership was undefined and left the flags
+// unsynchronized with the compact thread.
 static void _storage_compact_cb(void *e, obj_io *io, int ret) {
     struct storage_compact_wrap *wrap = (struct storage_compact_wrap *)io->data;
     assert(wrap->submitted == true);
 
+    pthread_mutex_lock(&wrap->lock);
     if (ret < 1) {
         wrap->miss = true;
     }
     wrap->done = true;
-
     pthread_mutex_unlock(&wrap->lock);
 }
 
