@@ -925,7 +925,6 @@ static int storage_compact_check(void *storage, logger *l,
 struct storage_compact_wrap {
     obj_io io;
     pthread_mutex_t lock; // gates the bools.
-    pthread_cond_t cond;  // signaled when a background read completes.
     bool done;
     bool submitted;
     bool miss; // version flipped out from under us
@@ -1083,10 +1082,10 @@ static void storage_compact_readback(void *storage, logger *l,
             NULL, page_id, offset, rescues, rescues_realloc, lost, lost_oom, skipped);
 }
 
-// The compact thread waits on wrap.cond (holding wrap.lock) after submitting
-// a background read, so this callback must take the lock, update the flags,
-// and signal completion. Unlocking without ownership was undefined and left
-// done/miss unsynchronized with the compact thread.
+// The compact thread observes done/miss under wrap.lock after submitting a
+// background read. This callback must take that lock before updating the
+// flags; unlocking without ownership was undefined and left the flags
+// unsynchronized with the compact thread.
 static void _storage_compact_cb(void *e, obj_io *io, int ret) {
     struct storage_compact_wrap *wrap = (struct storage_compact_wrap *)io->data;
     assert(wrap->submitted == true);
@@ -1096,7 +1095,6 @@ static void _storage_compact_cb(void *e, obj_io *io, int ret) {
         wrap->miss = true;
     }
     wrap->done = true;
-    pthread_cond_signal(&wrap->cond);
     pthread_mutex_unlock(&wrap->lock);
 }
 
@@ -1128,7 +1126,6 @@ static void *storage_compact_thread(void *arg) {
     }
 
     pthread_mutex_init(&wrap.lock, NULL);
-    pthread_cond_init(&wrap.cond, NULL);
     wrap.done = false;
     wrap.submitted = false;
     wrap.io.data = &wrap;
@@ -1163,9 +1160,6 @@ static void *storage_compact_thread(void *arg) {
                 wrap.miss = false;
 
                 extstore_submit_bg(storage, &wrap.io);
-                while (!wrap.done) {
-                    pthread_cond_wait(&wrap.cond, &wrap.lock);
-                }
             } else if (wrap.miss) {
                 LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_ABORT,
                         NULL, page_id);
