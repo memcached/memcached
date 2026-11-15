@@ -263,6 +263,10 @@ static void crawler_expired_eval(crawler_module_t *cm, item *search, uint32_t hv
 
 static int crawler_metadump_init(crawler_module_t *cm, void *data) {
     cm->status = 0;
+    if (cm->c.buf != NULL) {
+        memcpy(cm->c.buf, "OK\r\n", 4);
+        cm->c.bufused += 4;
+    }
     return 0;
 }
 
@@ -390,6 +394,10 @@ static void crawler_metadump_finalize(crawler_module_t *cm) {
 
 static int crawler_mgdump_init(crawler_module_t *cm, void *data) {
     cm->status = 0;
+    if (cm->c.buf != NULL) {
+        memcpy(cm->c.buf, "OK\r\n", 4);
+        cm->c.bufused += 4;
+    }
     return 0;
 }
 
@@ -450,6 +458,10 @@ static int lru_crawler_write(crawler_client_t *c) {
 
     if (c->c == NULL) return -1;
     if (data_size == 0) return 0;
+    // a long backstop so clients can't hang forever.
+    // continually timed out stuff used to blow up memory and crash so this is
+    // just to avoid replacing one problem with another.
+    int tries = 1800;
 
     while (sent < data_size) {
         int ret = poll(to_poll, 1, 1000);
@@ -460,7 +472,14 @@ static int lru_crawler_write(crawler_client_t *c) {
             return -1;
         }
 
-        if (ret == 0) return 0;
+        // Timed out, retry for a while.
+        if (ret == 0) {
+            if (--tries == 0) {
+                lru_crawler_close_client(c);
+                return -1;
+            }
+            continue;
+        }
 
         // check if socket was closed on us.
         if (to_poll[0].revents & POLLIN) {
@@ -487,8 +506,9 @@ static int lru_crawler_write(crawler_client_t *c) {
             } else if (total == 0) {
                 lru_crawler_close_client(c);
                 return -1;
+            } else {
+                sent += total;
             }
-            sent += total;
         }
     } // while
 
@@ -620,11 +640,15 @@ static void *item_crawler_thread(void *arg) {
                 if (c->buflen - c->bufused < LRU_CRAWLER_MINBUFSPACE) {
                     int ret = lru_crawler_write(c);
                     if (ret != 0) {
+                        // Must be locked to unlink crawler.
+                        pthread_mutex_lock(&lru_locks[i]);
                         lru_crawler_class_done(i);
                         continue;
                     }
                 }
             } else if (active_crawler_mod.mod->needs_client) {
+                // Must be locked to unlink crawler.
+                pthread_mutex_lock(&lru_locks[i]);
                 lru_crawler_class_done(i);
                 continue;
             }
@@ -862,9 +886,7 @@ int lru_crawler_start(uint8_t *ids, uint32_t remaining,
         assert(crawler_mod_regs[type] != NULL);
         active_crawler_mod.mod = crawler_mod_regs[type];
         active_crawler_type = type;
-        if (active_crawler_mod.mod->init != NULL) {
-            active_crawler_mod.mod->init(&active_crawler_mod, data);
-        }
+        /* set client, then call init to be able to send OK */
         if (active_crawler_mod.mod->needs_client) {
             if (c == NULL || sfd == 0) {
                 pthread_mutex_unlock(&lru_crawler_lock);
@@ -874,6 +896,9 @@ int lru_crawler_start(uint8_t *ids, uint32_t remaining,
                 pthread_mutex_unlock(&lru_crawler_lock);
                 return -2;
             }
+        }
+        if (active_crawler_mod.mod->init != NULL) {
+            active_crawler_mod.mod->init(&active_crawler_mod, data);
         }
     }
 

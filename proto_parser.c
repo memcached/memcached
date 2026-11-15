@@ -333,15 +333,6 @@ int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
  * PARSER UTIL CODE
  */
 
-// TODO:
-// - the safe_strto calls in here are still "string-y" - they're going to
-// parse until a space or newline. This is perfectly safe for any time we're
-// in this code; since we can't get here without a \n or a space (ie;
-// non-digit)
-// - I'm not converting these to tokto*'s right now, because what they're
-// pulling the flag while in a loop. So we need yet another interface (or
-// refactor of existing interface). This code is safe, just not consistent.
-
 int mc_prcmp(mcp_parser_t *pr, int token, const char *s) {
     int len = 0;
     const char *t = mcmc_token_get(pr->request, &pr->tok, token, &len);
@@ -421,7 +412,7 @@ static void pout_errstring(mc_resp *resp, const char *str) {
 
 bool mc_parse_exptime(mc_resp *resp, mcp_parser_t *pr, int token, rel_time_t *exptime) {
     int32_t exptime_int = 0;
-    if (!safe_strtol(&pr->request[pr->tok.tokens[1]], &exptime_int)) {
+    if (mcmc_token_get_32(pr->request, &pr->tok, token, &exptime_int) != MCMC_OK) {
         pout_string(resp, "CLIENT_ERROR invalid exptime argument");
         return false;
     }
@@ -521,30 +512,30 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
             case 'N':
                 of->locked = 1;
                 of->vivify = 1;
-                if (!safe_strtol(&pr->request[pr->tok.tokens[i]+1], &tmp_int)) {
+                if (mcmc_token_get_flag_arg_32(pr->request, &pr->tok, i, &tmp_int) == MCMC_OK) {
+                    of->autoviv_exptime = realtime(EXPTIME_TO_POSITIVE_TIME(tmp_int));
+                } else {
                     *errstr = "CLIENT_ERROR bad token in command line format";
                     of->has_error = 1;
-                } else {
-                    of->autoviv_exptime = realtime(EXPTIME_TO_POSITIVE_TIME(tmp_int));
                 }
                 break;
             case 'T':
                 of->locked = 1;
-                if (!safe_strtol(&pr->request[pr->tok.tokens[i]+1], &tmp_int)) {
-                    *errstr = "CLIENT_ERROR bad token in command line format";
-                    of->has_error = 1;
-                } else {
+                if (mcmc_token_get_flag_arg_32(pr->request, &pr->tok, i, &tmp_int) == MCMC_OK) {
                     of->exptime = realtime(EXPTIME_TO_POSITIVE_TIME(tmp_int));
                     of->new_ttl = true;
+                } else {
+                    *errstr = "CLIENT_ERROR bad token in command line format";
+                    of->has_error = 1;
                 }
                 break;
             case 'R':
                 of->locked = 1;
-                if (!safe_strtol(&pr->request[pr->tok.tokens[i]+1], &tmp_int)) {
+                if (mcmc_token_get_flag_arg_32(pr->request, &pr->tok, i, &tmp_int) == MCMC_OK) {
+                    of->recache_time = realtime(EXPTIME_TO_POSITIVE_TIME(tmp_int));
+                } else {
                     *errstr = "CLIENT_ERROR bad token in command line format";
                     of->has_error = 1;
-                } else {
-                    of->recache_time = realtime(EXPTIME_TO_POSITIVE_TIME(tmp_int));
                 }
                 break;
             case 'l':
@@ -578,24 +569,28 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
                 break;
             // mset-related.
             case 'F':
-                if (!safe_strtoflags(&pr->request[pr->tok.tokens[i]+1], &of->client_flags)) {
+#ifdef LARGE_CLIENT_FLAGS
+                if (mcmc_token_get_flag_arg_u64(pr->request, &pr->tok, i, &of->client_flags) != MCMC_OK) {
+#else
+                if (mcmc_token_get_flag_arg_u32(pr->request, &pr->tok, i, &of->client_flags) != MCMC_OK) {
+#endif
                     of->has_error = true;
                 }
                 break;
             case 'C': // mset, mdelete, marithmetic
-                if (!safe_strtoull(&pr->request[pr->tok.tokens[i]+1], &of->req_cas_id)) {
-                    *errstr = "CLIENT_ERROR bad token in command line format";
-                    of->has_error = true;
-                } else {
+                if (mcmc_token_get_flag_arg_u64(pr->request, &pr->tok, i, &of->req_cas_id) == MCMC_OK) {
                     of->has_cas = true;
+                } else {
+                    *errstr = "CLIENT_ERROR bad token in command line format";
+                    of->has_error = 1;
                 }
                 break;
             case 'E': // ms, md, ma
-                if (!safe_strtoull(&pr->request[pr->tok.tokens[i]+1], &of->cas_id_in)) {
-                    *errstr = "CLIENT_ERROR bad token in command line format";
-                    of->has_error = true;
-                } else {
+                if (mcmc_token_get_flag_arg_u64(pr->request, &pr->tok, i, &of->cas_id_in) == MCMC_OK) {
                     of->has_cas_in = true;
+                } else {
+                    *errstr = "CLIENT_ERROR bad token in command line format";
+                    of->has_error = 1;
                 }
                 break;
             case 'M': // mset and marithmetic mode switch
@@ -604,13 +599,13 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
                 of->mode = pr->request[pr->tok.tokens[i]+1];
                 break;
             case 'J': // marithmetic initial value
-                if (!safe_strtoull(&pr->request[pr->tok.tokens[i]+1], &of->initial)) {
+                if (mcmc_token_get_flag_arg_u64(pr->request, &pr->tok, i, &of->initial) != MCMC_OK) {
                     *errstr = "CLIENT_ERROR invalid numeric initial value";
                     of->has_error = 1;
                 }
                 break;
             case 'D': // marithmetic delta value
-                if (!safe_strtoull(&pr->request[pr->tok.tokens[i]+1], &of->delta)) {
+                if (mcmc_token_get_flag_arg_u64(pr->request, &pr->tok, i, &of->delta) != MCMC_OK) {
                     *errstr = "CLIENT_ERROR invalid numeric delta value";
                     of->has_error = 1;
                 }
@@ -636,7 +631,9 @@ static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas,
         *p = '0';
         p++;
     } else {
-        p = itoa_u64(*((client_flags_t *) ITEM_suffix(it)), p);
+        client_flags_t flags;
+        FLAGS_CONV(it, flags);
+        p = itoa_u64(flags, p);
     }
     *p = ' ';
     p = itoa_u32(nbytes-2, p+1);
@@ -767,7 +764,7 @@ item *process_update_cmd_start(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
 
     // does cas value exist?
     if (handle_cas) {
-        if (!safe_strtoull(&pr->request[pr->tok.tokens[5]], &req_cas_id)) {
+        if (mcmc_token_get_u64(pr->request, &pr->tok, 5, &req_cas_id) != MCMC_OK) {
             pout_string(resp, "CLIENT_ERROR bad command line format");
             return NULL;
         }
@@ -869,7 +866,7 @@ void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp,
         return;
     }
 
-    if (!safe_strtoull(&pr->request[pr->tok.tokens[2]], &delta)) {
+    if (mcmc_token_get_u64(pr->request, &pr->tok, 2, &delta) != MCMC_OK) {
         pout_string(resp, "CLIENT_ERROR invalid numeric delta argument");
         return;
     }
@@ -959,7 +956,7 @@ void process_touch_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
         return;
     }
 
-    if (!safe_strtol(&pr->request[pr->tok.tokens[2]], &exptime_int)) {
+    if (mcmc_token_get_32(pr->request, &pr->tok, 2, &exptime_int) != MCMC_OK) {
         pout_string(resp, "CLIENT_ERROR invalid exptime argument");
         return;
     }
@@ -1108,7 +1105,9 @@ void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp,
                         *p = '0';
                         p++;
                     } else {
-                        p = itoa_u64(*((client_flags_t *) ITEM_suffix(it)), p);
+                        client_flags_t flags;
+                        FLAGS_CONV(it, flags);
+                        p = itoa_u64(flags, p);
                     }
                     break;
                 case 'l':
@@ -1278,9 +1277,11 @@ void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp,
     return;
 error:
     if (it) {
-        do_item_remove(it);
         if (of.locked) {
+            do_item_remove(it);
             item_unlock(hv);
+        } else {
+            item_remove(it);
         }
     }
     pout_errstring(resp, errstr);
@@ -1462,6 +1463,7 @@ void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
           break;
         default:
           pout_errstring(resp, "SERVER_ERROR Unhandled storage type.");
+          item_remove(it);
           return;
 
     }
@@ -1513,9 +1515,8 @@ void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {
 
     return;
 error:
-    // Note: no errors possible after the item was successfully allocated.
-    // So we're just looking at dumping error codes and returning.
     pout_errstring(resp, errstr);
+    item_remove(it);
 }
 
 void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp) {

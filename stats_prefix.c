@@ -6,6 +6,8 @@
 #include <string.h>
 #include <assert.h>
 
+#define MAX_PREFIX_COUNT (1<<16)
+
 /* Hash table that uses the global hash function */
 static PREFIX_STATS *prefix_stats[PREFIX_HASH_SIZE];
 
@@ -58,6 +60,14 @@ PREFIX_STATS *stats_prefix_find(const char *key, const size_t nkey) {
     for (pfs = prefix_stats[hashval]; NULL != pfs; pfs = pfs->next) {
         if (strncmp(pfs->prefix, key, length) == 0)
             return pfs;
+    }
+
+    // Hash table is a fixed size and there's no other way to limit memory
+    // usage. The lookup HT is a fixed size as well so this is also a
+    // performance problem. The system needs to be deprecated/removed or
+    // rewritten.
+    if (num_prefixes >= MAX_PREFIX_COUNT) {
+        return NULL;
     }
 
     pfs = calloc(sizeof(PREFIX_STATS), 1);

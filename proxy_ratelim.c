@@ -69,6 +69,12 @@ static void _setup_tbf(lua_State *L, struct mcp_ratelim_tbf *lim) {
     lim->limit = _tbf_check(L, "limit");
     lim->fill_rate = _tbf_check(L, "fillrate");
     lim->tick_rate = _tbf_check(L, "tickrate");
+    if (lim->fill_rate == 0) {
+        lim->fill_rate = 1;
+    }
+    if (lim->tick_rate == 0) {
+        lim->tick_rate = 1;
+    }
 
     // seed the token bucket filter.
     lim->bucket = lim->limit;

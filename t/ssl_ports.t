@@ -33,8 +33,15 @@ mem_get_is($tcp_sock, "foo:123", "foo set over SSL");
 # not trying very hard but: if the above works and this doesn't, it's going to
 # be the peer cert. If someone wants to tryhard you can try inspecting
 # $SSL_ERROR and/or checking `watch connevents` stream
-my $mtls_sock = $server->new_nocert_tls_sock($mtls_port, 'TLSv1_3');
+my ($mtls_sock, $mtls_version);
+for my $tls ('TLSv1_3', 'SSLv23') {
+    $mtls_sock = $server->new_nocert_tls_sock($mtls_port, $tls);
+    if ($mtls_sock) {
+        $mtls_version = $tls;
+        last;
+    }
+}
 print $mtls_sock "version\r\n";
-is(scalar <$mtls_sock>, undef, "failed to connect without peer cert");
+is(scalar <$mtls_sock>, undef, "failed to connect without peer cert on $mtls_version");
 
 done_testing()

@@ -82,6 +82,8 @@ void slab_automove_run(void *arg, int *src, int *dst) {
     bool youngest_evicting = false;
     *src = -1;
     *dst = -1;
+    bool mem_limit_reached = false;
+    global_page_pool_size(&mem_limit_reached);
 
     // fill after structs
     fill_item_stats_automove(a->iam_after);
@@ -128,7 +130,8 @@ void slab_automove_run(void *arg, int *src, int *dst) {
 
         // if > N free chunks and not dirty, make decision.
         if (a->sam_after[n].free_chunks > a->sam_after[n].chunks_per_page * MIN_PAGES_FOR_RECLAIM) {
-            if (w_sum.dirty == 0) {
+            // Only handle "too much free" scenario if all memory was malloc'ed
+            if (mem_limit_reached && w_sum.dirty == 0) {
                 *src = n;
                 *dst = 0;
                 youngest = oldest = -1;

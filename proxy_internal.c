@@ -42,7 +42,7 @@ static void _storage_get_item_cb(void *e, obj_io *eio, int ret) {
         } else if (io->gettype == PROXY_STORAGE_MG) {
             resp->iov[0].iov_len = 4;
             resp->iov[0].iov_base = "EN\r\n";
-            resp->tosend = 5;
+            resp->tosend = 4;
         } else {
             assert(1 == 0);
         }

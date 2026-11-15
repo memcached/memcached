@@ -379,6 +379,7 @@ static void _logger_log_proxy_req(logentry *e, const entry_details *d, const voi
     }
     if (dlen > 150) {
         dlen = 150;
+        le->dlen = dlen;
     }
     // be_namelen and be_portlen can't be longer than 255+6
     le->reqlen = reqlen;
@@ -530,7 +531,7 @@ static const entry_details default_entries[] = {
         "type=compact_read_start id=%lu offset=%llu"
     },
     [LOGGER_COMPACT_READ_END] = {512, LOG_SYSEVENTS, _logger_log_text, _logger_parse_text,
-        "type=compact_read_end id=%lu offset=%llu rescues=%lu lost=%lu skipped=%lu"
+        "type=compact_read_end id=%lu offset=%llu rescues=%lu rescues_realloc=%lu lost=%lu lost_oom=%lu skipped=%lu"
     },
     [LOGGER_COMPACT_END] = {512, LOG_SYSEVENTS, _logger_log_text, _logger_parse_text,
         "type=compact_end id=%lu"
@@ -550,7 +551,7 @@ static const entry_details default_entries[] = {
     [LOGGER_PROXY_USER] = {512, LOG_PROXYUSER, _logger_log_text, _logger_parse_text,
         "type=proxy_user msg=%s"
     },
-    [LOGGER_PROXY_BE_ERROR] = {512, LOG_PROXYEVENTS, _logger_log_proxy_errbe, _logger_parse_prx_errbe,
+    [LOGGER_PROXY_BE_ERROR] = {1024, LOG_PROXYEVENTS, _logger_log_proxy_errbe, _logger_parse_prx_errbe,
         NULL
     },
 
@@ -687,8 +688,16 @@ static void logger_thread_write_entry(logentry *e, struct logger_stats *ls,
                 (skip_scr = (char *) bipbuf_request(w->buf, scratch_len + 128)) == NULL) {
             if (logger_thread_poll_watchers(0, x) <= 0) {
                 L_DEBUG("LOGGER: Watcher had no free space for line of size (%d)\n", scratch_len + 128);
+                // Oddity; poll_watchers can free *w, recheck it.
+                if (watchers[x] == NULL) {
+                    break;
+                }
                 w->failed_flush = true;
             }
+        }
+        // See oddity note above.
+        if (watchers[x] == NULL) {
+            continue;
         }
 
         if (w->failed_flush) {

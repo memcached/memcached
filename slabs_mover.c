@@ -108,6 +108,10 @@ static int slab_rebalance_start(struct slab_rebal_thread *t) {
     }
 
     void *page = slabs_peek_page(t->rebal.s_clsid, &size, &perslab);
+    // We _almost_ never get called in a condition where this can fail.
+    if (page == NULL) {
+        return -1;
+    }
 
     // Bit-vector to keep track of completed chunks
     t->rebal.completed = (uint8_t*)calloc(perslab,sizeof(uint8_t));
@@ -136,13 +140,17 @@ static int slab_rebalance_start(struct slab_rebal_thread *t) {
     return 0;
 }
 
-static void *slab_rebalance_alloc(struct slab_rebal_thread *t, unsigned int id) {
+#define MC_ALLOW_NEWPAGE 1
+#define MC_NO_NEWPAGE 0
+static void *slab_rebalance_alloc(struct slab_rebal_thread *t, unsigned int id, int flags) {
     item *new_it = NULL;
+    // translating our flags to downstream flags...
+    int sa_flags = flags == MC_ALLOW_NEWPAGE ? 0 : SLABS_ALLOC_NO_NEWPAGE;
 
     // We will either wipe the whole page if unused, or run out of memory in
     // the page and return NULL.
     while (1) {
-        new_it = slabs_alloc(id, SLABS_ALLOC_NO_NEWPAGE);
+        new_it = slabs_alloc(id, sa_flags);
         if (new_it == NULL) {
             break;
         }
@@ -174,23 +182,48 @@ static void slab_rebalance_prep(struct slab_rebal_thread *t) {
         return;
     }
 
-    t->new_it = slab_rebalance_alloc(t, s_clsid);
+    t->new_it = slab_rebalance_alloc(t, s_clsid, MC_NO_NEWPAGE);
     // we could free the entire page in the above alloc call, but not get any
     // other memory to work with.
     // We try to busy-loop the page mover at least a few times in this case,
     // so it will pick up on all of the memory being freed already.
-    if (t->new_it == NULL && t->allow_evictions) {
-        // global is empty and memory limit is reached. we have to evict
-        // memory to move forward.
-        for (int x = 0; x < 10; x++) {
-            if (lru_pull_tail(s_clsid, COLD_LRU, 0, LRU_PULL_EVICT, 0, NULL) <= 0) {
-                if (settings.lru_segmented) {
-                    lru_pull_tail(s_clsid, HOT_LRU, 0, 0, 0, NULL);
+    if (t->new_it == NULL) {
+        // If we've been stuck for a long time and don't have memory to
+        // allocate with, flip allow_evictions. It starts on if we
+        // start rebalance with completely full memory. However it's
+        // possible to start rebalance before memory is full then it fills
+        // while we rebalance and get stuck forever.
+        if (!t->allow_evictions && t->rebal.busy_loops > SLAB_MOVE_MAX_LOOPS) {
+            bool mem_limit_reached = false;
+            global_page_pool_size(&mem_limit_reached);
+
+            // This is a stupid corner case that should self-resolve as memory
+            // fills. If we haven't malloc'ed all possible memory but we're
+            // trying to move memory for some reason, causing an eviction is
+            // nonsense. So we allocate a page to push a page out.
+            if (mem_limit_reached) {
+                t->allow_evictions = true;
+            } else {
+                t->new_it = slab_rebalance_alloc(t, s_clsid, MC_ALLOW_NEWPAGE);
+                if (t->new_it) {
+                    return;
                 }
             }
-            t->new_it = slab_rebalance_alloc(t, s_clsid);
-            if (t->new_it != NULL) {
-                break;
+        }
+
+        if (t->allow_evictions) {
+            // global is empty and memory limit is reached. we have to evict
+            // memory to move forward.
+            for (int x = 0; x < 10; x++) {
+                if (lru_pull_tail(s_clsid, COLD_LRU, 0, LRU_PULL_EVICT, 0, NULL) <= 0) {
+                    if (settings.lru_segmented) {
+                        lru_pull_tail(s_clsid, HOT_LRU, 0, 0, 0, NULL);
+                    }
+                }
+                t->new_it = slab_rebalance_alloc(t, s_clsid, MC_NO_NEWPAGE);
+                if (t->new_it != NULL) {
+                    break;
+                }
             }
         }
     }
@@ -694,9 +727,9 @@ static enum reassign_result_type do_slabs_reassign(struct slab_rebal_thread *t, 
         /* TODO: If we end up back at -1, return a new error type */
     }
 
-    if (src < SLAB_GLOBAL_PAGE_POOL || src > MAX_NUMBER_OF_SLAB_CLASSES||
-        dst < SLAB_GLOBAL_PAGE_POOL || dst > MAX_NUMBER_OF_SLAB_CLASSES)
+    if (!slabs_class_check(src) || !slabs_class_check(dst)) {
         return REASSIGN_BADCLASS;
+    }
 
     if (slabs_page_count(src) < 2) {
         return REASSIGN_NOSPARE;

@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
 use strict;
-use Test::More tests => 37992;
+use Test::More tests => 37993;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -21,6 +21,18 @@ subtest 'close if no get found in 2k' => sub {
 
     print $ns "incr $spaces manyspaces 1";
     is(scalar <$ns>, undef, "long ascii incr was not fine");
+};
+
+SKIP: {
+    skip "test flaky on old OS. has run on newer ones", 1;
+subtest 'oops all spaces' => sub {
+    my $ns = $server->new_sock;
+    $ns->autoflush(1);
+
+    my $spaces = ' ' x 14000;
+    syswrite($ns, $spaces);
+    is(scalar <$ns>, undef, "errored out");
+};
 };
 
 # set foo (and should get it)

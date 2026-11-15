@@ -17,23 +17,8 @@ if (!supports_extstore()) {
 
 $ext_path = "/tmp/extstore.$$";
 
-eval {
-    my $server = new_memcached("-o ext_path=$ext_path:0m");
-};
-ok($@, "failed to start server with zero pages assigned");
-
-eval {
-    my $server = new_memcached("-o ext_path=$ext_path:1GB");
-};
-ok($@, "failed to start server with invalid path size");
-
 my $server = new_memcached("-m 64 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path:64m,slab_automove=0,ext_compact_under=1,ext_max_sleep=100000");
 my $sock = $server->sock;
-
-eval {
-    my $server = new_memcached("-o ext_path=$ext_path:64m");
-};
-ok($@, "failed to start a second server with the same file path");
 
 # Wait until all items have flushed
 sub wait_for_ext {
@@ -61,6 +46,7 @@ sub watch_compact {
     is($res, "OK\r\n", "watcher enabled");
 
     my $fragcount = 20;
+    my $read_end = '';
     while (my $log = <$watcher>) {
         chomp $log;
         if ($log =~ m/type=compact_fraginfo/) {
@@ -80,61 +66,64 @@ my $value;
     }
 }
 
-# fill a small object
-print $sock "set foo 0 0 2\r\nhi\r\n";
-is(scalar <$sock>, "STORED\r\n", "stored small value");
-# fetch
-mem_get_is($sock, "foo", "hi");
-# check extstore counters
-{
-    my $stats = mem_stats($sock);
-    is($stats->{extstore_objects_written}, 0);
-}
-# fill some larger objects
-{
-    # set one canary value for later
-    print $sock "set canary 0 0 20000 noreply\r\n$value\r\n";
-    my $keycount = 1000;
-    for (1 .. $keycount) {
-        print $sock "set nfoo$_ 0 0 20000 noreply\r\n$value\r\n";
-    }
-    # wait for a flush
-    wait_for_ext();
+subtest 'basics' => sub {
+    # fill a small object
+    print $sock "set foo 0 0 2\r\nhi\r\n";
+    is(scalar <$sock>, "STORED\r\n", "stored small value");
     # fetch
-    # TODO: Fetch back all values
-    mem_get_is($sock, "nfoo1", $value);
+    mem_get_is($sock, "foo", "hi");
+
     # check extstore counters
-    my $stats = mem_stats($sock);
-    cmp_ok($stats->{extstore_page_allocs}, '>', 0, 'at least one page allocated');
-    cmp_ok($stats->{extstore_objects_written}, '>', $keycount / 2, 'some objects written');
-    cmp_ok($stats->{extstore_bytes_written}, '>', length($value) * 2, 'some bytes written');
-    cmp_ok($stats->{get_extstore}, '>', 0, 'one object was fetched');
-    cmp_ok($stats->{extstore_objects_read}, '>', 0, 'one object read');
-    cmp_ok($stats->{extstore_bytes_read}, '>', length($value), 'some bytes read');
-
-    # Remove half of the keys for the next test.
-    for (1 .. $keycount) {
-        next unless $_ % 2 == 0;
-        print $sock "delete nfoo$_ noreply\r\n";
+    {
+        my $stats = mem_stats($sock);
+        is($stats->{extstore_objects_written}, 0);
     }
 
-    my $stats2 = mem_stats($sock);
-    cmp_ok($stats->{extstore_bytes_used}, '>', $stats2->{extstore_bytes_used},
-        'bytes used dropped after deletions');
-    cmp_ok($stats->{extstore_objects_used}, '>', $stats2->{extstore_objects_used},
-        'objects used dropped after deletions');
-    is($stats2->{badcrc_from_extstore}, 0, 'CRC checks successful');
-    is($stats2->{miss_from_extstore}, 0, 'no misses');
+    # fill some larger objects
+    {
+        # set one canary value for later
+        print $sock "set canary 0 0 20000 noreply\r\n$value\r\n";
+        my $keycount = 1000;
+        for (1 .. $keycount) {
+            print $sock "set nfoo$_ 0 0 20000 noreply\r\n$value\r\n";
+        }
+        # wait for a flush
+        wait_for_ext();
+        # fetch
+        # TODO: Fetch back all values
+        mem_get_is($sock, "nfoo1", $value);
+        # check extstore counters
+        my $stats = mem_stats($sock);
+        cmp_ok($stats->{extstore_page_allocs}, '>', 0, 'at least one page allocated');
+        cmp_ok($stats->{extstore_objects_written}, '>', $keycount / 2, 'some objects written');
+        cmp_ok($stats->{extstore_bytes_written}, '>', length($value) * 2, 'some bytes written');
+        cmp_ok($stats->{get_extstore}, '>', 0, 'one object was fetched');
+        cmp_ok($stats->{extstore_objects_read}, '>', 0, 'one object read');
+        cmp_ok($stats->{extstore_bytes_read}, '>', length($value), 'some bytes read');
 
-    # delete the rest
-    for (1 .. $keycount) {
-        next unless $_ % 2 == 1;
-        print $sock "delete nfoo$_ noreply\r\n";
+        # Remove half of the keys for the next test.
+        for (1 .. $keycount) {
+            next unless $_ % 2 == 0;
+            print $sock "delete nfoo$_ noreply\r\n";
+        }
+
+        my $stats2 = mem_stats($sock);
+        cmp_ok($stats->{extstore_bytes_used}, '>', $stats2->{extstore_bytes_used},
+            'bytes used dropped after deletions');
+        cmp_ok($stats->{extstore_objects_used}, '>', $stats2->{extstore_objects_used},
+            'objects used dropped after deletions');
+        is($stats2->{badcrc_from_extstore}, 0, 'CRC checks successful');
+        is($stats2->{miss_from_extstore}, 0, 'no misses');
+
+        # delete the rest
+        for (1 .. $keycount) {
+            next unless $_ % 2 == 1;
+            print $sock "delete nfoo$_ noreply\r\n";
+        }
     }
-}
+};
 
-# check item flag survival after write to disk
-{
+subtest 'check item flag survival after write to disk' => sub {
     print $sock "ms itflagtest 20000\r\n$value\r\n";
     is(scalar <$sock>, "HD\r\n", "prepped flag test value");
     print $sock "mg itflagtest\r\n";
@@ -146,11 +135,102 @@ mem_get_is($sock, "foo", "hi");
 
     print $sock "mg itflagtest h\r\n";
     is(scalar <$sock>, "HD h1 X W\r\n", "flags came back as expected");
-}
+};
 
-# fill to eviction
-{
+subtest 'compaction and rescues' => sub {
+    my $keycount = 2500;
+
+    print $sock "set refcanary 5 0 20000 noreply\r\n$value\r\n";
+
+    # Ensure our canary goes to disk.
+    wait_for_ext();
+    print $sock "touch refcanary 0 noreply\r\n";
+    print $sock "touch refcanary 0 noreply\r\n";
+    # Set some extra flags
+    print $sock "md refcanary I\r\n";
+    is(scalar <$sock>, "HD\r\n", "invalidated item to set STALE");
+
+    # reflock one key to test realloc rescues
+    # important: reflock _after_ it goes to disk so we lock the header item.
+    print $sock "debugitem ref refcanary\r\n";
+    my $res = <$sock>;
+
+    # Need to ensure we catch all compaction log events.
+    my $watcher = $server->new_sock;
+    print $watcher "watch sysevents\n";
+    $res = <$watcher>;
+    is($res, "OK\r\n", "watcher enabled");
+
+    for (1 .. $keycount) {
+        print $sock "set cfoo$_ 0 0 20000 noreply\r\n$value\r\n";
+        # wait to avoid evictions
+        wait_for_ext(500) if ($_ % 2000 == 0);
+    }
+    # because item_age is set to 2s
+    wait_for_ext();
+    my $stats = mem_stats($sock);
+    is($stats->{evictions}, 0, 'no evictions');
+
+    # check counters
+    cmp_ok($stats->{extstore_page_evictions}, '==', 0, 'no pages evicted');
+    cmp_ok($stats->{extstore_objects_evicted}, '==', 0, 'no objects evicted');
+    cmp_ok($stats->{extstore_bytes_evicted}, '==', 0, 'no bytes evicted');
+    cmp_ok($stats->{extstore_pages_free}, '<', 2, 'few pages are free');
+
+    for (1 .. $keycount) {
+        next unless $_ % 2 == 0;
+        print $sock "delete cfoo$_ noreply\r\n";
+    }
+
+    my %h = ();
+    my $tries = 250;
+    while (my $log = <$watcher>) {
+        #diag "WATCHER LOG: $log";
+        chomp $log;
+        if ($log =~ m/type=compact_read_end/) {
+            # FIXME: I forget the better method for this.
+            my @p = split(/\s+/, $log);
+            for (@p) {
+                my @hp = split(/=/, $_);
+                $h{$hp[0]} = $hp[1];
+            }
+            if ($h{rescues_realloc} != 0) {
+                ok("saw a rescue realloc");
+                last;
+            }
+        }
+        if ($tries-- == 0) {
+            fail("never saw a rescue realloc");
+            last;
+        }
+    }
+
+    $stats = mem_stats($sock);
+    cmp_ok($stats->{extstore_pages_free}, '>', 0, 'some pages now free');
+    cmp_ok($stats->{extstore_compact_rescues}, '>', 0, 'some compaction rescues happened');
+    cmp_ok($stats->{extstore_compact_skipped}, '==', 0, 'no compaction skips happened');
+    print $sock "extstore drop_unread 0\r\n";
+    $res = <$sock>;
+
+    # release our leaked item
+    print $sock "debugitem unref reffed\r\n";
+    $res = <$sock>;
+    # Ensure various flag bits and header memory survived.
+    print $sock "mg refcanary f h\r\n";
+    is(scalar <$sock>, "HD f5 h1 X W\r\n", "reffed item flags came back as expected");
+
+    mem_get_is({ sock => $sock, flags => 5 }, "refcanary", $value);
+
+    # remove all data and wait for extstore to settle.
+    print $sock "flush_all\r\n";
+    $res = <$sock>;
+
+    watch_compact();
+};
+
+subtest 'eviction and compaction' => sub {
     my $keycount = 4000;
+
     for (1 .. $keycount) {
         print $sock "set mfoo$_ 0 0 20000 noreply\r\n$value\r\n";
         # wait to avoid evictions
@@ -201,10 +281,10 @@ mem_get_is($sock, "foo", "hi");
     cmp_ok($stats->{extstore_compact_skipped}, '>', 0, 'some compaction skips happened');
     print $sock "extstore drop_unread 0\r\n";
     $res = <$sock>;
-}
+};
 
 # attempt to incr/decr/append/prepend or chunk objects that were sent to disk.
-{
+subtest 'invalid operations' => sub {
     my $keycount = 100;
     for (1 .. $keycount) {
         print $sock "set bfoo$_ 0 0 20000 noreply\r\n$value\r\n";
@@ -220,7 +300,7 @@ mem_get_is($sock, "foo", "hi");
     is(scalar <$sock>, "NOT_STORED\r\n", 'append fails');
     print $sock "prepend bfoo1 0 0 2\r\nhi\r\n";
     is(scalar <$sock>, "NOT_STORED\r\n", 'prepend fails');
-}
+};
 
 done_testing();
 

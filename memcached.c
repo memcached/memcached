@@ -1847,13 +1847,18 @@ void server_stats(ADD_STAT add_stats, void *c) {
     APPEND_STAT("hash_bytes", "%llu", (unsigned long long)stats_state.hash_bytes);
     APPEND_STAT("hash_is_expanding", "%u", stats_state.hash_is_expanding);
     if (settings.slab_reassign) {
+        const char *busy_status = stats.slab_reassign_last_busy_status;
+        if (!busy_status) {
+            // Ensure we can't be NULL, for portability reasons.
+            busy_status = "none";
+        }
         APPEND_STAT("slab_reassign_rescues", "%llu", stats.slab_reassign_rescues);
         APPEND_STAT("slab_reassign_chunk_rescues", "%llu", stats.slab_reassign_chunk_rescues);
         APPEND_STAT("slab_reassign_inline_reclaim", "%llu", stats.slab_reassign_inline_reclaim);
         APPEND_STAT("slab_reassign_busy_items", "%llu", stats.slab_reassign_busy_items);
         APPEND_STAT("slab_reassign_busy_deletes", "%llu", stats.slab_reassign_busy_deletes);
         APPEND_STAT("slab_reassign_busy_nomem", "%llu", stats.slab_reassign_busy_nomem);
-        APPEND_STAT("slab_reassign_last_busy_status", "%s", stats.slab_reassign_last_busy_status);
+        APPEND_STAT("slab_reassign_last_busy_status", "%s", busy_status);
         APPEND_STAT("slab_reassign_running", "%u", stats_state.slab_reassign_running);
         APPEND_STAT("slabs_moved", "%llu", stats.slabs_moved);
     }
@@ -2451,9 +2456,13 @@ static enum try_read_result try_read_network(conn *c) {
                     fprintf(stderr, "Couldn't realloc input buffer\n");
                 }
                 c->rbytes = 0; /* ignore what we read */
-                out_of_memory(c, "SERVER_ERROR out of memory reading request");
-                c->close_after_write = true;
-                return READ_MEMORY_ERROR;
+                if (!resp_start(c)) {
+                    return READ_ERROR;
+                } else {
+                    out_of_memory(c, "SERVER_ERROR out of memory reading request");
+                    c->close_after_write = true;
+                    return READ_MEMORY_ERROR;
+                }
             }
             c->rcurr = c->rbuf = new_rbuf;
             c->rsize *= 2;
@@ -3696,9 +3705,19 @@ static int server_sockets(int port, enum network_transport transport,
                     if (strncmp(st, "ascii", len) == 0) {
                         bproto = ascii_prot;
                     } else if (strncmp(st, "binary", len) == 0) {
+                        if (settings.auth_file) {
+                            fprintf(stderr, "Cannot use binary protocol when ascii authentication enabled\n");
+                            free(list);
+                            return 1;
+                        }
                         bproto = binary_prot;
                     } else if (strncmp(st, "negotiating", len) == 0) {
-                        bproto = negotiating_prot;
+                        if (settings.auth_file) {
+                            fprintf(stderr, "WARNING: negotiating ports are ascii only when ascii authentication enabled\n");
+                            bproto = ascii_prot;
+                        } else {
+                            bproto = negotiating_prot;
+                        }
                     } else if (strncmp(st, "proxy", len) == 0) {
 #ifdef PROXY
                         if (settings.proxy_enabled) {
@@ -4066,7 +4085,12 @@ static void usage(void) {
            "                          forcefully killing LRU tail item.\n"
            "                          disabled by default; very dangerous option.\n"
            "   - hash_algorithm:      the hash table algorithm\n"
-           "                          default is murmur3 hash. options: jenkins, murmur3, xxh3\n"
+#ifdef NEED_ALIGN
+           "                          default is xxh3 hash on NEED_ALIGN builds.\n"
+#else
+           "                          default is murmur3 hash.\n"
+#endif
+           "                          options: jenkins, murmur3, xxh3\n"
            "   - no_lru_crawler:      disable LRU Crawler background thread.\n"
            "   - lru_crawler_sleep:   microseconds to sleep between items\n"
            "                          default is %d.\n"
@@ -4707,7 +4731,11 @@ int main (int argc, char **argv) {
     bool start_lru_maintainer = true;
     bool start_lru_crawler = true;
     bool start_assoc_maint = true;
+#ifdef NEED_ALIGN
+    enum hashfunc_type hash_type = XXH3_HASH;
+#else
     enum hashfunc_type hash_type = MURMUR3_HASH;
+#endif
     uint32_t tocrawl;
     uint32_t slab_sizes[MAX_NUMBER_OF_SLAB_CLASSES];
     bool use_slab_sizes = false;
@@ -4862,7 +4890,11 @@ int main (int argc, char **argv) {
 
     /* init settings */
     settings_init();
+#ifdef NEED_ALIGN
+    verify_default("hash_algorithm", hash_type == XXH3_HASH);
+#else
     verify_default("hash_algorithm", hash_type == MURMUR3_HASH);
+#endif
     void *storage = NULL;
 #ifdef EXTSTORE
     void *storage_cf = storage_init_config(&settings);
@@ -5251,8 +5283,8 @@ int main (int argc, char **argv) {
                     goto error;
                 }
                 settings.slab_automove_window = atoi(subopts_value);
-                if (settings.slab_automove_window < 3) {
-                    fprintf(stderr, "slab_automove_window must be > 2\n");
+                if (settings.slab_automove_window < 3 || settings.slab_automove_window > 1800) {
+                    fprintf(stderr, "slab_automove_window must be > 2 and < 1800\n");
                     goto error;
                 }
                 break;

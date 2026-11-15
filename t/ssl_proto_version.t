@@ -37,9 +37,16 @@ like(scalar <$sock>, qr/VERSION/, "handshake with minimum proto version");
 SKIP: {
     skip 'TLS v1.3 not available', 1 if !$is_tls_13_available;
     # Above minimum supported protocol version
-    $sock = $server->new_sock(undef, 'TLSv1_3');
-    print $sock "version\r\n";
-    like(scalar <$sock>, qr/VERSION/, "handshake above minimum proto version");
+    my ($mtls_sock, $mtls_version);
+    for my $tls ('TLSv1_3', 'SSLv23') {
+        $mtls_sock = $server->new_sock(undef, $tls);
+        if ($mtls_sock) {
+            $mtls_version = $tls;
+            last;
+        }
+    }
+    print $mtls_sock "version\r\n";
+    like(scalar <$mtls_sock>, qr/VERSION/, "handshake above minimum proto version on $mtls_version");
 }
 
 done_testing();
