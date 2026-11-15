@@ -268,6 +268,22 @@ sub is_running {
     return waitpid($_[0], WNOHANG) >= 0 ? 1 : 0;
 }
 
+# Start a memcached test instance and return a connected Memcached::Handle.
+# Use T_MEMD_USE_DAEMON to connect to an existing instance instead.
+#
+# Arguments:
+#   $args        - Additional memcached command-line arguments.
+#   $passed_port - Optional TCP port; undef allows automatic selection.
+#   %opts        - Optional overrides:
+#       -disable_udp => 1  Skip automatically adding a UDP listener.
+#       -disable_ssl => 1  Skip automatic TLS setup, even with SSL_TEST enabled.
+#
+# Returns:
+#   A Memcached::Handle containing the connected socket and server details.
+#   For instances started by this helper, the handle also tracks the child
+#   process and stops it when the handle is destroyed.
+#
+# Dies if the server cannot be started or a connection cannot be established.
 sub new_memcached {
     my $args = shift;
     my $passed_port = shift;
