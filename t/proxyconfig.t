@@ -91,9 +91,8 @@ for my $port (11511, 11512, 11513) {
 
 diag "testing failure to start";
 write_modefile("invalid syntax");
-my $proxy_port = free_port();
 eval {
-    my $p_srv = new_memcached('-o proxy_config=./t/proxyconfig.lua', $proxy_port);
+    my $p_srv = new_memcached('-o proxy_config=./t/proxyconfig.lua');
 };
 ok($@ && $@ =~ m/Failed to connect/, "server successfully not started");
 
