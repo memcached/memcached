@@ -15,6 +15,7 @@ my $server = new_memcached('-o no_lru_crawler,slab_reassign,slab_automove=0,slab
 my $sock = $server->sock;
 
 {
+    subtest 'automove window' => \&test_automove_window;
     subtest 'syntax' => \&test_syntax;
     subtest 'fill and move pages' => \&test_fill;
     subtest 'chunked items' => \&test_chunked;
@@ -40,6 +41,7 @@ sub wait_for_stat {
         last if ($stats_a->{$stat} == $amt);
         sleep $to_sleep;
         $to_sleep += $cnt / 100;
+        $to_sleep = 0.2 if $to_sleep > 0.2;
         #print STDERR "SLEEPING: $to_sleep STAT: ", $stats_a->{$stat}, " LAST BUSY: ", $stats_a->{slab_reassign_last_busy_status}, "\n";
     }
     return $stats_a;
@@ -57,6 +59,7 @@ sub wait_for_stat_incr {
         last if ($stats_a->{$stat} > $stats->{$stat}+$amt);
         sleep $to_sleep;
         $to_sleep += $cnt / 100;
+        $to_sleep = 0.2 if $to_sleep > 0.2;
         #print STDERR "SLEEPING: $to_sleep STAT: ", $stats_a->{$stat}, " LAST BUSY: ", $stats_a->{slab_reassign_last_busy_status}, "\n";
         #print STDERR Dumper(map { $_ => $stats_a->{$_} } sort keys %$stats_a), "\n";
     }
@@ -76,6 +79,29 @@ sub find_largest_clsid {
         }
     }
     return $sid;
+}
+
+# TODO: mc metric for automove runs so we can loop for that instead of blind
+# sleep.
+sub test_automove_window {
+    print $sock "slabs automove 1\r\n";
+    is(scalar <$sock>, "OK\r\n", "automover on");
+    print $sock "slabs automove window 0\r\n";
+    is(scalar <$sock>, "CLIENT_ERROR automove window too low or too high\r\n", "invalid window");
+
+    sleep 4;
+    print $sock "version\r\n";
+    like(scalar <$sock>, qr/VERSION/, "daemon still alive");
+
+    print $sock "slabs automove window 67108864\r\n";
+    is(scalar <$sock>, "CLIENT_ERROR automove window too low or too high\r\n", "invalid window");
+    sleep 4;
+
+    print $sock "version\r\n";
+    like(scalar <$sock>, qr/VERSION/, "daemon still alive");
+
+    print $sock "slabs automove 0\r\n";
+    is(scalar <$sock>, "OK\r\n", "automover off");
 }
 
 # NOTE: Can't validate reflocked items in an integration test since we leak

@@ -27,6 +27,11 @@ $ps->autoflush(1);
 $t->set_c($ps);
 $t->accept_backends();
 
+subtest 'nullrequest' => sub {
+    $t->c_send("mg nullrequest\r\n");
+    $t->c_recv("SERVER_ERROR lua failure\r\n", "disliked null request");
+};
+
 subtest 'req:flag_add()' => sub {
     $t->c_send("mg add1 N50\r\n");
     $t->be_recv(0, "mg add1 N50 F\r\n", "be received appended request");

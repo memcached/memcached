@@ -156,7 +156,8 @@ enum restart_get_kv_ret restart_get_kv(void *ctx, char **key, char **val) {
         // T for TAG, changing the callback we use.
         // K for key/value, to ship to the active callback.
         char *p = line;
-        while (*p != '\n') {
+        char *end = p + len;
+        while (*p != '\n' && p != end) {
             p++;
         }
         *p = '\0';

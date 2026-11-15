@@ -1084,6 +1084,7 @@ int lru_pull_tail(const int orig_id, const int cur_lru,
     void *hold_lock = NULL;
     unsigned int move_to_lru = 0;
     uint64_t limit = 0;
+    bool do_slab_reassign = false;
 
     id |= cur_lru;
     pthread_mutex_lock(&lru_locks[id]);
@@ -1205,7 +1206,7 @@ int lru_pull_tail(const int orig_id, const int cur_lru,
                     do_item_unlink_nolock(search, hv);
                     removed++;
                     if (settings.slab_automove == 2) {
-                        slabs_reassign(settings.slab_rebal, -1, orig_id, SLABS_REASSIGN_ALLOW_EVICTIONS);
+                        do_slab_reassign = true;
                     }
                 } else if (flags & LRU_PULL_RETURN_ITEM) {
                     /* Keep a reference to this item and return it. */
@@ -1240,6 +1241,10 @@ int lru_pull_tail(const int orig_id, const int cur_lru,
             do_item_remove(it);
             item_trylock_unlock(hold_lock);
         }
+    }
+
+    if (do_slab_reassign) {
+        slabs_reassign(settings.slab_rebal, -1, orig_id, SLABS_REASSIGN_ALLOW_EVICTIONS);
     }
 
     return removed;

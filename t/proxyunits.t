@@ -159,6 +159,20 @@ sub proxy_test {
 }
 
 {
+    note("Testing extreme backend response");
+    my $be = $mbe[0];
+    print $ps "get /b/e\r\n";
+    is(scalar <$be>, "get /b/e\r\n", "get passthrough");
+    # Set impossible value
+    my $data = 'x' x 16000;
+    print $be "VALUE /b/c 0 4294967293\r\n$data\r\nEND\r\n";
+
+    is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "backend breaks");
+    # Accept new backend
+    $mbe[0] = accept_backend($mocksrvs[0]);
+}
+
+{
     note("Test dead backend");
     my $start = int(time());
     print $ps "get /dead/foo\r\n";
@@ -1063,6 +1077,19 @@ check_sanity($ps);
             be_send => {0 => ["HD O123 C123\r\n"]},
             ps_recv => ["HD O123 C123\r\n"],
         );
+    };
+
+    subtest 'response:line() under pipeline' => sub {
+        my $be = $mbe[0];
+        my $cmd = "mg /response/rbufline\r\n";
+        # pipeline two requests to the same backend
+        print $ps $cmd . $cmd;
+        is(scalar <$be>, $cmd, "be received request A");
+        is(scalar <$be>, $cmd, "be received request B");
+        print $be "HD Oa\r\nHD Ob\r\n";
+        is(scalar <$ps>, "HD Oa\r\n", "response A matches");
+        is(scalar <$ps>, "HD Ob\r\n", "response B matches");
+        check_version($ps);
     };
 
     subtest 'response:flag_blank()' => sub {

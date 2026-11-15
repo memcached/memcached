@@ -45,7 +45,7 @@ typedef struct mcmc_ctx {
 
 // INTERNAL FUNCTIONS
 
-#define TOKENIZER_MAXLEN USHRT_MAX-1
+#define TOKENIZER_MAXLEN (USHRT_MAX-1)
 
 // Find the starting offsets of each token; ignoring length.
 // This creates a fast small (<= cacheline) index into the request,
@@ -57,8 +57,9 @@ typedef struct mcmc_ctx {
 // Function _assumes_ const char *line ends with \n or \r\n, but will not
 // break so long as the passed in 'len' is reasonable.
 MCMC_STATIC int _mcmc_tokenize_meta(mcmc_tokenizer_t *t, const char *line, size_t len, const int mstart, const int max) {
-    const char *s = line;
+    const char *s;
     const char *end;
+    const char *n = s = line;
     t->metaflags = 0;
 
     // since multigets can be huge, we can't purely judge reqlen against this
@@ -75,7 +76,47 @@ MCMC_STATIC int _mcmc_tokenize_meta(mcmc_tokenizer_t *t, const char *line, size_
 
     int curtoken = 0;
 
-    while (s != end) {
+    // NOTE: To optimize this loop for long tokens:
+    // Add n++ to the *n == ' ' case next to s++
+    // Remove final n++, add else { n = memchr(etc) }
+    // This is slower with lots of single char tokens, faster with long
+    // tokens.
+    // To favor code simplicity I'm leaving it middle of the road: if we
+    // desire the optimization we need an if with two separate loops based on
+    // line len > X, where X is determined by benchmarking sets of string
+    // examples to be a good common tradeoff.
+    while (n != end) {
+        if (*n == ' ') {
+            if (s != n) {
+                t->tokens[curtoken] = s - line;
+                if (curtoken >= mstart) {
+                    if (*s > 64 && *s < 123) {
+                        t->metaflags |= (uint64_t)1 << (*s - 65);
+                    } else if (isdigit(*s) == 0) {
+                        return MCMC_NOK;
+                    }
+                }
+                if (++curtoken == max) {
+                    s++;
+                    s = memchr(s, ' ', end - s);
+                    if (!s) {
+                        s = end;
+                    }
+                    n = s; // avoid adding extra token
+                    break;
+                }
+                s = n;
+            }
+            s++;
+        }
+        n++;
+    }
+
+    // reached end of parsing with active token
+    if (s != n) {
+        // Deliberate code redundancy; too many args, inline return.
+        // Bad smell for macro, potential extra branch if inline func.
+        t->tokens[curtoken] = s - line;
         if (curtoken >= mstart) {
             if (*s > 64 && *s < 123) {
                 t->metaflags |= (uint64_t)1 << (*s - 65);
@@ -83,34 +124,13 @@ MCMC_STATIC int _mcmc_tokenize_meta(mcmc_tokenizer_t *t, const char *line, size_
                 return MCMC_NOK;
             }
         }
-        t->tokens[curtoken] = s - line;
-        if (++curtoken == max) {
-            s++;
-            // hit max tokens before end of the line.
-            // keep advancing so we can place endcap token.
-            s = memchr(s, ' ', end - s);
-            if (!s) {
-                s = end;
-            }
-            break;
-        }
-        s++;
-        // avoid memchr if we were a single byte token.
-        if (*s == ' ') {
-            while (*s == ' ' && s != end) {
-                s++;
-            }
-        } else {
-            // advance over a token
-            s = memchr(s, ' ', end - s);
-            if (!s) {
-                s = end;
+        curtoken++;
+        // must advance to space or next token for end cap
+        while (s != end) {
+            if (*s == ' ') {
                 break;
-            } else {
-                while (*s == ' ' && s != end) {
-                    s++; // skip any spaces until the next token.
-                }
             }
+            s++;
         }
     }
 
@@ -173,7 +193,7 @@ static int _mcmc_parse_value_line(const char *buf, size_t read, mcmc_resp_t *r) 
 
     errno = 0;
     uint32_t bytes = strtoul(p, &n, 10);
-    if ((errno == ERANGE) || (p == n)) {
+    if ((errno == ERANGE) || (p == n) || (bytes >= UINT32_MAX-2)) {
         return -MCMC_ERR_VALUE;
     }
     p = n;
@@ -330,7 +350,7 @@ static int _mcmc_parse_response(const char *buf, size_t read, mcmc_resp_t *r) {
                         errno = 0;
                         char *n = NULL;
                         uint32_t vsize = strtoul(cur, &n, 10);
-                        if ((errno == ERANGE) || (cur == n)) {
+                        if ((errno == ERANGE) || (cur == n) || (vsize >= UINT32_MAX-2)) {
                             r->type = MCMC_RESP_FAIL;
                             code = -MCMC_ERR_PARSE;
                         } else {
@@ -615,6 +635,8 @@ const char *mcmc_token_get(const char *l, mcmc_tokenizer_t *t, int idx, int *len
     }
 }
 
+// In these cases where we are converting tokens to numerics we want to
+// exclude the command and the key; index 1 is the first valid.
 #define X(n, p, c) \
     int n(const char *l, mcmc_tokenizer_t *t, int idx, p *val) { \
         if (idx > 0 && idx < t->ntokens) { \
@@ -632,6 +654,21 @@ X(mcmc_token_get_32, int32_t, mcmc_tokto32)
 X(mcmc_token_get_64, int64_t, mcmc_tokto64)
 
 #undef X
+
+#define X(n, p, c) \
+    int n(const char *l, mcmc_tokenizer_t *t, int idx, p *val) { \
+        int tlen = 0; \
+        const char *tok = _mcmc_token(l, t, idx, &tlen); \
+        if (tlen > 1) { \
+            return c(tok+1, tlen-1, val); \
+        } \
+        return MCMC_ERR; \
+    }
+
+X(mcmc_token_get_flag_arg_u32, uint32_t, mcmc_toktou32)
+X(mcmc_token_get_flag_arg_u64, uint64_t, mcmc_toktou64)
+X(mcmc_token_get_flag_arg_32, int32_t, mcmc_tokto32)
+X(mcmc_token_get_flag_arg_64, int64_t, mcmc_tokto64)
 
 int mcmc_token_has_flag(const char *l, mcmc_tokenizer_t *t, char flag) {
     if (flag < 65 || flag > 122) {

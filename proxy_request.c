@@ -76,7 +76,7 @@ int mcp_request_render(mcp_request_t *rq, int idx, const char flag, const char *
         p += pr->tok.tokens[pr->tok.ntokens] - pr->tok.tokens[idx+1];
     } else {
         // If we removed something from the end we might've left some spaces.
-        while (*(p-1) == ' ') {
+        while (p > temp && *(p-1) == ' ') {
             p--;
         }
     }
@@ -94,12 +94,12 @@ int mcp_request_render(mcp_request_t *rq, int idx, const char flag, const char *
 
     memset(pr, 0, sizeof(mcp_parser_t)); // TODO: required?
     int ret = process_request(pr, rq->request, p - temp);
-    if (ret != 0) {
-        // FIXME: does this leak the vbuf?
-        return ret;
-    }
     pr->vbuf = vbuf;
     pr->vlen = vlen;
+
+    if (ret != 0) {
+        return ret;
+    }
     return 0;
 }
 
@@ -109,7 +109,7 @@ int mcp_request_append(mcp_request_t *rq, const char flag, const char *tok, size
     char *p = (char *)pr->request + pr->reqlen - 2; // start at the \r
     assert(*p == '\r');
 
-    if (pr->reqlen + len + 2 > MCP_REQUEST_MAXLEN) {
+    if (pr->reqlen + len + 2 >= MCP_REQUEST_MAXLEN) {
         return -1;
     }
 
@@ -134,11 +134,11 @@ int mcp_request_append(mcp_request_t *rq, const char flag, const char *tok, size
 
     memset(pr, 0, sizeof(mcp_parser_t)); // TODO: required?
     int ret = process_request(pr, rq->request, p - start);
+    pr->vbuf = vbuf;
+    pr->vlen = vlen;
     if (ret != 0) {
         return ret;
     }
-    pr->vbuf = vbuf;
-    pr->vlen = vlen;
 
     return 0;
 }
@@ -656,7 +656,11 @@ int mcplib_request_match_res(lua_State *L) {
     // requests all have keys. check for an opaque.
     int opaque_len = 0;
     const char *opaque_token = mcmc_token_get_flag(rq->pr.request, &rq->pr.tok, 'O', &opaque_len);
-    mcmc_parse_buf(rs->buf, rs->blen, &reresp);
+    if (mcmc_parse_buf(rs->buf, rs->blen, &reresp) != MCMC_OK) {
+        lua_pushboolean(L, 0);
+        lua_pushstring(L, "failed to parse response");
+        return 2;
+    }
     mcmc_tokenize_res(rs->buf, reresp.reslen, &rs->tok);
 
     int matched = 0;

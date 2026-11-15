@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 11;
+use Test::More tests => 12;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -12,25 +12,23 @@ my $server = new_memcached('-m 60 -o slab_reassign,slab_automove,lru_crawler,lru
 my $sock = $server->sock;
 
 my $value = "B"x11000;
-my $keycount = 5000;
+my $keycount = 6000;
 
 my $res;
 for (1 .. $keycount) {
     print $sock "set nfoo$_ 0 0 11000 noreply\r\n$value\r\n";
 }
 
-my $todelete = 0;
 {
     my $stats = mem_stats($sock);
     cmp_ok($stats->{curr_items}, '>', 4000, "stored at least 4000 11k items");
-    $todelete = $stats->{curr_items};
-#    for ('evictions', 'reclaimed', 'curr_items', 'cmd_set', 'bytes') {
-#        print STDERR "$_: ", $stats->{$_}, "\n";
-#    }
+    #for ('evictions', 'reclaimed', 'curr_items', 'cmd_set', 'bytes') {
+    #    diag "$_: ", $stats->{$_}, "\n";
+    #}
 }
 
 # Make room in old class so rescues can happen when we switch slab classes.
-for (1 .. $todelete) {
+for (1 .. $keycount) {
     next unless $_ % 2 == 0;
     print $sock "delete nfoo$_ noreply\r\n";
 }
@@ -47,9 +45,13 @@ for (1 .. $todelete) {
     cmp_ok($tries, '>', 0, 'some pages moved back to global pool');
 }
 
-$value = "B"x7000;
+my $stats_before = mem_stats($sock);
+
+# Ensure we can set data into a different slab class.
+
+$value = "B"x6000;
 for (1 .. $keycount) {
-    print $sock "set ifoo$_ 0 0 7000 noreply\r\n$value\r\n";
+    print $sock "set ifoo$_ 0 0 6000 noreply\r\n$value\r\n";
 }
 
 my $missing = 0;
@@ -57,7 +59,7 @@ my $hits = 0;
 for (1 .. $keycount) {
     print $sock "get ifoo$_\r\n";
     my $body = scalar(<$sock>);
-    my $expected = "VALUE ifoo$_ 0 7000\r\n$value\r\nEND\r\n";
+    my $expected = "VALUE ifoo$_ 0 6000\r\n$value\r\nEND\r\n";
     if ($body =~ /^END/) {
         $missing++;
     } else {
@@ -73,7 +75,8 @@ for (1 .. $keycount) {
 
 {
     my $stats = mem_stats($sock);
-    cmp_ok($stats->{evictions}, '<', 2000, 'evictions were less than 2000');
+    cmp_ok($stats->{evictions} - $stats_before->{evictions}, '>', 0, 'evictions were greater than 0');
+    cmp_ok($stats->{evictions} - $stats_before->{evictions}, '<', 2200, 'evictions were less than 2200');
 #    for ('evictions', 'reclaimed', 'curr_items', 'cmd_set', 'bytes') {
 #        print STDERR "$_: ", $stats->{$_}, "\n";
 #    }

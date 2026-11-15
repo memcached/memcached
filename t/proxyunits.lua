@@ -14,7 +14,8 @@ function mcp_config_pools(oldss)
     local b2z = {b2}
     local b3z = {b3}
 
-    local dead = srv('dead', '127.9.9.9', 11011);
+    local dead = srv({ label = "dead", host = "127.9.9.9", port = 11011,
+                                   down = true })
 
     local no_label = srv('', '127.0.0.1', 11414)
 
@@ -280,6 +281,8 @@ function mcp_config_routes(zones)
                         return res
                     end
                     return "ERROR unexpected line, got [" .. line .. "]\r\n"
+                elseif key == "/response/rbufline" then
+                    return "HD " .. res:line() .. "\r\n"
                 elseif key == "/response/blank" then
                     res:flag_blank("O")
                     return res

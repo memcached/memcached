@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <inttypes.h>
+#include <pthread.h>
 
 #include "authfile.h"
 #include "util.h"
@@ -27,11 +28,16 @@ typedef struct auth_entry {
 auth_t main_auth_entries[MAX_ENTRIES];
 int entry_cnt = 0;
 char *main_auth_data = NULL;
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 enum authfile_ret authfile_load(const char *file) {
     struct stat sb;
     char *auth_data = NULL;
     auth_t auth_entries[MAX_ENTRIES];
+
+    if (!file || strlen(file) == 0) {
+        return AUTHFILE_OPENFAIL;
+    }
 
     FILE *pwfile = fopen(file, "r");
     if (pwfile == NULL) {
@@ -96,6 +102,7 @@ enum authfile_ret authfile_load(const char *file) {
         entry_cur++;
     }
 
+    pthread_mutex_lock(&lock);
     // swap the main pointer out now, so if there's an error reloading we
     // don't break the existing authentication.
     if (main_auth_data != NULL) {
@@ -105,6 +112,7 @@ enum authfile_ret authfile_load(const char *file) {
     entry_cnt = used;
     main_auth_data = auth_data;
     memcpy(main_auth_entries, auth_entries, sizeof(auth_entries));
+    pthread_mutex_unlock(&lock);
 
     (void)fclose(pwfile);
 
@@ -113,15 +121,19 @@ enum authfile_ret authfile_load(const char *file) {
 
 // if only loading the file could be this short...
 int authfile_check(const char *user, unsigned int ulen, const char *pass, unsigned int plen) {
+    int ret = 0;
 
+    pthread_mutex_lock(&lock);
     for (int x = 0; x < entry_cnt; x++) {
         auth_t *e = &main_auth_entries[x];
         if (ulen == e->ulen && plen == e->plen &&
             safe_memcmp(user, e->user, e->ulen) &&
             safe_memcmp(pass, e->pass, e->plen)) {
-            return 1;
+            ret = 1;
+            break;
         }
     }
+    pthread_mutex_unlock(&lock);
 
-    return 0;
+    return ret;
 }

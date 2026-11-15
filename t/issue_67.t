@@ -85,8 +85,8 @@ sub when {
     my $server = run_server($params);
     my %ports = read_ports();
 
-    validate_port($name, $ports{'TCP INET'}, $expected_tcp);
-    validate_port($name, $ports{'UDP INET'}, $expected_udp);
+    validate_port($name, $ports{'TCP INET'} || $ports{'TCP INET6'}, $expected_tcp);
+    validate_port($name, $ports{'UDP INET'} || $ports{'UDP INET6'}, $expected_udp);
 }
 
 skip_if_default_addr_in_use { when('no arguments', '', 11211, -1) };

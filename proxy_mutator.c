@@ -489,6 +489,8 @@ mut_step_n(resnull) {
         case CMD_DELETE:
             p->src = "NOT_FOUND";
             break;
+        default:
+            return -1;
     }
     p->slen = strlen(p->src);
 
@@ -823,7 +825,7 @@ mut_step_n(flagcopy) {
                     return -1;
                 }
                 int tlen = 0;
-                if (mcmc_token_has_flag_bit(&srs->tok, c->bit) == MCMC_OK) {
+                if (mcmc_token_has_flag_bit(&srq->pr.tok, c->bit) == MCMC_OK) {
                     const char *tok = mcmc_token_get_flag(srq->pr.request, &srq->pr.tok, c->f, &tlen);
                     p->slen = 1;
                     if (tok && tlen > 0) {
@@ -996,6 +998,10 @@ mut_step_n(valcopy) {
             return -1;
     }
 
+    if (run->vlen < 2 || memcmp(run->vbuf+run->vlen-2, "\r\n", 2) != 0) {
+        return -1;
+    }
+
     // count the number of digits in vlen to reserve space.
     //
     // oddly algorithms to count digits and write digits are similar (outside
@@ -1011,6 +1017,7 @@ mut_step_n(valcopy) {
 // print the vlen into the buffer
 // we remove the \r\n from the protocol length
 mut_step_r(valcopy) {
+    // Note: vlen must not be < 2 during the _n stage to avoid underflowing.
     run->d_pos = itoa_u64(run->vlen-2, run->d_pos);
     return true;
 }
@@ -1112,6 +1119,9 @@ static int mcp_mutator_new(lua_State *L, enum mcp_mut_type type) {
 
     if (size != mut->aused) {
         proxy_lua_error(L, "mutator failed to properly initialize, memory not filled correctly");
+    }
+    if (scount == 0) {
+        proxy_lua_error(L, "mutator failed to initialize, no steps given");
     }
     mut->scount = scount;
 

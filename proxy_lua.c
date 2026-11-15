@@ -722,7 +722,7 @@ static const char *mcp_key_hash_filter_stop(const char *conf, const char *key, s
     }
 
     memcpy(temp, key, klen);
-    temp[klen+1] = '\0';
+    temp[klen] = '\0';
 
     // TODO (v2): memmem would avoid the temp key and memcpy here, but it's
     // not technically portable. An easy improvement would be to detect
@@ -750,7 +750,7 @@ static const char *mcp_key_hash_filter_tag(const char *conf, const char *key, si
         size_t remain = klen - (t1 - key);
         // must be at least one character inbetween the tags to hash.
         if (remain > 1) {
-            const char *t2 = memchr(t1, conf[1], remain);
+            const char *t2 = memchr(t1+1, conf[1], remain-1);
 
             if (t2) {
                 *newlen = t2 - t1 - 1;
@@ -940,6 +940,9 @@ static int mcplib_pool(lua_State *L) {
         luaL_checktype(L, -1, LUA_TSTRING);
         size_t len = 0;
         const char *bepfx = lua_tolstring(L, -1, &len);
+        if (len > MAX_LABELLEN-1) {
+            len = MAX_LABELLEN-1;
+        }
         memcpy(p->beprefix, bepfx, len);
         p->beprefix[len+1] = '\0';
         lua_pop(L, 1); // pop beprefix string.
@@ -989,7 +992,7 @@ static int mcplib_pool(lua_State *L) {
             }
 
             memcpy(p->key_filter_conf, conf, len);
-            p->key_filter_conf[len+1] = '\0';
+            p->key_filter_conf[len] = '\0';
         } else {
             proxy_lua_error(L, "hash filter requires 'filter_conf' string");
         }

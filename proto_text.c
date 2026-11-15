@@ -222,6 +222,8 @@ void complete_nread_ascii(conn *c) {
 #define COMMAND_TOKEN 0
 #define SUBCOMMAND_TOKEN 1
 #define KEY_TOKEN 1
+#define MAX_AUTH_REQ_LEN 16384
+#define MIN_AUTH_REQ_LEN 6
 
 int try_read_command_asciiauth(conn *c) {
     mcmc_tokenizer_t tok;
@@ -250,6 +252,12 @@ int try_read_command_asciiauth(conn *c) {
             return 0;
         }
 
+        if (el - st < MIN_AUTH_REQ_LEN) {
+            // Can't possibly be shorter than this. Parser dislikes getting
+            // strings < 2 in len.
+            conn_set_state(c, conn_closing);
+            return 1;
+        }
         // Looking for: "set foo 0 0 N\r\nuser pass\r\n"
         // key, flags, and ttl are ignored. N is used to see if we have the rest.
 
@@ -272,6 +280,17 @@ int try_read_command_asciiauth(conn *c) {
                 }
             }
             out_string(c, "CLIENT_ERROR unauthenticated");
+            return 1;
+        }
+
+        if (size > MAX_AUTH_REQ_LEN) {
+            if (!c->resp) {
+                if (!resp_start(c)) {
+                    conn_set_state(c, conn_closing);
+                    return 1;
+                }
+            }
+            out_string(c, "CLIENT_ERROR auth token too long");
             return 1;
         }
 
@@ -349,7 +368,8 @@ int try_read_command_ascii(conn *c) {
              * large multiget, if not we should just nuke the connection.
              */
             char *ptr = c->rcurr;
-            while (*ptr == ' ') { /* ignore leading whitespaces */
+            char *end = c->rcurr + c->rbytes-6;
+            while (*ptr == ' ' && ptr != end) { /* ignore leading whitespaces */
                 ++ptr;
             }
 
@@ -851,16 +871,25 @@ static void process_debugitem_command(conn *c, mcp_parser_t *pr) {
             out_string(c, "MISS");
             return;
         }
+        c->debug_item_reffed = it;
     } else if (strncmp(subcmd, "unref", len) == 0) {
-        // double unlink. debugger must have already ref'ed it or this
-        // underflows.
-        item *it = item_get(key, klen, c->thread, DONT_UPDATE);
-        if (it == NULL) {
-            out_string(c, "MISS");
-            return;
+        if (klen == 6 && strncmp(key, "reffed", klen) == 0) {
+            // Item memory held in slot so we can test replacing reffed items
+            // without leaking.
+            item *reffed = c->debug_item_reffed;
+            do_item_remove(reffed);
+            c->debug_item_reffed = NULL;
+        } else {
+            // double unlink. debugger must have already ref'ed it or this
+            // underflows.
+            item *it = item_get(key, klen, c->thread, DONT_UPDATE);
+            if (it == NULL) {
+                out_string(c, "MISS");
+                return;
+            }
+            do_item_remove(it);
+            do_item_remove(it);
         }
-        do_item_remove(it);
-        do_item_remove(it);
     } else {
         out_string(c, "ERROR");
         return;
@@ -901,6 +930,10 @@ static void process_slabs_automove_command(conn *c, mcp_parser_t *pr) {
     } else if (strncmp(subcmd, "window", len) == 0) {
         if (ntokens < 4 || mcmc_token_get_u32(pr->request, &pr->tok, 3, &level) != MCMC_OK) {
             out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
+        if (level < 3 || level > 1800) {
+            out_string(c, "CLIENT_ERROR automove window too low or too high");
             return;
         }
 
@@ -1605,13 +1638,15 @@ void process_command_ascii(conn *c, char *command, size_t cmdlen) {
 
         return;
     } else if (ret == PROCESS_REQUEST_CMD_NOT_FOUND) {
-        int len = 0;
-        const char *cm = mcmc_token_get(pr.request, &pr.tok, 0, &len);
-        for (int x = 0; text_cmd_entries[x].s; x++) {
-            const struct text_cmd_entry *e = &text_cmd_entries[x];
-            if (strncmp(e->s, cm, len) == 0) {
-                e->func(c, &pr);
-                return;
+        if (pr.tok.ntokens > 0) {
+            int len = 0;
+            const char *cm = mcmc_token_get(pr.request, &pr.tok, 0, &len);
+            for (int x = 0; text_cmd_entries[x].s; x++) {
+                const struct text_cmd_entry *e = &text_cmd_entries[x];
+                if (strlen(e->s) == len && strncmp(e->s, cm, len) == 0) {
+                    e->func(c, &pr);
+                    return;
+                }
             }
         }
 

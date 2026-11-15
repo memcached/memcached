@@ -204,7 +204,8 @@ static void _storage_get_item_cb(void *e, obj_io *io, int ret) {
                 // truncate the data response.
                 resp->iov[p->iovec_data].iov_len = 0;
                 // wipe the extlen iov... wish it was just a flat buffer.
-                resp->iov[p->iovec_data-1].iov_len = 0;
+                // this is unconditionally the second iov.
+                resp->iov[1].iov_len = 0;
                 resp->chunked_data_iov = 0;
             } else {
                 int i;
@@ -934,10 +935,17 @@ static void storage_compact_readback(void *storage, logger *l,
         uint32_t page_id, uint64_t page_version, uint32_t page_offset, uint64_t read_size) {
     uint64_t offset = 0;
     unsigned int rescues = 0;
+    // rescues which required a memory realloc (informational)
+    unsigned int rescues_realloc = 0;
     unsigned int lost = 0;
+    // failed rescues because of OOM vs disk space
+    unsigned int lost_oom = 0;
     unsigned int skipped = 0;
     unsigned int rescue_cold = 0;
     unsigned int rescue_old = 0;
+    // Sleep this many times during the readback before becoming impatient.
+    // Each sleep is 1ms.
+    int max_waits = 5000;
 
     while (offset < read_size) {
         item *hdr_it = NULL;
@@ -983,24 +991,30 @@ static void storage_compact_readback(void *storage, logger *l,
 
             if (do_write) {
                 bool do_update = false;
-                int tries;
+                int tries = max_waits;
                 obj_io io;
                 io.len = ntotal;
                 io.mode = OBJ_IO_WRITE;
-                for (tries = 10; tries > 0; tries--) {
+                // Wait for a write buffer or page to become available.
+                if (tries < 10) {
+                    // Wait a minimum of 10ms
+                    tries = 10;
+                }
+                for (; tries > 0; tries--) {
                     if (extstore_write_request(storage, bucket, bucket, &io) == 0) {
                         memcpy(io.buf, it, io.len);
                         extstore_write(storage, &io);
                         do_update = true;
                         break;
                     } else {
+                        max_waits--;
                         usleep(1000);
                     }
                 }
 
                 if (do_update) {
                     bool rescued = false;
-                    if (it->refcount == 2) {
+                    if (hdr_it->refcount == 2) {
                         hdr->page_version = io.page_version;
                         hdr->page_id = io.page_id;
                         hdr->offset = io.offset;
@@ -1028,8 +1042,10 @@ static void storage_compact_readback(void *storage, logger *l,
                             item_replace(hdr_it, new_it, hv, ITEM_get_cas(hdr_it));
                             do_item_remove(new_it); // release our reference.
                             rescued = true;
+                            rescues_realloc++;
                         } else {
                             lost++;
+                            lost_oom++;
                         }
                     }
 
@@ -1063,7 +1079,7 @@ static void storage_compact_readback(void *storage, logger *l,
     stats.extstore_compact_resc_old += rescue_old;
     STATS_UNLOCK();
     LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_READ_END,
-            NULL, page_id, offset, rescues, lost, skipped);
+            NULL, page_id, offset, rescues, rescues_realloc, lost, lost_oom, skipped);
 }
 
 // wrap lock is held while waiting for this callback, preventing caller thread

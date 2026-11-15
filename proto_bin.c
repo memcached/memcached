@@ -466,6 +466,7 @@ static void process_bin_get_or_touch(conn *c, char *extbuf) {
                              c->cmd == PROTOCOL_BINARY_CMD_GATK);
     int should_return_value = (c->cmd != PROTOCOL_BINARY_CMD_TOUCH);
     bool failed = false;
+    bool overflow = false;
 
     if (settings.verbose > 1) {
         fprintf(stderr, "<%d %s ", c->sfd, should_touch ? "TOUCH" : "GET");
@@ -477,9 +478,9 @@ static void process_bin_get_or_touch(conn *c, char *extbuf) {
         protocol_binary_request_touch *t = (void *)extbuf;
         time_t exptime = ntohl(t->message.body.expiration);
 
-        it = item_touch(key, nkey, realtime(exptime), c->thread);
+        it = limited_get(key, nkey, c->thread, realtime(exptime), true, DO_UPDATE, &overflow);
     } else {
-        it = item_get(key, nkey, c->thread, DO_UPDATE);
+        it = limited_get(key, nkey, c->thread, 0, false, DO_UPDATE, &overflow);
     }
 
     if (it) {
@@ -632,6 +633,10 @@ static void process_bin_stat(conn *c) {
         process_stat_settings(&append_stats, c);
     } else if (strncmp(subcommand, "detail", 6) == 0) {
         char *subcmd_pos = subcommand + 6;
+        if (!settings.dump_enabled) {
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
+            return;
+        }
         if (strncmp(subcmd_pos, " dump", 5) == 0) {
             int len;
             char *dump_buf = stats_prefix_dump(&len);
@@ -903,6 +908,14 @@ static void dispatch_bin_command(conn *c, char *extbuf) {
         return;
     }
 
+    // This upper limit macro is deliberately lower than the signed int max,
+    // enough to also allow the vlen+2 adjustment without overflowing.
+    if (bodylen > ITEM_SIZE_MAX_UPPER_LIMIT) {
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, NULL, 0);
+        c->close_after_write = true;
+        return;
+    }
+
     if (settings.sasl && !authenticated(c)) {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, NULL, 0);
         c->close_after_write = true;
@@ -1139,7 +1152,7 @@ static void process_bin_update(conn *c, char *extbuf) {
         /* FIXME: losing c->cmd since it's translated below. refactor? */
         LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
                 NULL, status, 0, key, nkey, req->message.body.expiration,
-                ITEM_clsid(it), c->sfd);
+                0, c->sfd);
 
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */

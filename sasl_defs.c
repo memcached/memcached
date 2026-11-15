@@ -71,19 +71,18 @@ static int sasl_server_userdb_checkpass(sasl_conn_t *conn,
     char buffer[MAX_ENTRY_LEN];
     bool ok = false;
 
-    while ((fgets(buffer, sizeof(buffer), pwfile)) != NULL) {
-        if (memcmp(user, buffer, unmlen) == 0 && buffer[unmlen] == ':') {
-            /* This is the correct user */
-            ++unmlen;
-            if (memcmp(pass, buffer + unmlen, passlen) == 0 &&
-                (buffer[unmlen + passlen] == ':' || /* Additional tokens */
-                 buffer[unmlen + passlen] == '\n' || /* end of line */
-                 buffer[unmlen + passlen] == '\r'|| /* dos format? */
-                 buffer[unmlen + passlen] == '\0')) { /* line truncated */
+    while (1) {
+        memset(buffer, 0, sizeof(buffer));
+        if (fgets(buffer, sizeof(buffer), pwfile) == NULL)
+            break;
+        if (safe_memcmp(user, buffer, unmlen) && buffer[unmlen] == ':') {
+            if (safe_memcmp(pass, buffer + unmlen + 1, passlen) &&
+                (buffer[unmlen + 1 + passlen] == ':' ||
+                 buffer[unmlen + 1 + passlen] == '\n' ||
+                 buffer[unmlen + 1 + passlen] == '\r' ||
+                 buffer[unmlen + 1 + passlen] == '\0')) {
                 ok = true;
             }
-
-            break;
         }
     }
     (void)fclose(pwfile);
