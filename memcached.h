@@ -479,6 +479,7 @@ struct settings {
     char *socketpath;   /* path to unix socket if using local socket */
     char *auth_file;    /* path to user authentication file */
     int access;  /* access mask (a la chmod) for unix domain socket */
+    int unix_sndbuf; /* SO_SNDBUF for unix domain socket conns. 0 = OS default */
     double factor;          /* chunk size growth factor */
     int chunk_size;
     int num_threads;        /* number of worker (without dispatcher) libevent threads to run */

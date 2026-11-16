@@ -1497,6 +1497,7 @@ other stats command.
 | reqs_per_event    | 32       | Max num IO ops processed within an event.    |
 | cas_enabled       | bool     | When no, CAS is not enabled for this server. |
 | tcp_backlog       | 32       | TCP listen backlog.                          |
+| unix_sndbuf       | 32       | SO_SNDBUF for unix socket conns. 0 = default |
 | auth_enabled_sasl | yes/no   | SASL auth requested and enabled.             |
 | item_size_max     | size_t   | maximum item size                            |
 | maxconns_fast     | bool     | If fast disconnects are enabled              |
