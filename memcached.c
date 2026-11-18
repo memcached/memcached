@@ -5176,6 +5176,11 @@ int main (int argc, char **argv) {
             break;
         case 'I':
             buf = strdup(optarg);
+            if (buf[0] == '\0') {
+                fprintf(stderr, "Invalid value for -I: empty\n");
+                free(buf);
+                exit(EX_USAGE);
+            }
             unit = buf[strlen(buf)-1];
             if (unit == 'k' || unit == 'm' ||
                 unit == 'K' || unit == 'M') {

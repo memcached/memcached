@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
 use strict;
-use Test::More tests => 7;
+use Test::More tests => 8;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -25,6 +25,11 @@ eval {
     $server = new_memcached('-I 256m');
 };
 ok($@ && $@ =~ m/^Failed/, "Shouldn't start with > 128m item max");
+
+eval {
+    $server = new_memcached('-I ""');
+};
+ok($@ && $@ =~ m/^Failed/, "Shouldn't start with empty item max");
 
 # Minimum.
 $server = new_memcached('-I 1024 -o slab_chunk_max=1');
