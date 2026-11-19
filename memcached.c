@@ -5175,7 +5175,15 @@ int main (int argc, char **argv) {
             }
             break;
         case 'I':
+            if (optarg[0] == '\0') {
+                fprintf(stderr, "Item max size cannot be empty.\n");
+                return 1;
+            }
             buf = strdup(optarg);
+            if (buf == NULL) {
+                fprintf(stderr, "Failed to allocate memory\n");
+                return 1;
+            }
             unit = buf[strlen(buf)-1];
             if (unit == 'k' || unit == 'm' ||
                 unit == 'K' || unit == 'M') {
