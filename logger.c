@@ -925,7 +925,7 @@ static void *logger_thread(void *arg) {
 
         /* Call function to iterate each logger. */
         pthread_mutex_lock(&logger_stack_lock);
-        if (watcher_count == 0) {
+        if (watcher_count == 0 && do_run_logger_thread) {
             // Not bothering to loop on the condition here since it's fine to
             // walk through with zero watchers.
             pthread_cond_wait(&logger_stack_cond, &logger_stack_lock);
