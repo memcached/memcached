@@ -1474,9 +1474,12 @@ static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata, log
             for (x = 0; x < 60; x++) {
                 available_reclaims += s->histo[x];
                 if (available_reclaims > low_watermark) {
-                    if (next_crawl_wait[i] < (x * 60)) {
+                    /* histo[x] counts items expiring in the next x..x+1
+                     * minutes, so they are all gone only after x+1 minutes. */
+                    rel_time_t target = (x + 1) * 60;
+                    if (next_crawl_wait[i] < target) {
                         next_crawl_wait[i] += 60;
-                    } else if (next_crawl_wait[i] >= 60) {
+                    } else if (next_crawl_wait[i] > target) {
                         next_crawl_wait[i] -= 60;
                     }
                     break;
