@@ -268,11 +268,34 @@ sub is_running {
     return waitpid($_[0], WNOHANG) >= 0 ? 1 : 0;
 }
 
+# Start a memcached test instance and return a connected Memcached::Handle.
+# Use T_MEMD_USE_DAEMON to connect to an existing instance instead.
+#
+# Arguments:
+#   $args        - Additional memcached command-line arguments.
+#   $passed_port - Optional TCP port; undef allows automatic selection.
+#   %opts        - Optional overrides:
+#       -disable_udp => 1  Skip automatically adding a UDP listener.
+#       -disable_ssl => 1  Skip automatic TLS setup, even with SSL_TEST enabled.
+#
+# Returns:
+#   A Memcached::Handle containing the connected socket and server details.
+#   For instances started by this helper, the handle also tracks the child
+#   process and stops it when the handle is destroyed.
+#
+# Dies if the server cannot be started or a connection cannot be established.
 sub new_memcached {
-    my ($args, $passed_port) = @_;
+    my $args = shift;
+    my $passed_port = shift;
+    my %opts = (
+        -disable_udp => 0,
+        -disable_ssl => 0,
+        @_
+    );
+
     my $port = $passed_port;
     my $host = '127.0.0.1';
-    my $ssl_enabled  = enabled_tls_testing();
+    my $ssl_enabled  = $opts{-disable_ssl} ? 0 : enabled_tls_testing();
     my $unix_socket_disabled  = !supports_unix_socket();
     my $use_external = 0;
     if ($ENV{T_MEMD_EXTERNAL}) {
@@ -316,7 +339,7 @@ sub new_memcached {
             $udpport = 31000;
         }
         $args .= " -p $port";
-        if (supports_udp() && $args !~ /-U (\S+)/) {
+        if (!$opts{-disable_udp} && supports_udp() && $args !~ /-U (\S+)/) {
             $args .= " -U $udpport";
         }
         if ($ssl_enabled) {
@@ -493,11 +516,11 @@ sub sock {
 
 sub new_sock {
     my $self = shift;
+    my ($ssl_session_cache, $ssl_version) = @_;
+
     if ($self->{domainsocket}) {
         return IO::Socket::UNIX->new(Peer => $self->{domainsocket});
     } elsif (MemcachedTest::enabled_tls_testing()) {
-        my $ssl_session_cache = shift;
-        my $ssl_version = shift;
         return eval qq{ IO::Socket::SSL->new(PeerAddr => "$self->{host}:$self->{port}",
                                     SSL_verify_mode => IO::Socket::SSL::SSL_VERIFY_NONE,
                                     SSL_session_cache => \$ssl_session_cache,
