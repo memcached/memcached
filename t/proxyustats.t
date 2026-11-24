@@ -67,6 +67,15 @@ sub wait_reload {
 }
 
 my ($p_srv, $ps, $watcher);
+
+# A config error during a reload is rejected: the reload fails and the proxy
+# keeps serving with its previous configuration (it used to exit).
+sub wait_reload_failed {
+    my $w = shift;
+    like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_conf status=start/, "reload started");
+    like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_conf status=failed/, "reload failed");
+    check_version($ps);
+}
 sub restart_memcached {
     if ($p_srv) {
         $p_srv->stop();
@@ -111,8 +120,7 @@ subtest 'failed to allocate 1025 ustats' => sub {
     my $last = 1025;
     write_config('return "' . $pfx . ' ' . $first . ' ' . $last . '"');
     $p_srv->reload();
-    unlike(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_conf status=start/, "reload not started");
-    unlike(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_conf status=done/, "reload not completed");
+    wait_reload_failed($watcher);
 
     restart_memcached();
 };
@@ -123,8 +131,7 @@ subtest 'failed to allocate ustat at index 0' => sub {
     my $last = 0;
     write_config('return "' . $pfx . ' ' . $first . ' ' . $last . '"');
     $p_srv->reload();
-    unlike(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_conf status=start/, "reload not started");
-    unlike(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_conf status=done/, "reload not completed");
+    wait_reload_failed($watcher);
 
     restart_memcached();
 };
@@ -198,8 +205,7 @@ subtest 'failed to allocate ustat longer than 128 chars' => sub {
     my $last = 1;
     write_config('return "' . $pfx . ' ' . $first . ' ' . $last . '"');
     $p_srv->reload();
-    unlike(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_conf status=start/, "reload not started");
-    unlike(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_conf status=done/, "reload not completed");
+    wait_reload_failed($watcher);
 
     restart_memcached();
 };

@@ -241,6 +241,7 @@ static void proxy_config_reload(proxy_ctx_t *ctx) {
         // Failed to load. log and wait for a retry.
         STAT_INCR(ctx, config_reload_fails, 1);
         LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "failed");
+        lua_settop(L, 0); // drop the error; crons expect an empty stack.
         return;
     }
 
@@ -269,6 +270,7 @@ static void proxy_config_reload(proxy_ctx_t *ctx) {
         if (ctx->worker_failed) {
             STAT_INCR(ctx, config_reload_fails, 1);
             LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "failed");
+            lua_settop(L, 0); // drop config_pools return value.
             return;
         }
     }
@@ -301,6 +303,7 @@ static void proxy_run_crons(proxy_ctx_t *ctx) {
         ctx->cron_next = INT_MAX;
     } else {
         // no crons ready.
+        lua_pop(L, 1); // drop cron table.
         return;
     }
 
@@ -491,8 +494,10 @@ static int proxy_load_files(proxy_ctx_t *ctx) {
         // now we complete the data load by calling the function.
         res = _run_pcall(L, 0, LUA_MULTRET);
         if (res != LUA_OK) {
+            // A failed reload keeps the running config; the first load fails
+            // startup via proxy_first_confload().
             fprintf(stderr, "ERROR: Failed to load data into lua config state: %s\n", lua_tostring(L, -1));
-            exit(EXIT_FAILURE);
+            return -1;
         }
 
         db = db->next;
@@ -515,18 +520,24 @@ int proxy_load_config(void *arg) {
 
     // load each of the data files in order.
     res = proxy_load_files(ctx);
+    if (res != 0) {
+        return res;
+    }
 
     // call the mcp_config_pools function to get the central backends.
     lua_getglobal(L, "mcp_config_pools");
 
     if (lua_isnil(L, -1)) {
         fprintf(stderr, "ERROR: Configuration file missing 'mcp_config_pools' function\n");
-        exit(EXIT_FAILURE);
+        return -1;
     }
     lua_pushnil(L); // no "old" config yet.
+    // Errors here are usually in the user's config file (syntax error, bad
+    // backend, unresolvable host). Previously this exited the whole process
+    // on a SIGHUP reload; now the reload fails and the old config stays.
     if (_run_pcall(L, 1, 1) != LUA_OK) {
         fprintf(stderr, "ERROR: Failed to execute mcp_config_pools: %s\n", lua_tostring(L, -1));
-        exit(EXIT_FAILURE);
+        return -1;
     }
 
     // result is our main config.
