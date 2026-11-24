@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
 use strict;
-use Test::More tests => 21;
+use Test::More tests => 23;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -95,3 +95,10 @@ ok($@, "Died with illegal 0 thread count");
     my $exit_code = run_help();
     is($exit_code, 0, "Help defaults are fine.");
 };
+
+{
+    my $exe = get_memcached_exe();
+    my $output = `"$exe" -I "" 2>&1`;
+    is($? >> 8, 1, "exited with error on empty -I argument");
+    like($output, qr/Item max size cannot be empty/, "emits specific empty-argument diagnostic");
+}
