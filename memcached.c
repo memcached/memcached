@@ -275,6 +275,9 @@ static void settings_init(void) {
 #endif
     settings.num_napi_ids = 0;
     settings.memory_file = NULL;
+#ifdef PROXY
+    settings.proxy_drain_timeout = 0;
+#endif
 #ifdef SOCK_COOKIE_ID
     settings.sock_cookie_id = 0;
 #endif
@@ -1987,6 +1990,7 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
 #ifdef PROXY
     APPEND_STAT("proxy_enabled", "%s", settings.proxy_enabled ? "yes" : "no");
     APPEND_STAT("proxy_uring_enabled", "%s", settings.proxy_uring ? "yes" : "no");
+    APPEND_STAT("proxy_drain_timeout", "%d", settings.proxy_drain_timeout);
 #endif
     APPEND_STAT("num_napi_ids", "%d", settings.num_napi_ids);
     APPEND_STAT("memory_file", "%s", settings.memory_file);
@@ -4177,6 +4181,11 @@ static void usage(void) {
             );
     printf("   - proxy_arg:           argument string (file path) to pass to proxy config\n"
             );
+    printf("   - proxy_drain_timeout: seconds to wait for in-flight proxy requests\n"
+           "                          (including background requests) on SIGTERM, SIGINT\n"
+           "                          or SIGUSR1 before exiting. 0 exits immediately.\n"
+           "                          (default: %d)\n",
+           settings.proxy_drain_timeout);
 #endif
     ssl_help();
     printf("-N, --napi_ids            number of napi ids. see doc/napi_ids.txt for more details\n");
@@ -4270,9 +4279,65 @@ static void remove_pidfile(const char *pid_file) {
 
 }
 
+// number of exit signals (SIGINT/SIGTERM/SIGUSR1) received; a second one
+// skips the proxy drain.
+static volatile sig_atomic_t exit_signals = 0;
+
 static void sig_handler(const int sig) {
     stop_main_loop = EXIT_NORMALLY;
+    exit_signals++;
 }
+
+#ifdef PROXY
+// Stop accepting connections and wait for in-flight proxy requests to
+// finish, including background requests (route_allasync children, retries)
+// that keep running after the client was answered. Without this, requests
+// queued for remote backends are lost whenever the proxy is restarted.
+static void proxy_drain(void) {
+    if (!settings.proxy_ctx || settings.proxy_drain_timeout <= 0) {
+        return;
+    }
+
+    // Close the listeners so new clients fail fast and use another proxy.
+    // Established connections keep being served while we drain.
+    for (conn *next = listen_conn; next; next = next->next) {
+        close(next->sfd);
+    }
+
+    struct thread_stats ts;
+    threadlocal_stats_aggregate(&ts);
+    int64_t active = ts.proxy_req_active;
+    if (active == 0) {
+        return;
+    }
+    fprintf(stderr, "proxy: draining %lld in-flight requests (timeout %ds)\n",
+            (long long)active, settings.proxy_drain_timeout);
+
+    struct timespec start, now;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    while (1) {
+        if (exit_signals > 1) {
+            fprintf(stderr, "proxy: exit requested again, abandoning %lld in-flight requests\n",
+                    (long long)active);
+            return;
+        }
+        usleep(50000);
+        threadlocal_stats_aggregate(&ts);
+        active = ts.proxy_req_active;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        double elapsed = (now.tv_sec - start.tv_sec) + (now.tv_nsec - start.tv_nsec) / 1e9;
+        if (active == 0) {
+            fprintf(stderr, "proxy: drained in %.1fs\n", elapsed);
+            return;
+        }
+        if (elapsed >= settings.proxy_drain_timeout) {
+            fprintf(stderr, "proxy: drain timed out after %ds, abandoning %lld in-flight requests\n",
+                    settings.proxy_drain_timeout, (long long)active);
+            return;
+        }
+    }
+}
+#endif
 
 static void sighup_handler(const int sig) {
     settings.sig_hup = true;
@@ -4280,6 +4345,7 @@ static void sighup_handler(const int sig) {
 
 static void sig_usrhandler(const int sig) {
     stop_main_loop = GRACE_STOP;
+    exit_signals++;
 }
 
 /*
@@ -4803,6 +4869,7 @@ int main (int argc, char **argv) {
         PROXY_ARG,
         PROXY_URING,
         PROXY_MEMPROFILE,
+        PROXY_DRAIN_TIMEOUT,
 #endif
 #ifdef MEMCACHED_DEBUG
         RELAXED_PRIVILEGES,
@@ -4867,6 +4934,7 @@ int main (int argc, char **argv) {
         [PROXY_ARG] = "proxy_arg",
         [PROXY_URING] = "proxy_uring",
         [PROXY_MEMPROFILE] = "proxy_memprofile",
+        [PROXY_DRAIN_TIMEOUT] = "proxy_drain_timeout",
 #endif
 #ifdef MEMCACHED_DEBUG
         [RELAXED_PRIVILEGES] = "relaxed_privileges",
@@ -5625,6 +5693,16 @@ int main (int argc, char **argv) {
             case PROXY_MEMPROFILE:
                 settings.proxy_memprofile = true;
                 break;
+            case PROXY_DRAIN_TIMEOUT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing proxy_drain_timeout argument\n");
+                    goto error;
+                }
+                if (!safe_strtol(subopts_value, &settings.proxy_drain_timeout) || settings.proxy_drain_timeout < 0) {
+                    fprintf(stderr, "could not parse argument to proxy_drain_timeout\n");
+                    goto error;
+                }
+                break;
 #endif
 #ifdef MEMCACHED_DEBUG
             case RELAXED_PRIVILEGES:
@@ -6232,6 +6310,12 @@ int main (int argc, char **argv) {
             fprintf(stderr, "Exiting on error\n");
         break;
     }
+
+#ifdef PROXY
+    if (stop_main_loop == EXIT_NORMALLY || stop_main_loop == GRACE_STOP) {
+        proxy_drain();
+    }
+#endif
 
     if (stop_main_loop == GRACE_STOP) {
         stop_threads();

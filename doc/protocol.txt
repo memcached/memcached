@@ -1539,6 +1539,9 @@ other stats command.
 | proxy_uring_enabled                                                         |
                     | bool     | If proxy is configured to use IO_URING.      |
                     |          | NOTE: uring may be used if kernel too old    |
+| proxy_drain_timeout                                                         |
+|                   | 32       | Seconds the proxy waits for in-flight        |
+|                   |          | requests on exit. 0 if disabled.             |
 | memory_file       | char     | Warm restart memory file path, if enabled    |
 | client_flags_size | 32u      | Size in bytes of client flags                |
 |-------------------+----------+----------------------------------------------|
