@@ -375,6 +375,10 @@ function mcp_config_routes(zones)
                 r:token(4, "C456")
             elseif key == "/token/removal" then
                 r:token(4, "")
+            elseif key == "/token/fetchother" then
+                -- a token that isn't the key: the value length.
+                local token = r:token(3)
+                r:flag_token("P", "P" .. token)
             else
                 local token = r:token(2)
                 r:flag_token("P", "P" .. token)
