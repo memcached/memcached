@@ -1277,10 +1277,17 @@ void mcp_resp_set_elapsed(mcp_resp_t *r) {
 // as though it is successful.
 io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, mcp_backend_t *be, mcp_resp_t *r) {
     conn *c = rctx->c;
-    io_queue_t *q = thread_io_queue_get(rctx->fgen->thread, IO_QUEUE_PROXY);
-    io_pending_proxy_t *p = do_cache_alloc(c->thread->io_cache);
+    // The owning worker thread must come from the request context, never
+    // from the client connection: sub-contexts (allasync children, retries)
+    // keep running after the client was answered, and by then the conn may
+    // be closed and its struct reused by a connection on another worker.
+    // Routing the IO through that other thread races on backend sockets/TLS
+    // state and the per-thread IO cache (use-after-free).
+    LIBEVENT_THREAD *t = rctx->fgen->thread;
+    io_queue_t *q = thread_io_queue_get(t, IO_QUEUE_PROXY);
+    io_pending_proxy_t *p = do_cache_alloc(t->io_cache);
     if (p == NULL) {
-        WSTAT_INCR(c->thread, proxy_conn_oom, 1);
+        WSTAT_INCR(t, proxy_conn_oom, 1);
         proxy_lua_error(rctx->Lc, "out of memory allocating from IO cache");
         // NOTE: the error call above jumps to an error handler, so this does
         // not actually return.
@@ -1292,7 +1299,7 @@ io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, m
     memset(p, 0, sizeof(io_pending_proxy_t));
     // set up back references.
     p->io_queue_type = IO_QUEUE_PROXY;
-    p->thread = c->thread;
+    p->thread = t;
     p->c = c;
     p->client_resp = r;
     p->flushed = false;
