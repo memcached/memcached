@@ -169,7 +169,9 @@ subtest 'reload memory leaks' => sub {
         # start tracking end memory after looping once.
         my $mem_end = get_mem();
         if ($mem_end_last) {
-            is($mem_end, $mem_end_last, "post-collect $_: $mem_end is the same");
+            # collectgarbage("count") is in KB: allow a 1 KB wobble from GC
+            # timing; a leak keeps growing and also fails the bloat check below.
+            cmp_ok(abs($mem_end - $mem_end_last), '<=', 1, "post-collect $_: $mem_end is the same (+-1KB)");
         }
         $mem_end_last = $mem_end;
     }
