@@ -1075,8 +1075,9 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
 
 #ifdef NEED_ALIGN
     /* Need to ensure *next* request is aligned. */
-    if (sizeof(logentry) + e->size % 8 != 0) {
-        e->pad = 8 - (sizeof(logentry) + e->size % 8);
+    const size_t remainder = (sizeof(logentry) + e->size) % 8;
+    if (remainder != 0) {
+        e->pad = 8 - remainder;
     }
 #endif
 
