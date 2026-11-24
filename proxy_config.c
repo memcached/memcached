@@ -241,6 +241,7 @@ static void proxy_config_reload(proxy_ctx_t *ctx) {
         // Failed to load. log and wait for a retry.
         STAT_INCR(ctx, config_reload_fails, 1);
         LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "failed");
+        lua_settop(L, 0); // drop the error; crons expect an empty stack.
         return;
     }
 
@@ -269,6 +270,7 @@ static void proxy_config_reload(proxy_ctx_t *ctx) {
         if (ctx->worker_failed) {
             STAT_INCR(ctx, config_reload_fails, 1);
             LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "failed");
+            lua_settop(L, 0); // drop config_pools return value.
             return;
         }
     }
@@ -301,6 +303,7 @@ static void proxy_run_crons(proxy_ctx_t *ctx) {
         ctx->cron_next = INT_MAX;
     } else {
         // no crons ready.
+        lua_pop(L, 1); // drop cron table.
         return;
     }
 
