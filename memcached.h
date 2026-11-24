@@ -306,6 +306,10 @@ enum store_item_type {
     NOT_STORED=0, STORED, EXISTS, NOT_FOUND, TOO_LARGE, NO_MEMORY
 };
 
+enum item_get_result_type {
+    ITEM_GET_NOT_FOUND=0, ITEM_GET_FOUND, ITEM_GET_FLUSHED, ITEM_GET_EXPIRED
+};
+
 enum delta_result_type {
     OK, NON_NUMERIC, EOM, DELTA_ITEM_NOT_FOUND, DELTA_ITEM_CAS_MISMATCH
 };
