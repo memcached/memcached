@@ -1840,7 +1840,7 @@ void server_stats(ADD_STAT add_stats, void *c) {
     APPEND_STAT("limit_maxbytes", "%llu", (unsigned long long)settings.maxbytes);
     APPEND_STAT("accepting_conns", "%u", stats_state.accepting_conns);
     APPEND_STAT("listen_disabled_num", "%llu", (unsigned long long)stats.listen_disabled_num);
-    APPEND_STAT("time_in_listen_disabled_us", "%llu", stats.time_in_listen_disabled_us);
+    APPEND_STAT("time_in_listen_disabled_us", "%llu", (unsigned long long)stats.time_in_listen_disabled_us);
     APPEND_STAT("threads", "%d", settings.num_threads);
     APPEND_STAT("conn_yields", "%llu", (unsigned long long)thread_stats.conn_yields);
     APPEND_STAT("hash_power_level", "%u", stats_state.hash_power_level);
@@ -1852,19 +1852,19 @@ void server_stats(ADD_STAT add_stats, void *c) {
             // Ensure we can't be NULL, for portability reasons.
             busy_status = "none";
         }
-        APPEND_STAT("slab_reassign_rescues", "%llu", stats.slab_reassign_rescues);
-        APPEND_STAT("slab_reassign_chunk_rescues", "%llu", stats.slab_reassign_chunk_rescues);
-        APPEND_STAT("slab_reassign_inline_reclaim", "%llu", stats.slab_reassign_inline_reclaim);
-        APPEND_STAT("slab_reassign_busy_items", "%llu", stats.slab_reassign_busy_items);
-        APPEND_STAT("slab_reassign_busy_deletes", "%llu", stats.slab_reassign_busy_deletes);
-        APPEND_STAT("slab_reassign_busy_nomem", "%llu", stats.slab_reassign_busy_nomem);
+        APPEND_STAT("slab_reassign_rescues", "%llu", (unsigned long long)stats.slab_reassign_rescues);
+        APPEND_STAT("slab_reassign_chunk_rescues", "%llu", (unsigned long long)stats.slab_reassign_chunk_rescues);
+        APPEND_STAT("slab_reassign_inline_reclaim", "%llu", (unsigned long long)stats.slab_reassign_inline_reclaim);
+        APPEND_STAT("slab_reassign_busy_items", "%llu", (unsigned long long)stats.slab_reassign_busy_items);
+        APPEND_STAT("slab_reassign_busy_deletes", "%llu", (unsigned long long)stats.slab_reassign_busy_deletes);
+        APPEND_STAT("slab_reassign_busy_nomem", "%llu", (unsigned long long)stats.slab_reassign_busy_nomem);
         APPEND_STAT("slab_reassign_last_busy_status", "%s", busy_status);
         APPEND_STAT("slab_reassign_running", "%u", stats_state.slab_reassign_running);
-        APPEND_STAT("slabs_moved", "%llu", stats.slabs_moved);
+        APPEND_STAT("slabs_moved", "%llu", (unsigned long long)stats.slabs_moved);
     }
     if (settings.lru_crawler) {
         APPEND_STAT("lru_crawler_running", "%u", stats_state.lru_crawler_running);
-        APPEND_STAT("lru_crawler_starts", "%u", stats.lru_crawler_starts);
+        APPEND_STAT("lru_crawler_starts", "%llu", (unsigned long long)stats.lru_crawler_starts);
     }
     if (settings.lru_maintainer_thread) {
         APPEND_STAT("lru_maintainer_juggles", "%llu", (unsigned long long)stats.lru_maintainer_juggles);
@@ -1990,7 +1990,7 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
 #endif
     APPEND_STAT("num_napi_ids", "%d", settings.num_napi_ids);
     APPEND_STAT("memory_file", "%s", settings.memory_file);
-    APPEND_STAT("client_flags_size", "%d", sizeof(client_flags_t));
+    APPEND_STAT("client_flags_size", "%zu", sizeof(client_flags_t));
 }
 
 static int nz_strcmp(int nzlength, const char *nz, const char *z) {

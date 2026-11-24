@@ -1051,7 +1051,7 @@ LIBEVENT_THREAD *get_worker_thread(int id);
 
 /* Stat processing functions */
 void append_stat(const char *name, ADD_STAT add_stats, conn *c,
-                 const char *fmt, ...);
+                 const char *fmt, ...) __gcc_attribute__ ((format (printf, 4, 5)));
 
 enum store_item_type store_item(item *item, int comm, LIBEVENT_THREAD *t, int *nbytes, uint64_t *cas, const uint64_t cas_in, bool cas_stale);
 

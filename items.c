@@ -964,7 +964,7 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
             }
         }
     } else {
-        APPEND_STAT("sizes_status", "disabled", "");
+        APPEND_STAT("sizes_status", "%s", "disabled");
     }
 
     add_stats(NULL, 0, NULL, 0, c);
