@@ -719,7 +719,11 @@ AC_DEFUN([AC_C_ALIGNMENT],
     [AC_LANG_PROGRAM([
 #include <stdlib.h>
 #include <inttypes.h>
+#if defined(__clang__)
+#pragma clang optimize off
+#elif defined(__GNUC__)
 #pragma GCC optimize ("O0")
+#endif
     ], [
        char *buf = malloc(32);
 
