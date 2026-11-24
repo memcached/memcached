@@ -270,6 +270,7 @@ static void settings_init(void) {
     settings.drop_privileges = false;
     settings.watch_enabled = true;
     settings.read_buf_mem_limit = 0;
+    settings.unix_sndbuf = 0;
 #ifdef MEMCACHED_DEBUG
     settings.relaxed_privileges = false;
 #endif
@@ -1953,6 +1954,7 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("watcher_logbuf_size", "%u", settings.logger_watcher_buf_size);
     APPEND_STAT("worker_logbuf_size", "%u", settings.logger_buf_size);
     APPEND_STAT("read_buf_mem_limit", "%u", settings.read_buf_mem_limit);
+    APPEND_STAT("unix_sndbuf", "%d", settings.unix_sndbuf);
     APPEND_STAT("track_sizes", "%s", item_stats_sizes_status() ? "yes" : "no");
     APPEND_STAT("inline_ascii_response", "%s", "no"); // setting is dead, cannot be yes.
 #ifdef HAVE_DROP_PRIVILEGES
@@ -3037,6 +3039,15 @@ static void drive_machine(conn *c) {
                 res = write(sfd, str, strlen(str));
                 close(sfd);
             } else {
+                // unix sockets do not auto-tune their buffers, and Linux does
+                // not inherit SO_SNDBUF from the listener.
+                if (c->transport == local_transport && settings.unix_sndbuf > 0) {
+                    if (setsockopt(sfd, SOL_SOCKET, SO_SNDBUF, &settings.unix_sndbuf,
+                                   sizeof(settings.unix_sndbuf)) != 0 && settings.verbose > 0) {
+                        perror("setsockopt(SO_SNDBUF)");
+                    }
+                }
+
                 // run accept routine if ssl is compiled + enabled
                 bool fail = false;
                 void *ssl_v = ssl_accept(c, sfd, &fail);
@@ -4103,6 +4114,11 @@ static void usage(void) {
            "                          0 means unlimited (default: %u)\n",
            settings.read_buf_mem_limit);
     verify_default("read_buf_mem_limit", settings.read_buf_mem_limit == 0);
+    printf("   - unix_sndbuf:         SO_SNDBUF in bytes for unix socket connections, which\n"
+           "                          do not auto-tune like TCP. capped by the OS.\n"
+           "                          0 means OS default (default: %d)\n",
+           settings.unix_sndbuf);
+    verify_default("unix_sndbuf", settings.unix_sndbuf == 0);
     printf("   - no_lru_maintainer:   disable new LRU system + background thread.\n"
            "   - hot_lru_pct:         pct of slab memory to reserve for hot lru.\n"
            "                          (requires lru_maintainer, default pct: %d)\n"
@@ -4786,6 +4802,7 @@ int main (int argc, char **argv) {
         DROP_PRIVILEGES,
         RESP_OBJ_MEM_LIMIT,
         READ_BUF_MEM_LIMIT,
+        UNIX_SNDBUF,
 #ifdef TLS
         SSL_CERT,
         SSL_KEY,
@@ -4850,6 +4867,7 @@ int main (int argc, char **argv) {
         [DROP_PRIVILEGES] = "drop_privileges",
         [RESP_OBJ_MEM_LIMIT] = "resp_obj_mem_limit",
         [READ_BUF_MEM_LIMIT] = "read_buf_mem_limit",
+        [UNIX_SNDBUF] = "unix_sndbuf",
 #ifdef TLS
         [SSL_CERT] = "ssl_chain_cert",
         [SSL_KEY] = "ssl_key",
@@ -5600,6 +5618,21 @@ int main (int argc, char **argv) {
                     goto error;
                 }
                 settings.read_buf_mem_limit *= 1024 * 1024; /* megabytes */
+                break;
+            case UNIX_SNDBUF:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing unix_sndbuf argument\n");
+                    goto error;
+                }
+                {
+                    int64_t sndbuf;
+                    if (!safe_strtoll(subopts_value, &sndbuf) ||
+                            sndbuf < 0 || sndbuf > INT_MAX) {
+                        fprintf(stderr, "could not parse argument to unix_sndbuf\n");
+                        goto error;
+                    }
+                    settings.unix_sndbuf = sndbuf;
+                }
                 break;
 #ifdef PROXY
             case PROXY_CONFIG:
