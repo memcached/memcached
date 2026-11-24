@@ -30,13 +30,10 @@ is($stats->{idle_kicks}, "0", "check stats 2");
 sleep(10);
 mem_stats($sock);   # Network activity, so socket code will see dead socket
 sleep(1);
-# we run SSL tests over TCP; hence IO::Socket::SSL returns
-# '' upon disconnecting with the server.
-if (enabled_tls_testing()) {
-    is($sock->connected(),'', "check disconnected");
-} else {
-    is($sock->connected(),undef, "check disconnected");
-}
+# we run SSL tests over TCP; hence IO::Socket::SSL
+# with IO::Socket::IP returns '' or IO::Socket::INET returns undef
+# upon disconnecting with the server.
+ok(length($sock->connected()) == 0, "check disconnected");
 
 $sock = $server->sock;
 $stats = mem_stats($sock);
