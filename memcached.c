@@ -1544,7 +1544,7 @@ static int _store_item_copy_data(int comm, item *old_it, item *new_it, item *add
  *
  * Returns the state of storage.
  */
-enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const uint32_t hv, int *nbytes, uint64_t *cas, uint64_t cas_in, bool cas_stale) {
+enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const uint32_t hv, int *nbytes, uint64_t *cas, uint64_t cas_in, bool cas_stale, bool cas_lww) {
     char *key = ITEM_key(it);
     item *old_it = do_item_get(key, it->nkey, hv, t, DONT_UPDATE);
     enum store_item_type stored = NOT_STORED;
@@ -1564,6 +1564,14 @@ enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const
         uint64_t old_cas = ITEM_get_cas(old_it);
         if (it_cas == 0) {
             cas_res = CAS_NONE;
+        } else if (cas_lww) {
+            if (it_cas > old_cas) {
+                cas_res = CAS_MATCH;
+            } else if (cas_stale) {
+                cas_res = CAS_STALE;
+            } else {
+                cas_res = CAS_BADVAL;
+            }
         } else if (it_cas == old_cas) {
             cas_res = CAS_MATCH;
         } else if (cas_stale && it_cas < old_cas) {
@@ -1671,11 +1679,6 @@ enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const
         }
     } else {
         /* No pre-existing item to replace or compare to. */
-        if (ITEM_get_cas(it) != 0) {
-            /* Asked for a CAS match but nothing to compare it to. */
-            cas_res = CAS_MISS;
-        }
-
         switch (comm) {
             case NREAD_ADD:
             case NREAD_SET:
@@ -1684,11 +1687,16 @@ enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const
                 do_store = true;
                 break;
             case NREAD_CAS:
-                // LRU expired
-                stored = NOT_FOUND;
-                pthread_mutex_lock(&t->stats.mutex);
-                t->stats.cas_misses++;
-                pthread_mutex_unlock(&t->stats.mutex);
+                // Item missing.
+                // In CAS LWW mode auto-vivify.
+                if (cas_lww) {
+                    do_store = true;
+                } else {
+                    stored = NOT_FOUND;
+                    pthread_mutex_lock(&t->stats.mutex);
+                    t->stats.cas_misses++;
+                    pthread_mutex_unlock(&t->stats.mutex);
+                }
                 break;
             case NREAD_REPLACE:
             case NREAD_APPEND:
