@@ -972,8 +972,9 @@ static int start_logger_thread(void) {
 }
 
 static int stop_logger_thread(void) {
-    // Guarantees that the logger thread is waiting on 'logger_stack_cond'
-    // before we signal it.
+    // The flag is cleared under logger_stack_lock, and the logger thread
+    // re-checks it under the same lock before waiting on
+    // 'logger_stack_cond', so this signal cannot be lost.
     pthread_mutex_lock(&logger_stack_lock);
     do_run_logger_thread = 0;
     pthread_cond_signal(&logger_stack_cond);
